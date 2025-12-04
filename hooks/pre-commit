@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Pre-commit hook
+# Checks code formatting and runs tests before allowing commit
+#
+# IMPORTANT: This hook will REJECT commits if tests fail.
+# To skip tests temporarily, use: SKIP_TESTS=1 git commit ...
+# To bypass the hook entirely, use: git commit --no-verify ...
+
+echo "Running pre-commit checks..."
+
+# Check code formatting (works without Z3)
+echo "Checking code formatting with cargo fmt..."
+if ! cargo fmt --check 2>&1; then
+    echo "❌ Code formatting check failed!"
+    echo "Please run 'cargo fmt' to format your code before committing."
+    exit 1
+fi
+echo "✓ Code formatting check passed"
+
+# Allow skipping tests if explicitly requested
+if [ "${SKIP_TESTS}" = "1" ]; then
+    echo "⚠ Skipping tests (SKIP_TESTS=1)"
+    echo "✅ Formatting check passed!"
+    exit 0
+fi
+
+echo "Running tests with cargo test..."
+
+# Try with nix develop if nix is available
+if command -v nix &> /dev/null; then
+    if ! nix develop --command cargo test --quiet 2>&1; then
+        echo ""
+        echo "❌ Tests failed!"
+        echo "Please fix failing tests before committing."
+        echo ""
+        echo "To skip tests: SKIP_TESTS=1 git commit ..."
+        echo "To bypass hook: git commit --no-verify ..."
+        exit 1
+    fi
+# Otherwise try direct cargo test (works if already in Nix shell or direnv)
+elif cargo test --quiet 2>&1; then
+    :  # Success, do nothing
+else
+    echo ""
+    echo "❌ Tests failed or Z3 environment not available!"
+    echo "Please ensure you're in the Nix development environment:"
+    echo "  nix develop --command cargo test"
+    echo ""
+    echo "To skip tests: SKIP_TESTS=1 git commit ..."
+    echo "To bypass hook: git commit --no-verify ..."
+    exit 1
+fi
+
+echo "✅ All pre-commit checks passed!"
+exit 0
