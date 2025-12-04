@@ -1,7 +1,6 @@
 # TextCAD Domain-Specific Language Specification
 
-**Version:** 1.0 (MVP)  
-**Date:** 2025-01-20  
+**Version:** 1.0 (MVP)
 **Status:** Draft
 
 ## Table of Contents
@@ -81,6 +80,25 @@ The language provides several fundamental types that cannot be user-defined.
 
 **f64** represents floating-point numbers for scale factors and ratios.
 
+**Real** represents mathematical real numbers with exact precision for geometric calculations and constraint solving.
+
+**Algebraic** represents algebraic numbers (roots of polynomials with integer coefficients) for exact geometric constructions involving square roots and trigonometric values.
+
+#### Type Characteristics and Performance
+
+**Length, Angle, Area** are built on the Real type, providing exact arithmetic without rounding errors. Linear operations are efficiently solved using dual simplex algorithms. However, nonlinear operations (multiplication between unknowns) are computationally expensive and may result in undecidable constraint systems.
+
+**bool** constraints are efficiently handled by Z3's boolean satisfiability algorithms with minimal performance overhead.
+
+**i32** uses exact integer arithmetic with efficient linear integer programming solvers employing cuts and branch-and-bound techniques. No automatic conversion to Real types occurs.
+
+**f64** provides machine floating-point arithmetic for approximate calculations where exact precision is unnecessary. Should be avoided for constraint variables due to rounding error accumulation.
+
+**Real** offers exact mathematical precision ideal for geometric measurements and constraints. Linear real arithmetic is efficiently solvable, but nonlinear real arithmetic can be very expensive and Z3 is not complete for such formulas.
+
+**Algebraic** enables exact representation of irrational solutions from polynomial constraints. Z3 represents these numbers precisely internally while displaying decimal approximations for readability. Suitable for geometric constructions requiring exact roots and trigonometric values.
+
+
 ### User-Defined Types
 
 Users can define custom struct types to encapsulate related geometric entities and computed properties.
@@ -89,11 +107,11 @@ Users can define custom struct types to encapsulate related geometric entities a
 struct Circle {
     center: Point,
     radius: Length,
-    
+
     fn diameter() -> Length {
         self.radius * 2.0
     }
-    
+
     fn area() -> Area {
         PI * self.radius * self.radius
     }
@@ -129,12 +147,12 @@ Variables follow lexical scoping rules. A variable declared in a block is visibl
 ```rust
 sketch scoping_example {
     let x: Length = 10mm;
-    
+
     with view1 {
         let x: Length = 20mm;  // Shadows outer x
         // Inner x is 20mm here
     }
-    
+
     // Outer x is 10mm here
 }
 ```
@@ -146,14 +164,14 @@ While variable names are scoped, the entities they refer to have global lifetime
 ```rust
 sketch entity_lifetime {
     let line: Line;
-    
+
     with view1 {
         let p1: Point = point(0mm, 0mm);
         let p2: Point = point(10mm, 10mm);
-        
+
         line = Line { start: p1, end: p2 };
     }
-    
+
     // p1 and p2 names are out of scope
     // But the entities still exist and can be accessed via line.start and line.end
     line.start.x = 5mm;  // Valid constraint
@@ -167,7 +185,7 @@ The declarative nature of the language permits forward references within a scope
 ```rust
 sketch forward_reference {
     p2.x = p1.x + 10mm;  // p1 not yet declared
-    
+
     let p1: Point = point(0mm, 0mm);
     let p2: Point = point();
 }
@@ -224,7 +242,7 @@ Functions that return entity types without the ampersand prefix create new entit
 struct Circle {
     center: Point,
     radius: Length,
-    
+
     // Creates NEW point each time called
     fn point_on_border() -> Point {
         let p: Point = point();
@@ -246,16 +264,16 @@ Functions that return reference types (prefixed with ampersand) always return th
 struct Line {
     start: Point,
     end: Point,
-    
+
     // Returns reference to existing start point
     fn get_start() -> &Point {
         &self.start
     }
 }
 
-let line: Line = Line { 
-    start: point(0mm, 0mm), 
-    end: point(10mm, 10mm) 
+let line: Line = Line {
+    start: point(0mm, 0mm),
+    end: point(10mm, 10mm)
 };
 
 let start1: &Point = line.get_start();
@@ -272,7 +290,7 @@ struct Link {
     start: Point,
     length: Length,
     angle: Angle,
-    
+
     // end is fully determined by start, length, angle
     // Returns reference to the (computed) end point
     fn end() -> &Point {
@@ -281,10 +299,10 @@ struct Link {
     }
 }
 
-let link: Link = Link { 
-    start: point(0mm, 0mm), 
-    length: 100mm, 
-    angle: 0deg 
+let link: Link = Link {
+    start: point(0mm, 0mm),
+    length: 100mm,
+    angle: 0deg
 };
 
 let end1: &Point = link.end();
@@ -337,11 +355,11 @@ struct Rectangle {
     width: Length,
     height: Length,
     rotation: Angle,
-    
+
     fn area() -> Area {
         self.width * self.height
     }
-    
+
     fn corner(index: &i32) -> Point {
         // Implementation that creates new point at corner
     }
@@ -467,7 +485,7 @@ fn distance(p1: &Point, p2: &Point) -> Length {
 struct Circle {
     center: Point,
     radius: Length,
-    
+
     fn circumference() -> Length {
         2.0 * PI * self.radius
     }
@@ -675,7 +693,7 @@ with v1 {
     // Entities defined here use v1's coordinate system
     let p: Point = point(10mm, 0mm);
     // p is 10mm "right" in v1 (45° rotated in global)
-    
+
     // Constraints defined here are interpreted in v1
     horizontal(line);  // line is horizontal in v1
 }
@@ -706,13 +724,13 @@ with v {
 Constraints defined within a view block are interpreted relative to that view's coordinate system.
 
 ```rust
-let line: Line = Line { 
-    start: point(0mm, 0mm), 
-    end: point(10mm, 10mm) 
+let line: Line = Line {
+    start: point(0mm, 0mm),
+    end: point(10mm, 10mm)
 };
 
 with view(rotation: 45deg) {
-    horizontal(line);  
+    horizontal(line);
     // line is horizontal in this rotated view
     // → line is at 45° in global coordinates
 }
@@ -797,9 +815,9 @@ Multi-line comments are enclosed between `/*` and `*/` and can span multiple lin
  * This is a multi-line comment
  * spanning several lines
  */
-let circle: Circle = Circle { 
-    center: point(0mm, 0mm), 
-    radius: 50mm 
+let circle: Circle = Circle {
+    center: point(0mm, 0mm),
+    radius: 50mm
 };
 ```
 
@@ -833,10 +851,10 @@ sketch simple_triangle {
     let p1: Point = point(0mm, 0mm);
     let p2: Point = point(30mm, 0mm);
     let p3: Point = point();
-    
+
     distance(&p1, &p3) = 40mm;
     distance(&p2, &p3) = 50mm;
-    
+
     // Solver determines p3 position to satisfy both constraints
 }
 ```
@@ -849,9 +867,9 @@ This example shows array usage, loops, and circular positioning.
 sketch regular_hexagon {
     let center: Point = point(50mm, 50mm);
     let radius: Length = 30mm;
-    
+
     let vertices: [Point; 6] = [];
-    
+
     for i in 0..6 {
         let angle: Angle = (360deg / 6.0) * i;
         vertices[i] = point(
@@ -859,7 +877,7 @@ sketch regular_hexagon {
             center.y + radius * sin(angle)
         );
     }
-    
+
     // All edges have equal length
     for i in 0..6 {
         let next: i32 = (i + 1) % 6;
@@ -877,7 +895,7 @@ struct Link {
     start: Point,
     length: Length,
     angle: Angle,
-    
+
     fn end() -> &Point {
         // Returns reference to computed end point
         &self._computed_end
@@ -890,24 +908,24 @@ sketch kinematic_chain {
         length: 100mm,
         angle: 0deg,
     };
-    
+
     let link2: Link = Link {
         start: link1.end(),
         length: 80mm,
         angle: 45deg,
     };
-    
+
     let link3: Link = Link {
         start: link2.end(),
         length: 60mm,
         angle: 90deg,
     };
-    
+
     // Constrain final position
     let final_pos: &Point = link3.end();
     final_pos.x = 150mm;
     final_pos.y = 100mm;
-    
+
     // Solver determines angles to reach target
 }
 ```
@@ -921,7 +939,7 @@ struct Gear {
     center: Point,
     pitch_radius: Length,
     tooth_count: i32,
-    
+
     fn module() -> Length {
         (self.pitch_radius * 2.0) / self.tooth_count
     }
@@ -933,19 +951,19 @@ sketch gear_pair {
         pitch_radius: 50mm,
         tooth_count: 20,
     };
-    
+
     let gear2: Gear = Gear {
         center: point(),
         tooth_count: 12,
     };
-    
+
     // Gears must touch
-    distance(&gear1.center, &gear2.center) = 
+    distance(&gear1.center, &gear2.center) =
         gear1.pitch_radius + gear2.pitch_radius;
-    
+
     // Same module (tooth size)
     gear1.module() = gear2.module();
-    
+
     // Solver determines gear2 radius and position
 }
 ```
@@ -960,7 +978,7 @@ struct Rectangle {
     width: Length,
     height: Length,
     rotation: Angle,
-    
+
     fn area() -> Area {
         self.width * self.height
     }
@@ -971,20 +989,20 @@ sketch rotated_rectangle {
         center: point(0mm, 0mm),
         rotation: 45deg,
     };
-    
+
     // Define constraints in rotated view
     let rect_view: View = view(
         origin: rect.center,
         rotation: rect.rotation
     );
-    
+
     with rect_view {
         // In this view, rectangle appears axis-aligned
         let corner: Point = point(50mm, 30mm);
         // This point is at (50mm, 30mm) in rect_view
         // Which is rotated 45° in global coordinates
     }
-    
+
     rect.area() = 6000mm²;
 }
 ```
@@ -996,7 +1014,7 @@ This example shows functional operations for complex calculations.
 ```rust
 struct Polygon {
     vertices: [Point; 6],
-    
+
     fn perimeter() -> Length {
         [0..6]
             .map(|i| distance(
@@ -1018,10 +1036,10 @@ sketch polygon_design {
             point(),
         ],
     };
-    
+
     // Constraint on total perimeter
     poly.perimeter() = 100mm;
-    
+
     // Regular polygon: all edges equal
     let edge_length: Length = 100mm / 6.0;
     for i in 0..6 {
