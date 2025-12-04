@@ -84,7 +84,7 @@ pub fn tokenize(
             Err(_) => {
                 // Try to determine what kind of error this is
                 let text = lexer.slice();
-                let error = if text.chars().any(|c| !c.is_ascii()) {
+                let error = if !text.is_ascii() {
                     LexError::InvalidChar(text.chars().next().unwrap_or('\0'))
                 } else {
                     LexError::InvalidToken
