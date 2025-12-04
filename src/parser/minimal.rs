@@ -29,15 +29,32 @@ pub fn minimal_parser()
 
     let struct_def = just(ProcessedTokenKind::Struct)
         .ignore_then(ident())
-        .then(field_def().repeated().delimited_by(
-            just(ProcessedTokenKind::LBrace),
-            just(ProcessedTokenKind::RBrace),
-        ))
-        .map_with_span(|(name, fields), span| {
+        .then(
+            choice((
+                field_def().map(StructItem::Field),
+                function_def().map(StructItem::Method),
+            ))
+            .repeated()
+            .delimited_by(
+                just(ProcessedTokenKind::LBrace),
+                just(ProcessedTokenKind::RBrace),
+            )
+        )
+        .map_with_span(|(name, items), span| {
+            let mut fields = Vec::new();
+            let mut methods = Vec::new();
+            
+            for item in items {
+                match item {
+                    StructItem::Field(field) => fields.push(field),
+                    StructItem::Method(method) => methods.push(method),
+                }
+            }
+            
             TopLevelItem::Struct(StructDef {
                 name,
                 fields,
-                methods: Vec::new(), // No methods in minimal parser
+                methods,
                 span: range_to_span(span),
             })
         });
@@ -70,70 +87,146 @@ enum TopLevelItem {
     Struct(StructDef),
 }
 
+#[derive(Debug, Clone)]
+enum StructItem {
+    Field(FieldDef),
+    Method(FunctionDef),
+}
+
 fn field_def() -> impl Parser<TokenStream, FieldDef, Error = Simple<ProcessedTokenKind>> + Clone {
     ident()
         .then_ignore(just(ProcessedTokenKind::Colon))
-        .then(ident()) // Type as identifier
+        .then(type_ref_parser()) // Use proper type parser
         .then_ignore(just(ProcessedTokenKind::Comma).or_not())
-        .map_with_span(|(name, type_name), span| FieldDef {
+        .map_with_span(|(name, ty), span| FieldDef {
             name,
-            ty: TypeRef {
-                name: type_name,
-                is_reference: false,
-                array_size: None,
-                span: range_to_span(span.clone()),
-            },
+            ty,
+            span: range_to_span(span),
+        })
+}
+
+fn function_def() -> impl Parser<TokenStream, FunctionDef, Error = Simple<ProcessedTokenKind>> + Clone {
+    just(ProcessedTokenKind::Fn)
+        .ignore_then(ident())
+        .then(
+            param_def()
+                .separated_by(just(ProcessedTokenKind::Comma))
+                .delimited_by(
+                    just(ProcessedTokenKind::LParen),
+                    just(ProcessedTokenKind::RParen)
+                )
+        )
+        .then(
+            just(ProcessedTokenKind::Arrow)
+                .ignore_then(type_ref_parser())
+                .or_not()
+        )
+        .then(
+            stmt_parser()
+                .repeated()
+                .delimited_by(
+                    just(ProcessedTokenKind::LBrace),
+                    just(ProcessedTokenKind::RBrace)
+                )
+        )
+        .map_with_span(|(((name, params), return_type), body), span| FunctionDef {
+            name,
+            params,
+            return_type,
+            body,
+            span: range_to_span(span),
+        })
+}
+
+fn param_def() -> impl Parser<TokenStream, ParamDef, Error = Simple<ProcessedTokenKind>> + Clone {
+    ident()
+        .then_ignore(just(ProcessedTokenKind::Colon))
+        .then(type_ref_parser())
+        .map_with_span(|(name, ty), span| ParamDef {
+            name,
+            ty,
             span: range_to_span(span),
         })
 }
 
 fn stmt_parser() -> impl Parser<TokenStream, Stmt, Error = Simple<ProcessedTokenKind>> + Clone {
-    choice((let_stmt_parser(), assign_stmt_parser(), expr_stmt_parser())).labelled("statement")
+    recursive(|stmt| {
+        let let_stmt = just(ProcessedTokenKind::Let)
+            .ignore_then(ident())
+            .then_ignore(just(ProcessedTokenKind::Colon))
+            .then(type_ref_parser())
+            .then(
+                just(ProcessedTokenKind::Assign)
+                    .ignore_then(expr_parser())
+                    .or_not(),
+            )
+            .then_ignore(just(ProcessedTokenKind::Semicolon))
+            .map_with_span(|((name, ty), init), span| Stmt::Let {
+                name,
+                ty: Some(ty),
+                init,
+                span: range_to_span(span),
+            });
+
+        let for_stmt = just(ProcessedTokenKind::For)
+            .ignore_then(ident())
+            .then_ignore(just(ProcessedTokenKind::In))
+            .then(expr_parser())
+            .then(
+                stmt.clone()
+                    .repeated()
+                    .delimited_by(
+                        just(ProcessedTokenKind::LBrace),
+                        just(ProcessedTokenKind::RBrace)
+                    )
+            )
+            .map_with_span(|((var, range), body), span| Stmt::For {
+                var,
+                range,
+                body,
+                span: range_to_span(span),
+            });
+
+        let with_stmt = just(ProcessedTokenKind::With)
+            .ignore_then(expr_parser())
+            .then(
+                stmt.clone()
+                    .repeated()
+                    .delimited_by(
+                        just(ProcessedTokenKind::LBrace),
+                        just(ProcessedTokenKind::RBrace)
+                    )
+            )
+            .map_with_span(|(view, body), span| Stmt::With {
+                view,
+                body,
+                span: range_to_span(span),
+            });
+
+        let assign_stmt = expr_parser()
+            .then_ignore(just(ProcessedTokenKind::Assign))
+            .then(expr_parser())
+            .then_ignore(just(ProcessedTokenKind::Semicolon))
+            .map_with_span(|(target, value), span| Stmt::Assign {
+                target,
+                value,
+                span: range_to_span(span),
+            });
+
+        let expr_stmt = expr_parser()
+            .then_ignore(just(ProcessedTokenKind::Semicolon))
+            .map(Stmt::Expr);
+
+        choice((
+            let_stmt,
+            for_stmt,
+            with_stmt,
+            assign_stmt,
+            expr_stmt,
+        )).labelled("statement")
+    })
 }
 
-fn let_stmt_parser() -> impl Parser<TokenStream, Stmt, Error = Simple<ProcessedTokenKind>> + Clone {
-    just(ProcessedTokenKind::Let)
-        .ignore_then(ident())
-        .then_ignore(just(ProcessedTokenKind::Colon))
-        .then(ident()) // Just parse type as identifier for now
-        .then(
-            just(ProcessedTokenKind::Assign)
-                .ignore_then(expr_parser())
-                .or_not(),
-        )
-        .then_ignore(just(ProcessedTokenKind::Semicolon))
-        .map_with_span(|((name, type_name), init), span| Stmt::Let {
-            name,
-            ty: Some(TypeRef {
-                name: type_name,
-                is_reference: false,
-                array_size: None,
-                span: range_to_span(span.clone()),
-            }),
-            init,
-            span: range_to_span(span),
-        })
-}
-
-fn assign_stmt_parser() -> impl Parser<TokenStream, Stmt, Error = Simple<ProcessedTokenKind>> + Clone
-{
-    expr_parser()
-        .then_ignore(just(ProcessedTokenKind::Assign))
-        .then(expr_parser())
-        .then_ignore(just(ProcessedTokenKind::Semicolon))
-        .map_with_span(|(target, value), span| Stmt::Assign {
-            target,
-            value,
-            span: range_to_span(span),
-        })
-}
-
-fn expr_stmt_parser() -> impl Parser<TokenStream, Stmt, Error = Simple<ProcessedTokenKind>> + Clone
-{
-    expr_parser()
-        .then_ignore(just(ProcessedTokenKind::Semicolon))
-        .map(Stmt::Expr)
-}
 
 fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedTokenKind>> + Clone {
     recursive(|expr| {
@@ -212,8 +305,34 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
             parenthesized,
         ));
 
+        // Struct literal
+        let struct_literal = ident()
+            .then(
+                ident()
+                    .then_ignore(just(ProcessedTokenKind::Colon))
+                    .then(expr.clone())
+                    .separated_by(just(ProcessedTokenKind::Comma))
+                    .delimited_by(
+                        just(ProcessedTokenKind::LBrace),
+                        just(ProcessedTokenKind::RBrace)
+                    )
+            )
+            .map_with_span(|(type_name, fields), span| {
+                Expr::StructLiteral {
+                    ty: TypeRef {
+                        name: type_name,
+                        is_reference: false,
+                        array_size: None,
+                        span: range_to_span(span.clone()),
+                    },
+                    fields,
+                    span: range_to_span(span),
+                }
+            });
+
         // Complex literals that can be primary expressions  
         let complex_literals = choice((
+            struct_literal,
             array_literal,
             range_expr,
         ));
@@ -446,6 +565,45 @@ enum PostfixOp {
     ArrayIndex(Expr),
 }
 
+
+fn type_ref_parser() -> impl Parser<TokenStream, TypeRef, Error = Simple<ProcessedTokenKind>> + Clone {
+    recursive(|type_ref| {
+        let basic_type = ident()
+            .map_with_span(|name, span| TypeRef {
+                name,
+                is_reference: false,
+                array_size: None,
+                span: range_to_span(span),
+            });
+
+        // Reference type: &Type
+        let reference_type = just(ProcessedTokenKind::Ampersand)
+            .ignore_then(type_ref.clone())
+            .map_with_span(|mut inner: TypeRef, span| {
+                inner.is_reference = true;
+                inner.span = range_to_span(span);
+                inner
+            });
+
+        // Array type: [Type; size]
+        let array_type = just(ProcessedTokenKind::LBracket)
+            .ignore_then(type_ref.clone())
+            .then_ignore(just(ProcessedTokenKind::Semicolon))
+            .then(expr_parser()) // Array size expression
+            .then_ignore(just(ProcessedTokenKind::RBracket))
+            .map_with_span(|(mut inner, size): (TypeRef, _), span| {
+                inner.array_size = Some(Box::new(size));
+                inner.span = range_to_span(span);
+                inner
+            });
+
+        choice((
+            array_type,
+            reference_type,
+            basic_type,
+        ))
+    })
+}
 
 fn ident() -> impl Parser<TokenStream, IdentId, Error = Simple<ProcessedTokenKind>> + Clone {
     select! { ProcessedTokenKind::Ident(id) => id }
