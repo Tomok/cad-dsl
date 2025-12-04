@@ -39,17 +39,21 @@ pub struct Symbol {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SymbolKind {
-    Variable { type_ref: ResolvedTypeRef },
-    Function { 
-        params: Vec<ResolvedTypeRef>, 
+    Variable {
+        type_ref: ResolvedTypeRef,
+    },
+    Function {
+        params: Vec<ResolvedTypeRef>,
         return_type: Option<ResolvedTypeRef>,
         function_id: FunctionId,
     },
-    Struct { 
+    Struct {
         fields: Vec<FieldDef>,
         struct_id: StructId,
     },
-    Parameter { type_ref: ResolvedTypeRef },
+    Parameter {
+        type_ref: ResolvedTypeRef,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

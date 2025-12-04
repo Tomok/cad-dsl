@@ -9,5 +9,5 @@ pub use ast::*;
 pub use error::*;
 pub use ident::*;
 pub use lexer::{ProcessedTokenKind, Token, tokenize};
-pub use parser::{parse, ParseError};
+pub use parser::{ParseError, parse};
 pub use span::*;

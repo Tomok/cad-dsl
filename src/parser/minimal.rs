@@ -3,6 +3,7 @@ use crate::ast::unresolved::*;
 use crate::ident::IdentId;
 use crate::span::Span;
 use chumsky::prelude::*;
+use chumsky::recursive::Recursive;
 use std::ops::Range;
 
 pub type TokenStream = ProcessedTokenKind;
@@ -38,19 +39,19 @@ pub fn minimal_parser()
             .delimited_by(
                 just(ProcessedTokenKind::LBrace),
                 just(ProcessedTokenKind::RBrace),
-            )
+            ),
         )
         .map_with_span(|(name, items), span| {
             let mut fields = Vec::new();
             let mut methods = Vec::new();
-            
+
             for item in items {
                 match item {
                     StructItem::Field(field) => fields.push(field),
                     StructItem::Method(method) => methods.push(method),
                 }
             }
-            
+
             TopLevelItem::Struct(StructDef {
                 name,
                 fields,
@@ -105,7 +106,8 @@ fn field_def() -> impl Parser<TokenStream, FieldDef, Error = Simple<ProcessedTok
         })
 }
 
-fn function_def() -> impl Parser<TokenStream, FunctionDef, Error = Simple<ProcessedTokenKind>> + Clone {
+fn function_def()
+-> impl Parser<TokenStream, FunctionDef, Error = Simple<ProcessedTokenKind>> + Clone {
     just(ProcessedTokenKind::Fn)
         .ignore_then(ident())
         .then(
@@ -113,22 +115,18 @@ fn function_def() -> impl Parser<TokenStream, FunctionDef, Error = Simple<Proces
                 .separated_by(just(ProcessedTokenKind::Comma))
                 .delimited_by(
                     just(ProcessedTokenKind::LParen),
-                    just(ProcessedTokenKind::RParen)
-                )
+                    just(ProcessedTokenKind::RParen),
+                ),
         )
         .then(
             just(ProcessedTokenKind::Arrow)
                 .ignore_then(type_ref_parser())
-                .or_not()
+                .or_not(),
         )
-        .then(
-            stmt_parser()
-                .repeated()
-                .delimited_by(
-                    just(ProcessedTokenKind::LBrace),
-                    just(ProcessedTokenKind::RBrace)
-                )
-        )
+        .then(stmt_parser().repeated().delimited_by(
+            just(ProcessedTokenKind::LBrace),
+            just(ProcessedTokenKind::RBrace),
+        ))
         .map_with_span(|(((name, params), return_type), body), span| FunctionDef {
             name,
             params,
@@ -150,14 +148,17 @@ fn param_def() -> impl Parser<TokenStream, ParamDef, Error = Simple<ProcessedTok
 }
 
 fn stmt_parser() -> impl Parser<TokenStream, Stmt, Error = Simple<ProcessedTokenKind>> + Clone {
-    recursive(|stmt| {
+    let mut stmt = Recursive::declare();
+    let expr = expr_parser();
+
+    {
         let let_stmt = just(ProcessedTokenKind::Let)
             .ignore_then(ident())
             .then_ignore(just(ProcessedTokenKind::Colon))
             .then(type_ref_parser())
             .then(
                 just(ProcessedTokenKind::Assign)
-                    .ignore_then(expr_parser())
+                    .ignore_then(expr.clone())
                     .or_not(),
             )
             .then_ignore(just(ProcessedTokenKind::Semicolon))
@@ -171,15 +172,11 @@ fn stmt_parser() -> impl Parser<TokenStream, Stmt, Error = Simple<ProcessedToken
         let for_stmt = just(ProcessedTokenKind::For)
             .ignore_then(ident())
             .then_ignore(just(ProcessedTokenKind::In))
-            .then(expr_parser())
-            .then(
-                stmt.clone()
-                    .repeated()
-                    .delimited_by(
-                        just(ProcessedTokenKind::LBrace),
-                        just(ProcessedTokenKind::RBrace)
-                    )
-            )
+            .then(expr.clone())
+            .then(stmt.clone().repeated().delimited_by(
+                just(ProcessedTokenKind::LBrace),
+                just(ProcessedTokenKind::RBrace),
+            ))
             .map_with_span(|((var, range), body), span| Stmt::For {
                 var,
                 range,
@@ -188,24 +185,21 @@ fn stmt_parser() -> impl Parser<TokenStream, Stmt, Error = Simple<ProcessedToken
             });
 
         let with_stmt = just(ProcessedTokenKind::With)
-            .ignore_then(expr_parser())
-            .then(
-                stmt.clone()
-                    .repeated()
-                    .delimited_by(
-                        just(ProcessedTokenKind::LBrace),
-                        just(ProcessedTokenKind::RBrace)
-                    )
-            )
+            .ignore_then(expr.clone())
+            .then(stmt.clone().repeated().delimited_by(
+                just(ProcessedTokenKind::LBrace),
+                just(ProcessedTokenKind::RBrace),
+            ))
             .map_with_span(|(view, body), span| Stmt::With {
                 view,
                 body,
                 span: range_to_span(span),
             });
 
-        let assign_stmt = expr_parser()
+        let assign_stmt = expr
+            .clone()
             .then_ignore(just(ProcessedTokenKind::Assign))
-            .then(expr_parser())
+            .then(expr.clone())
             .then_ignore(just(ProcessedTokenKind::Semicolon))
             .map_with_span(|(target, value), span| Stmt::Assign {
                 target,
@@ -213,23 +207,22 @@ fn stmt_parser() -> impl Parser<TokenStream, Stmt, Error = Simple<ProcessedToken
                 span: range_to_span(span),
             });
 
-        let expr_stmt = expr_parser()
+        let expr_stmt = expr
+            .clone()
             .then_ignore(just(ProcessedTokenKind::Semicolon))
             .map(Stmt::Expr);
 
-        choice((
-            let_stmt,
-            for_stmt,
-            with_stmt,
-            assign_stmt,
-            expr_stmt,
-        )).labelled("statement")
-    })
+        stmt.define(
+            choice((let_stmt, for_stmt, with_stmt, assign_stmt, expr_stmt)).labelled("statement"),
+        );
+    }
+    stmt
 }
 
-
 fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedTokenKind>> + Clone {
-    recursive(|expr| {
+    let mut expr = Recursive::declare();
+
+    {
         let literal = choice((
             select! { ProcessedTokenKind::IntLiteral(n) => LiteralKind::Int(n) },
             select! { ProcessedTokenKind::FloatLiteral(f) => LiteralKind::Float(f) },
@@ -267,29 +260,27 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
         });
 
         // Array literal
-        let array_literal = expr.clone()
+        let array_literal = expr
+            .clone()
             .separated_by(just(ProcessedTokenKind::Comma))
             .delimited_by(
                 just(ProcessedTokenKind::LBracket),
-                just(ProcessedTokenKind::RBracket)
+                just(ProcessedTokenKind::RBracket),
             )
-            .map_with_span(|elements, span| {
-                Expr::ArrayLiteral {
-                    elements,
-                    span: range_to_span(span),
-                }
+            .map_with_span(|elements, span| Expr::ArrayLiteral {
+                elements,
+                span: range_to_span(span),
             });
 
         // Range expression (e.g., 0..5)
-        let range_expr = expr.clone()
+        let range_expr = expr
+            .clone()
             .then_ignore(just(ProcessedTokenKind::DotDot))
             .then(expr.clone())
-            .map_with_span(|(start, end), span| {
-                Expr::Range {
-                    start: Box::new(start),
-                    end: Box::new(end),
-                    span: range_to_span(span),
-                }
+            .map_with_span(|(start, end), span| Expr::Range {
+                start: Box::new(start),
+                end: Box::new(end),
+                span: range_to_span(span),
             });
 
         let parenthesized = expr.clone().delimited_by(
@@ -297,13 +288,8 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
             just(ProcessedTokenKind::RParen),
         );
 
-
         // Base atoms
-        let atom = choice((
-            literal,
-            ident_expr,
-            parenthesized,
-        ));
+        let atom = choice((literal, ident_expr, parenthesized));
 
         // Struct literal
         let struct_literal = ident()
@@ -314,34 +300,25 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
                     .separated_by(just(ProcessedTokenKind::Comma))
                     .delimited_by(
                         just(ProcessedTokenKind::LBrace),
-                        just(ProcessedTokenKind::RBrace)
-                    )
+                        just(ProcessedTokenKind::RBrace),
+                    ),
             )
-            .map_with_span(|(type_name, fields), span| {
-                Expr::StructLiteral {
-                    ty: TypeRef {
-                        name: type_name,
-                        is_reference: false,
-                        array_size: None,
-                        span: range_to_span(span.clone()),
-                    },
-                    fields,
-                    span: range_to_span(span),
-                }
+            .map_with_span(|(type_name, fields), span| Expr::StructLiteral {
+                ty: TypeRef {
+                    name: type_name,
+                    is_reference: false,
+                    array_size: None,
+                    span: range_to_span(span.clone()),
+                },
+                fields,
+                span: range_to_span(span),
             });
 
-        // Complex literals that can be primary expressions  
-        let complex_literals = choice((
-            struct_literal,
-            array_literal,
-            range_expr,
-        ));
+        // Complex literals that can be primary expressions
+        let complex_literals = choice((struct_literal, array_literal, range_expr));
 
         // Primary expressions (atoms and complex literals)
-        let primary = choice((
-            atom,
-            complex_literals,
-        ));
+        let primary = choice((atom, complex_literals));
 
         // Prefix operators (unary, reference, dereference)
         let prefix = choice((
@@ -368,7 +345,7 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
                     expr: Box::new(expr),
                     span: range_to_span(span),
                 }),
-            // Dereference  
+            // Dereference
             just(ProcessedTokenKind::Star)
                 .ignore_then(expr.clone())
                 .map_with_span(|expr, span| Expr::Dereference {
@@ -380,7 +357,8 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
         ));
 
         // Postfix operators: function calls, field access, array indexing
-        let postfix = prefix.clone()
+        let postfix = prefix
+            .clone()
             .then(
                 choice((
                     // Function call
@@ -388,7 +366,7 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
                         .separated_by(just(ProcessedTokenKind::Comma))
                         .delimited_by(
                             just(ProcessedTokenKind::LParen),
-                            just(ProcessedTokenKind::RParen)
+                            just(ProcessedTokenKind::RParen),
                         )
                         .map(PostfixOp::Call),
                     // Field access
@@ -399,10 +377,11 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
                     expr.clone()
                         .delimited_by(
                             just(ProcessedTokenKind::LBracket),
-                            just(ProcessedTokenKind::RBracket)
+                            just(ProcessedTokenKind::RBracket),
                         )
                         .map(PostfixOp::ArrayIndex),
-                )).repeated()
+                ))
+                .repeated(),
             )
             .map(|(base, ops)| {
                 ops.into_iter().fold(base, |acc, op| {
@@ -429,8 +408,13 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
 
         // Binary operators with precedence
         // Exponentiation (highest precedence, right-associative)
-        let exp = postfix.clone()
-            .then(just(ProcessedTokenKind::Caret).ignore_then(postfix.clone()).repeated())
+        let exp = postfix
+            .clone()
+            .then(
+                just(ProcessedTokenKind::Caret)
+                    .ignore_then(postfix.clone())
+                    .repeated(),
+            )
             .map(|(left, rights)| {
                 rights.into_iter().fold(left, |left, right| {
                     let span = Span::new(left.span().start, right.span().end);
@@ -444,7 +428,8 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
             });
 
         // Multiplicative operators
-        let factor = exp.clone()
+        let factor = exp
+            .clone()
             .then(
                 choice((
                     just(ProcessedTokenKind::Star).to(BinOp::Mul),
@@ -452,7 +437,7 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
                     just(ProcessedTokenKind::Percent).to(BinOp::Mod),
                 ))
                 .then(exp.clone())
-                .repeated()
+                .repeated(),
             )
             .map(|(left, ops)| {
                 ops.into_iter().fold(left, |left, (op, right)| {
@@ -467,14 +452,15 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
             });
 
         // Additive operators
-        let term = factor.clone()
+        let term = factor
+            .clone()
             .then(
                 choice((
                     just(ProcessedTokenKind::Plus).to(BinOp::Add),
                     just(ProcessedTokenKind::Minus).to(BinOp::Sub),
                 ))
                 .then(factor.clone())
-                .repeated()
+                .repeated(),
             )
             .map(|(left, ops)| {
                 ops.into_iter().fold(left, |left, (op, right)| {
@@ -489,7 +475,8 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
             });
 
         // Comparison operators
-        let comparison = term.clone()
+        let comparison = term
+            .clone()
             .then(
                 choice((
                     just(ProcessedTokenKind::Eq).to(BinOp::Eq),
@@ -500,7 +487,7 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
                     just(ProcessedTokenKind::GtEq).to(BinOp::GtEq),
                 ))
                 .then(term.clone())
-                .repeated()
+                .repeated(),
             )
             .map(|(left, ops)| {
                 ops.into_iter().fold(left, |left, (op, right)| {
@@ -515,12 +502,13 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
             });
 
         // Logical AND
-        let and_expr = comparison.clone()
+        let and_expr = comparison
+            .clone()
             .then(
                 just(ProcessedTokenKind::And)
                     .to(BinOp::And)
                     .then(comparison.clone())
-                    .repeated()
+                    .repeated(),
             )
             .map(|(left, ops)| {
                 ops.into_iter().fold(left, |left, (op, right)| {
@@ -535,12 +523,13 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
             });
 
         // Logical OR (lowest precedence)
-        let or_expr = and_expr.clone()
+        let or_expr = and_expr
+            .clone()
             .then(
                 just(ProcessedTokenKind::Or)
                     .to(BinOp::Or)
                     .then(and_expr.clone())
-                    .repeated()
+                    .repeated(),
             )
             .map(|(left, ops)| {
                 ops.into_iter().fold(left, |left, (op, right)| {
@@ -554,8 +543,9 @@ fn expr_parser() -> impl Parser<TokenStream, Expr, Error = Simple<ProcessedToken
                 })
             });
 
-        or_expr
-    })
+        expr.define(or_expr);
+    }
+    expr
 }
 
 #[derive(Debug, Clone)]
@@ -565,16 +555,16 @@ enum PostfixOp {
     ArrayIndex(Expr),
 }
 
-
-fn type_ref_parser() -> impl Parser<TokenStream, TypeRef, Error = Simple<ProcessedTokenKind>> + Clone {
-    recursive(|type_ref| {
-        let basic_type = ident()
-            .map_with_span(|name, span| TypeRef {
-                name,
-                is_reference: false,
-                array_size: None,
-                span: range_to_span(span),
-            });
+fn type_ref_parser() -> impl Parser<TokenStream, TypeRef, Error = Simple<ProcessedTokenKind>> + Clone
+{
+    let mut type_ref = Recursive::declare();
+    {
+        let basic_type = ident().map_with_span(|name, span| TypeRef {
+            name,
+            is_reference: false,
+            array_size: None,
+            span: range_to_span(span),
+        });
 
         // Reference type: &Type
         let reference_type = just(ProcessedTokenKind::Ampersand)
@@ -597,12 +587,9 @@ fn type_ref_parser() -> impl Parser<TokenStream, TypeRef, Error = Simple<Process
                 inner
             });
 
-        choice((
-            array_type,
-            reference_type,
-            basic_type,
-        ))
-    })
+        type_ref.define(choice((array_type, reference_type, basic_type)));
+    }
+    type_ref
 }
 
 fn ident() -> impl Parser<TokenStream, IdentId, Error = Simple<ProcessedTokenKind>> + Clone {

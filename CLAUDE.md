@@ -101,3 +101,5 @@ Key language features as specified in `docs/TEXTCAD_LANGUAGE_SPEC.md`:
 - Views and coordinate systems
 - Unit-aware numeric literals
 - Functional operations (map, reduce)
+- before commiting, make sure to format the code and fix any errors and warnings from cargo and clippy
+- Make sure to use chumskys Recursive type when handling potentially recursive components of the AST.

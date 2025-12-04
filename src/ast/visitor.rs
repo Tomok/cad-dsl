@@ -4,7 +4,7 @@ pub trait Visitor<R: Default = ()> {
     fn visit_ast(&mut self, ast: &UnresolvedAst) -> R {
         self.walk_ast(ast)
     }
-    
+
     fn walk_ast(&mut self, ast: &UnresolvedAst) -> R {
         for sketch in &ast.sketches {
             self.visit_sketch(sketch);
@@ -17,30 +17,30 @@ pub trait Visitor<R: Default = ()> {
         }
         R::default()
     }
-    
+
     fn visit_import(&mut self, import: &ImportDef) -> R {
         self.walk_import(import)
     }
-    
+
     fn walk_import(&mut self, _import: &ImportDef) -> R {
         R::default()
     }
-    
+
     fn visit_sketch(&mut self, sketch: &SketchDef) -> R {
         self.walk_sketch(sketch)
     }
-    
+
     fn walk_sketch(&mut self, sketch: &SketchDef) -> R {
         for stmt in &sketch.body {
             self.visit_stmt(stmt);
         }
         R::default()
     }
-    
+
     fn visit_struct_def(&mut self, struct_def: &StructDef) -> R {
         self.walk_struct_def(struct_def)
     }
-    
+
     fn walk_struct_def(&mut self, struct_def: &StructDef) -> R {
         for field in &struct_def.fields {
             self.visit_field_def(field);
@@ -50,20 +50,20 @@ pub trait Visitor<R: Default = ()> {
         }
         R::default()
     }
-    
+
     fn visit_field_def(&mut self, field: &FieldDef) -> R {
         self.walk_field_def(field)
     }
-    
+
     fn walk_field_def(&mut self, field: &FieldDef) -> R {
         self.visit_type_ref(&field.ty);
         R::default()
     }
-    
+
     fn visit_function_def(&mut self, func: &FunctionDef) -> R {
         self.walk_function_def(func)
     }
-    
+
     fn walk_function_def(&mut self, func: &FunctionDef) -> R {
         for param in &func.params {
             self.visit_param_def(param);
@@ -76,20 +76,20 @@ pub trait Visitor<R: Default = ()> {
         }
         R::default()
     }
-    
+
     fn visit_param_def(&mut self, param: &ParamDef) -> R {
         self.walk_param_def(param)
     }
-    
+
     fn walk_param_def(&mut self, param: &ParamDef) -> R {
         self.visit_type_ref(&param.ty);
         R::default()
     }
-    
+
     fn visit_stmt(&mut self, stmt: &Stmt) -> R {
         self.walk_stmt(stmt)
     }
-    
+
     fn walk_stmt(&mut self, stmt: &Stmt) -> R {
         match stmt {
             Stmt::Let { ty, init, .. } => {
@@ -122,11 +122,11 @@ pub trait Visitor<R: Default = ()> {
         }
         R::default()
     }
-    
+
     fn visit_expr(&mut self, expr: &Expr) -> R {
         self.walk_expr(expr)
     }
-    
+
     fn walk_expr(&mut self, expr: &Expr) -> R {
         match expr {
             Expr::Literal { .. } => {}
@@ -175,11 +175,11 @@ pub trait Visitor<R: Default = ()> {
         }
         R::default()
     }
-    
+
     fn visit_type_ref(&mut self, type_ref: &TypeRef) -> R {
         self.walk_type_ref(type_ref)
     }
-    
+
     fn walk_type_ref(&mut self, type_ref: &TypeRef) -> R {
         if let Some(array_size) = &type_ref.array_size {
             self.visit_expr(array_size);
@@ -187,4 +187,3 @@ pub trait Visitor<R: Default = ()> {
         R::default()
     }
 }
-

@@ -1,5 +1,5 @@
 use crate::ast::resolved::*;
-use crate::ast::unresolved::{BinOp, UnaryOp, LiteralKind};
+use crate::ast::unresolved::{BinOp, LiteralKind, UnaryOp};
 use crate::ident::IdentId;
 use crate::span::Span;
 use std::collections::HashMap;
@@ -133,21 +133,21 @@ pub enum Type {
     F64,
     Real,
     Algebraic,
-    
+
     // Compound
-    Array { 
-        element_type: Box<Type>, 
-        size: usize 
+    Array {
+        element_type: Box<Type>,
+        size: usize,
     },
-    Struct { 
-        struct_id: StructId 
+    Struct {
+        struct_id: StructId,
     },
-    Function { 
-        params: Vec<Type>, 
-        return_type: Box<Type> 
+    Function {
+        params: Vec<Type>,
+        return_type: Box<Type>,
     },
     View,
-    
+
     // Special
     Reference(Box<Type>),
     Unknown,
@@ -168,13 +168,8 @@ pub struct TypeInfo {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeKind {
     Primitive,
-    Struct {
-        fields: Vec<(String, Type)>,
-    },
-    Array {
-        element_type: Type,
-        size: usize,
-    },
+    Struct { fields: Vec<(String, Type)> },
+    Array { element_type: Type, size: usize },
 }
 
 impl TypedStmt {
@@ -191,10 +186,22 @@ impl TypedStmt {
 
 impl Type {
     pub fn is_entity_type(&self) -> bool {
-        matches!(self, Type::Point | Type::Length | Type::Angle | Type::Area | Type::Struct { .. })
+        matches!(
+            self,
+            Type::Point | Type::Length | Type::Angle | Type::Area | Type::Struct { .. }
+        )
     }
-    
+
     pub fn is_numeric(&self) -> bool {
-        matches!(self, Type::Length | Type::Angle | Type::Area | Type::I32 | Type::F64 | Type::Real | Type::Algebraic)
+        matches!(
+            self,
+            Type::Length
+                | Type::Angle
+                | Type::Area
+                | Type::I32
+                | Type::F64
+                | Type::Real
+                | Type::Algebraic
+        )
     }
 }

@@ -10,29 +10,18 @@ pub enum ParseError {
         found: String,
         span: Span,
     },
-    
+
     #[error("Missing {token}")]
-    MissingToken {
-        token: String,
-        span: Span,
-    },
-    
+    MissingToken { token: String, span: Span },
+
     #[error("Invalid expression")]
-    InvalidExpression {
-        span: Span,
-    },
-    
+    InvalidExpression { span: Span },
+
     #[error("Unterminated delimiter")]
-    UnterminatedDelimiter {
-        delimiter: String,
-        span: Span,
-    },
-    
+    UnterminatedDelimiter { delimiter: String, span: Span },
+
     #[error("Invalid syntax")]
-    InvalidSyntax {
-        message: String,
-        span: Span,
-    },
+    InvalidSyntax { message: String, span: Span },
 }
 
 impl ParseError {
@@ -45,15 +34,19 @@ impl ParseError {
             ParseError::InvalidSyntax { span, .. } => *span,
         }
     }
-    
-    pub fn unexpected_token(expected: impl Into<String>, found: ProcessedTokenKind, span: Span) -> Self {
+
+    pub fn unexpected_token(
+        expected: impl Into<String>,
+        found: ProcessedTokenKind,
+        span: Span,
+    ) -> Self {
         ParseError::UnexpectedToken {
             expected: expected.into(),
             found: found.to_string(),
             span,
         }
     }
-    
+
     pub fn missing_token(token: impl Into<String>, span: Span) -> Self {
         ParseError::MissingToken {
             token: token.into(),

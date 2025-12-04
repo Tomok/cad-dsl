@@ -1,4 +1,4 @@
-use cad_dsl::{IdentArena, tokenize, parse};
+use cad_dsl::{IdentArena, parse, tokenize};
 
 fn main() {
     let source = r#"
@@ -43,17 +43,19 @@ fn main() {
                     } else {
                         println!("Parsing successful!");
                     }
-                    
+
                     println!("AST:");
                     println!("  Imports: {}", ast.imports.len());
                     println!("  Structs: {}", ast.structs.len());
                     println!("  Sketches: {}", ast.sketches.len());
-                    
+
                     for (i, sketch) in ast.sketches.iter().enumerate() {
-                        println!("  Sketch {}: {} with {} statements", 
-                                i, 
-                                idents.resolve(sketch.name), 
-                                sketch.body.len());
+                        println!(
+                            "  Sketch {}: {} with {} statements",
+                            i,
+                            idents.resolve(sketch.name),
+                            sketch.body.len()
+                        );
                     }
                 }
                 (None, errors) => {
