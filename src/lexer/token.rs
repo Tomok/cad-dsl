@@ -300,6 +300,25 @@ impl TokenKind {
     }
 }
 
+impl Eq for ProcessedTokenKind {}
+
+impl std::hash::Hash for ProcessedTokenKind {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            ProcessedTokenKind::Ident(id) => id.hash(state),
+            ProcessedTokenKind::IntLiteral(n) => n.hash(state),
+            ProcessedTokenKind::FloatLiteral(f) => f.to_bits().hash(state),
+            ProcessedTokenKind::Millimeter(f) => f.to_bits().hash(state),
+            ProcessedTokenKind::Centimeter(f) => f.to_bits().hash(state),
+            ProcessedTokenKind::Meter(f) => f.to_bits().hash(state),
+            ProcessedTokenKind::Degree(f) => f.to_bits().hash(state),
+            ProcessedTokenKind::Radian(f) => f.to_bits().hash(state),
+            _ => {}
+        }
+    }
+}
+
 impl std::fmt::Display for ProcessedTokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

@@ -1,4 +1,4 @@
-use cad_dsl::{IdentArena, tokenize};
+use cad_dsl::{IdentArena, tokenize, parse};
 
 fn main() {
     let source = r#"
@@ -14,6 +14,7 @@ fn main() {
 
     let mut idents = IdentArena::new();
 
+    println!("=== Lexing ===");
     match tokenize(source, &mut idents) {
         Ok(tokens) => {
             println!("Tokenization successful! Found {} tokens:", tokens.len());
@@ -28,6 +29,38 @@ fn main() {
                     );
                 } else {
                     println!("  {}: {} at {:?}", i, token.kind, token.span);
+                }
+            }
+
+            println!("\n=== Parsing ===");
+            match parse(tokens, &idents) {
+                (Some(ast), errors) => {
+                    if !errors.is_empty() {
+                        println!("Parsing completed with {} warnings:", errors.len());
+                        for error in &errors {
+                            println!("  Warning: {}", error);
+                        }
+                    } else {
+                        println!("Parsing successful!");
+                    }
+                    
+                    println!("AST:");
+                    println!("  Imports: {}", ast.imports.len());
+                    println!("  Structs: {}", ast.structs.len());
+                    println!("  Sketches: {}", ast.sketches.len());
+                    
+                    for (i, sketch) in ast.sketches.iter().enumerate() {
+                        println!("  Sketch {}: {} with {} statements", 
+                                i, 
+                                idents.resolve(sketch.name), 
+                                sketch.body.len());
+                    }
+                }
+                (None, errors) => {
+                    println!("Parsing failed with {} errors:", errors.len());
+                    for error in &errors {
+                        println!("  Error: {}", error);
+                    }
                 }
             }
         }
