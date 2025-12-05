@@ -336,7 +336,7 @@ pub fn unified_expr_parser()
                     Some(right) => {
                         // For OR chains, we need to create a new LogicalAndExpr that contains
                         // a LogicalOrExpr::LogicalOr, since OR has lower precedence than AND
-                        let or_expr = LogicalOrExpr::LogicalOr {
+                        LogicalOrExpr::LogicalOr {
                             left: Box::new(left),
                             right: Box::new(match right {
                                 LogicalOrExpr::LogicalAnd(and) => and,
@@ -348,8 +348,7 @@ pub fn unified_expr_parser()
                                 }
                             }),
                             span: range_to_span(span),
-                        };
-                        or_expr
+                        }
                     }
                     None => left.into(),
                 })

@@ -43,10 +43,9 @@ fn convert_simple_error(error: Simple<crate::ProcessedTokenKind>) -> ParseError 
             if expected_tokens
                 .iter()
                 .any(|e| **e == Some(ProcessedTokenKind::Semicolon))
+                && found != "Semicolon"
             {
-                if found != "Semicolon" {
-                    return ParseError::MissingSemicolon { span };
-                }
+                return ParseError::MissingSemicolon { span };
             }
 
             // Left-associativity chain pattern - detect when we have operators that could form chains
@@ -95,7 +94,7 @@ fn convert_simple_error(error: Simple<crate::ProcessedTokenKind>) -> ParseError 
                 }
             }
 
-            let expected = if expected_tokens.len() == 0 {
+            let expected = if expected_tokens.is_empty() {
                 "something else".to_string()
             } else {
                 expected_tokens
