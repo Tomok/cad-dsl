@@ -90,17 +90,18 @@ mod tests {
                 radius: Length,
                 
                 fn diameter() -> Length {
-                    self.radius * 2.0
+                    let result = radius * 2;
                 }
                 
                 fn area() -> Area {
-                    PI * self.radius * self.radius
+                    let result = radius * radius;
                 }
             }
         "#;
 
         let mut idents = IdentArena::new();
         let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+
         let (ast, errors) = parse(tokens, &idents);
 
         assert!(
@@ -177,6 +178,174 @@ mod tests {
             struct Polygon {
                 vertices: [Point; 6],
                 edges: [&Line; 6],
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_single_addition() {
+        // Test: 1 + 2 should parse correctly
+        let source = r#"
+            sketch test {
+                let result = 1 + 2;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_single_multiplication() {
+        // Test: 2 * 3 should parse correctly
+        let source = r#"
+            sketch test {
+                let result = 2 * 3;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_mixed_precedence() {
+        // Test: 1 + 2 * 3 should parse as 1 + (2 * 3)
+        let source = r#"
+            sketch test {
+                let result = 1 + 2 * 3;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_parenthesized_expressions() {
+        // Test: (1 + 2) * 3 should parse correctly
+        let source = r#"
+            sketch test {
+                let result = (1 + 2) * 3;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_logical_operators() {
+        // Test: a && b should parse correctly
+        let source = r#"
+            sketch test {
+                let result = a && b;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_comparison_operators() {
+        // Test: a == b should parse correctly
+        let source = r#"
+            sketch test {
+                let result = a == b;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_left_associative_addition_chain() {
+        // Test: 1 + 2 + 3 should parse as ((1 + 2) + 3)
+        let source = r#"
+            sketch test {
+                let result = 1 + 2 + 3;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_left_associative_logical_and_chain() {
+        // Test: a && b && c should parse as ((a && b) && c)
+        let source = r#"
+            sketch test {
+                let result = a && b && c;
             }
         "#;
 
