@@ -18,6 +18,7 @@ pub struct ImportDef {
 pub struct SketchDef {
     pub name: IdentId,
     pub body: Vec<Stmt>,
+    pub functions: Vec<FunctionDef>,
     pub span: Span,
 }
 

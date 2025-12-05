@@ -737,4 +737,73 @@ mod tests {
         );
         assert!(ast.is_some(), "AST should be parsed successfully");
     }
+
+    #[test]
+    fn test_reference_expressions() {
+        // Test reference expressions (&variable)
+        let source = r#"
+            sketch test {
+                let point1: Point = point(10mm, 20mm);
+                let ref1 = &point1;
+                let ref2 = &(point1);
+                let complex_ref = &point1.x;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Reference expression parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+
+        // Verify the AST contains reference expressions
+        let ast = ast.unwrap();
+        assert_eq!(ast.sketches.len(), 1);
+        let sketch = &ast.sketches[0];
+        assert_eq!(sketch.body.len(), 4); // 4 let statements
+    }
+
+    #[test]
+    fn test_function_definitions_in_sketch() {
+        // Test function definitions inside sketches (not just structs)
+        let source = r#"
+            sketch test {
+                fn helper_function(x: Length) -> Length {
+                    return x * 2;
+                }
+                
+                let point1: Point = point(10mm, 20mm);
+                
+                fn another_function(p: Point) -> Point {
+                    let result = point(p.x + 5mm, p.y + 5mm);
+                    return result;
+                }
+                
+                let result = helper_function(30mm);
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Function definitions in sketch should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+
+        // Verify the AST contains function definitions in sketch
+        let ast = ast.unwrap();
+        assert_eq!(ast.sketches.len(), 1);
+        let sketch = &ast.sketches[0];
+        assert_eq!(sketch.body.len(), 2); // 2 let statements  
+        assert_eq!(sketch.functions.len(), 2); // 2 function definitions
+    }
 }

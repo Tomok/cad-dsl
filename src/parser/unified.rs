@@ -163,7 +163,14 @@ pub fn unified_expr_parser()
                     span: range_to_span(span),
                 });
 
-            choice((negation, not, postfix.map(UnaryExpr::Primary)))
+            let reference = just(ProcessedTokenKind::Ampersand)
+                .ignore_then(unary.clone())
+                .map_with_span(|expr, span| UnaryExpr::Reference {
+                    expr: Box::new(expr),
+                    span: range_to_span(span),
+                });
+
+            choice((negation, not, reference, postfix.map(UnaryExpr::Primary)))
         });
 
         // Power expressions (right-associative)

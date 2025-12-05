@@ -18,6 +18,12 @@ enum StructMember {
     Method(FunctionDef),
 }
 
+#[derive(Debug, Clone)]
+enum SketchItem {
+    Statement(Stmt),
+    Function(FunctionDef),
+}
+
 pub fn recursive_parser()
 -> impl Parser<TokenStream, UnresolvedAst, Error = Simple<ProcessedTokenKind>> + Clone {
     let ident = select! { ProcessedTokenKind::Ident(id) => id };
@@ -188,7 +194,7 @@ pub fn recursive_parser()
 
     // Struct member (field or method) - try function first since it has a clear keyword
     let struct_member = choice((
-        function_def.map(StructMember::Method),
+        function_def.clone().map(StructMember::Method),
         field_def.map(StructMember::Field),
     ));
 
@@ -218,17 +224,37 @@ pub fn recursive_parser()
             }
         });
 
-    // Simple sketch parser
+    // Sketch parser with support for statements and functions
     let sketch = just(ProcessedTokenKind::Sketch)
         .ignore_then(ident)
-        .then(stmt.repeated().delimited_by(
-            just(ProcessedTokenKind::LBrace),
-            just(ProcessedTokenKind::RBrace),
-        ))
-        .map_with_span(|(name, body), span| SketchDef {
-            name,
-            body,
-            span: range_to_span(span),
+        .then(
+            choice((
+                stmt.map(SketchItem::Statement),
+                function_def.map(SketchItem::Function),
+            ))
+            .repeated()
+            .delimited_by(
+                just(ProcessedTokenKind::LBrace),
+                just(ProcessedTokenKind::RBrace),
+            ),
+        )
+        .map_with_span(|(name, items), span| {
+            let mut body = Vec::new();
+            let mut functions = Vec::new();
+            
+            for item in items {
+                match item {
+                    SketchItem::Statement(s) => body.push(s),
+                    SketchItem::Function(f) => functions.push(f),
+                }
+            }
+            
+            SketchDef {
+                name,
+                body,
+                functions,
+                span: range_to_span(span),
+            }
         });
 
     // Import statement parser
