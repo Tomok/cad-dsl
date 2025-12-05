@@ -76,6 +76,10 @@ pub enum Stmt {
         body: Vec<Stmt>,
         span: Span,
     },
+    Return {
+        value: Option<Expr>,
+        span: Span,
+    },
     Expr(Expr),
 }
 
@@ -282,6 +286,7 @@ impl Stmt {
             Stmt::Assign { span, .. } => *span,
             Stmt::For { span, .. } => *span,
             Stmt::With { span, .. } => *span,
+            Stmt::Return { span, .. } => *span,
             Stmt::Expr(expr) => expr.span(),
         }
     }

@@ -116,6 +116,11 @@ pub trait Visitor<R: Default = ()> {
                     self.visit_stmt(stmt);
                 }
             }
+            Stmt::Return { value, .. } => {
+                if let Some(expr) = value {
+                    self.visit_expr(expr);
+                }
+            }
             Stmt::Expr(expr) => {
                 self.visit_expr(expr);
             }

@@ -119,6 +119,14 @@ pub fn recursive_parser()
                     value,
                     span: range_to_span(span),
                 }),
+            // Return statement: return [expr]?;
+            just(ProcessedTokenKind::Return)
+                .ignore_then(expr.clone().or_not())
+                .then_ignore(just(ProcessedTokenKind::Semicolon))
+                .map_with_span(|value, span| Stmt::Return {
+                    value,
+                    span: range_to_span(span),
+                }),
             // Expression statement
             expr.clone()
                 .then_ignore(just(ProcessedTokenKind::Semicolon))
