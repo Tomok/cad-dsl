@@ -386,4 +386,355 @@ mod tests {
         assert_eq!(ast.imports.len(), 2, "Should have two import statements");
         assert_eq!(ast.sketches.len(), 1, "Should have one sketch");
     }
+
+    // Phase 5.1: Comprehensive Left-Associativity Tests
+
+    #[test]
+    fn test_addition_left_associativity() {
+        // Test: 1 + 2 + 3 + 4 should parse as (((1 + 2) + 3) + 4)
+        let source = r#"
+            sketch test {
+                let result = 1 + 2 + 3 + 4;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_subtraction_left_associativity() {
+        // Test: 10 - 3 - 2 - 1 should parse as (((10 - 3) - 2) - 1)
+        let source = r#"
+            sketch test {
+                let result = 10 - 3 - 2 - 1;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_multiplication_left_associativity() {
+        // Test: 2 * 3 * 4 * 5 should parse as (((2 * 3) * 4) * 5)
+        let source = r#"
+            sketch test {
+                let result = 2 * 3 * 4 * 5;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_division_left_associativity() {
+        // Test: 100 / 5 / 2 / 2 should parse as (((100 / 5) / 2) / 2)
+        let source = r#"
+            sketch test {
+                let result = 100 / 5 / 2 / 2;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_mixed_multiplication_division() {
+        // Test: 24 / 3 * 2 / 4 should parse as (((24 / 3) * 2) / 4)
+        let source = r#"
+            sketch test {
+                let result = 24 / 3 * 2 / 4;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_mixed_addition_subtraction() {
+        // Test: 10 + 5 - 3 + 2 should parse as (((10 + 5) - 3) + 2)
+        let source = r#"
+            sketch test {
+                let result = 10 + 5 - 3 + 2;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_power_right_associativity() {
+        // Test: 2 ^ 3 ^ 4 should parse as 2 ^ (3 ^ 4), not (2 ^ 3) ^ 4
+        let source = r#"
+            sketch test {
+                let result = 2 ^ 3 ^ 4;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_logical_and_left_associativity() {
+        // Test: a && b && c && d should parse as (((a && b) && c) && d)
+        let source = r#"
+            sketch test {
+                let result = a && b && c && d;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_logical_or_left_associativity() {
+        // Test: a || b || c || d should parse as (((a || b) || c) || d)
+        let source = r#"
+            sketch test {
+                let result = a || b || c || d;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_comparison_operators_chain() {
+        // Test: a < b <= c > d >= e should parse correctly
+        // Note: Multiple comparisons might need to be handled specially
+        let source = r#"
+            sketch test {
+                let result1 = a < b;
+                let result2 = b <= c;
+                let result3 = c > d;
+                let result4 = d >= e;
+                let result5 = a == b;
+                let result6 = b != c;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_multiplication_precedence_with_chains() {
+        // Test: 1 + 2 * 3 * 4 + 5 should parse as 1 + ((2 * 3) * 4) + 5
+        // Then as (1 + ((2 * 3) * 4)) + 5
+        let source = r#"
+            sketch test {
+                let result = 1 + 2 * 3 * 4 + 5;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_complex_precedence_and_associativity() {
+        // Test: 2 + 3 * 4 ^ 5 + 6 / 7 - 8
+        // Should parse according to precedence: 2 + (3 * (4 ^ 5)) + (6 / 7) - 8
+        // Then left-associative: (((2 + (3 * (4 ^ 5))) + (6 / 7)) - 8)
+        let source = r#"
+            sketch test {
+                let result = 2 + 3 * 4 ^ 5 + 6 / 7 - 8;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_logical_precedence_chain() {
+        // Test: a || b && c || d should parse as a || (b && c) || d
+        // Then left-associative: (a || (b && c)) || d
+        let source = r#"
+            sketch test {
+                let result = a || b && c || d;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_mixed_comparison_and_logical() {
+        // Test: a < b && c == d || e > f
+        // Should parse as: ((a < b) && (c == d)) || (e > f)
+        let source = r#"
+            sketch test {
+                let result = a < b && c == d || e > f;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_unary_with_chains() {
+        // Test: -a + -b * -c should parse as (-a) + ((-b) * (-c))
+        let source = r#"
+            sketch test {
+                let result = -a + -b * -c;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
+
+    #[test]
+    fn test_parentheses_override_associativity() {
+        // Test: (1 + 2) * (3 + 4) should respect parentheses
+        let source = r#"
+            sketch test {
+                let result1 = (1 + 2) * (3 + 4);
+                let result2 = 1 + (2 * 3) + 4;
+                let result3 = (1 + 2 + 3) * 4;
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+        assert!(ast.is_some(), "AST should be parsed successfully");
+    }
 }

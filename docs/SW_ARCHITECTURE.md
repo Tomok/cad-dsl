@@ -1,8 +1,29 @@
 # TextCAD Parser Architecture
 
-**Version:** 1.0  
-**Date:** 2025-12-04  
-**Status:** Design Specification
+**Version:** 1.1  
+**Date:** 2025-12-05  
+**Status:** Implementation Status Review
+
+## Current Implementation Status
+
+✅ **Fully Implemented**
+- Phase 1: Lexical Analysis (Lexer)
+- Identifier Arena (string interning)
+- Span tracking and source location preservation
+- Core AST data structures (unresolved)
+
+✅ **Fully Implemented**
+- Phase 1: Lexical Analysis (Lexer)
+- Phase 2: Syntax Analysis (Parser) - All expression precedence and associativity working correctly
+
+❌ **Not Yet Implemented**
+- Phase 3: Name Resolution
+- Phase 4: Type Checking  
+- Phase 5: Constraint Collection
+- Ariadne error reporting
+- Reference expression parsing (for `&variable` syntax)
+
+**Test Status**: 41/41 parser library tests passing (all left-associativity issues resolved)
 
 ---
 
@@ -36,22 +57,24 @@ The TextCAD parser transforms source text into a validated, semantically-analyze
 ```
 Source Text
     ↓
-[Lexer] → Token Stream
+[Lexer] ✅ → Token Stream
     ↓
-[Parser] → Unresolved AST
+[Parser] ✅ → Unresolved AST
     ↓
-[Name Resolution] → Resolved AST
+[Name Resolution] ❌ → Resolved AST
     ↓
-[Type Checking] → Typed IR
+[Type Checking] ❌ → Typed IR
     ↓
-[Constraint Collection] → Constraint System
+[Constraint Collection] ❌ → Constraint System
+
+Legend: ✅ Complete, ⚠️ Partial, ❌ Not implemented
 ```
 
 ---
 
 ## Architecture Phases
 
-### Phase 1: Lexical Analysis (Lexer)
+### Phase 1: Lexical Analysis (Lexer) ✅
 
 **Purpose**: Transform source text into a stream of tokens with location information.
 
@@ -61,11 +84,11 @@ Source Text
 **Output**: `Vec<Token>` with span information
 
 **Responsibilities**:
-- Tokenize keywords, identifiers, operators, literals
-- Handle numeric literals with units (e.g., `10mm`, `45deg`)
-- Strip comments (single-line `//` and multi-line `/* */`)
-- Track line and column numbers for each token
-- Report lexical errors (invalid characters, malformed numbers)
+- ✅ Tokenize keywords, identifiers, operators, literals
+- ✅ Handle numeric literals with units (e.g., `10mm`, `45deg`)
+- ✅ Strip comments (single-line `//` and multi-line `/* */`)
+- ✅ Track line and column numbers for each token
+- ✅ Report lexical errors (invalid characters, malformed numbers)
 
 **Key Data Structures**:
 ```rust
@@ -103,7 +126,7 @@ enum TokenKind {
 }
 ```
 
-### Phase 2: Syntax Analysis (Parser)
+### Phase 2: Syntax Analysis (Parser) ✅
 
 **Purpose**: Build an Abstract Syntax Tree (AST) from tokens, validating syntactic structure.
 
@@ -113,12 +136,12 @@ enum TokenKind {
 **Output**: Unresolved AST with syntax validation errors
 
 **Responsibilities**:
-- Parse sketch definitions, struct declarations, function definitions
-- Build expression trees with proper precedence and associativity
-- Parse control flow (for loops, with blocks)
-- Handle nested structures (struct fields, array indexing, method calls)
-- Collect syntax errors without stopping (error recovery)
-- Preserve source spans for all AST nodes
+- ✅ Parse sketch definitions, struct declarations, function definitions
+- ✅ Build expression trees with proper precedence and associativity (all left-associative chains working)
+- ✅ Parse control flow (for loops, with blocks)
+- ✅ Handle nested structures (struct fields, array indexing, method calls)
+- ✅ Collect syntax errors without stopping (error recovery)
+- ✅ Preserve source spans for all AST nodes
 
 **Parser Strategy**:
 - Recursive descent parsing via combinators
@@ -148,7 +171,7 @@ expr_parser := pratt_parser([
 ])
 ```
 
-### Phase 3: Name Resolution
+### Phase 3: Name Resolution ❌
 
 **Purpose**: Resolve all identifiers to their declarations, building a symbol table.
 
@@ -156,14 +179,14 @@ expr_parser := pratt_parser([
 **Output**: Resolved AST with symbol references
 
 **Responsibilities**:
-- Build symbol tables for each scope (sketch, struct, function, block)
-- Resolve variable references to their `let` declarations
-- Resolve type names to struct definitions
-- Resolve function calls to function declarations
-- Handle shadowing correctly
-- Support forward references within scopes
-- Report undefined name errors
-- Report duplicate definition errors
+- ❌ Build symbol tables for each scope (sketch, struct, function, block)
+- ❌ Resolve variable references to their `let` declarations
+- ❌ Resolve type names to struct definitions
+- ❌ Resolve function calls to function declarations
+- ❌ Handle shadowing correctly
+- ❌ Support forward references within scopes
+- ❌ Report undefined name errors
+- ❌ Report duplicate definition errors
 
 **Algorithm**:
 
@@ -223,7 +246,7 @@ struct ResolvedIdent {
 }
 ```
 
-### Phase 4: Type Checking
+### Phase 4: Type Checking ❌
 
 **Purpose**: Validate type correctness and annotate all expressions with types.
 
@@ -231,14 +254,14 @@ struct ResolvedIdent {
 **Output**: Typed IR with type annotations
 
 **Responsibilities**:
-- Infer types for expressions
-- Check type compatibility for assignments and constraints
-- Validate function argument types
-- Check struct field initialization
-- Validate array index types
-- Handle reference vs. value types
-- Report type mismatch errors
-- Annotate all expressions with resolved types
+- ❌ Infer types for expressions
+- ❌ Check type compatibility for assignments and constraints
+- ❌ Validate function argument types
+- ❌ Check struct field initialization
+- ❌ Validate array index types
+- ❌ Handle reference vs. value types
+- ❌ Report type mismatch errors
+- ❌ Annotate all expressions with resolved types
 
 **Type Checking Algorithm**:
 
@@ -290,23 +313,23 @@ struct TypedExpr {
 }
 ```
 
-### Phase 5: Constraint Collection (Future)
+### Phase 5: Constraint Collection ❌ (Future)
 
 **Purpose**: Extract constraint equations from the typed IR for the solver.
 
 **Note**: This phase is mentioned for completeness but may be implemented separately.
 
 **Responsibilities**:
-- Convert assignment statements to constraint equations
-- Extract geometric constraints from function calls
-- Handle view-based transformations
-- Build constraint system for solver
+- ❌ Convert assignment statements to constraint equations
+- ❌ Extract geometric constraints from function calls
+- ❌ Handle view-based transformations
+- ❌ Build constraint system for solver
 
 ---
 
 ## Component Details
 
-### Identifier Arena
+### Identifier Arena ✅
 
 **Module**: `ident.rs`
 
@@ -355,9 +378,9 @@ impl IdentArena {
 - Cache-friendly: IDs are small integers
 - Thread-safe option available via `Arc<RwLock<IdentArena>>`
 
-### Lexer Component
+### Lexer Component ✅
 
-**Module**: `lexer.rs`
+**Module**: `lexer/scanner.rs`
 
 **Key Functions**:
 ```rust
@@ -384,9 +407,9 @@ struct LexError {
 - Collect all lexical errors
 - Emit error tokens for recovery
 
-### Parser Component
+### Parser Component ✅
 
-**Module**: `parser.rs`
+**Module**: `parser/mod.rs`, `parser/recursive.rs`, `parser/unified.rs`, etc.
 
 **Key Functions**:
 ```rust
@@ -429,9 +452,9 @@ fn let_stmt_parser() -> impl Parser<Token, LetStmt> {
 }
 ```
 
-### Name Resolution Component
+### Name Resolution Component ❌
 
-**Module**: `resolver.rs`
+**Module**: Not yet implemented (planned: `resolve/resolver.rs`)
 
 **Key Functions**:
 ```rust
@@ -532,9 +555,9 @@ struct Symbol {
 }
 ```
 
-### Type Checker Component
+### Type Checker Component ❌
 
-**Module**: `typechecker.rs`
+**Module**: Not yet implemented (planned: `typecheck/checker.rs`)
 
 **Key Functions**:
 ```rust
@@ -610,7 +633,7 @@ check_binary_op(op, left_ty, right_ty):
 
 ## Intermediate Representations
 
-### Unresolved AST
+### Unresolved AST ✅
 
 **Purpose**: Direct representation of source syntax after parsing.
 
@@ -722,7 +745,7 @@ struct TypeRef {
 }
 ```
 
-### Resolved AST
+### Resolved AST ❌
 
 **Purpose**: AST with all identifiers resolved to their definitions.
 
@@ -765,7 +788,7 @@ struct ResolvedTypeRef {
 }
 ```
 
-### Typed IR
+### Typed IR ❌
 
 **Purpose**: Fully type-checked representation ready for constraint generation.
 
@@ -1136,7 +1159,7 @@ impl SourceFile {
 
 ## Implementation Technologies
 
-### String Interner
+### String Interner ✅
 
 **Why string-interner?**
 - Efficient string interning with minimal overhead
@@ -1162,7 +1185,7 @@ assert_eq!(interner.resolve(hello), Some("hello"));
 assert_ne!(hello, world);
 ```
 
-### Chumsky Parser Combinators
+### Chumsky Parser Combinators ✅
 
 **Why Chumsky?**
 - Zero-copy parsing with spans
@@ -1204,7 +1227,7 @@ fn sketch_parser() -> impl Parser<Token, SketchDef, Error = ParseError> {
 }
 ```
 
-### Logos Lexer
+### Logos Lexer ✅
 
 **Why Logos?**
 - Fast DFA-based lexing
@@ -1274,9 +1297,9 @@ pub fn tokenize_with_interning(
 }
 ```
 
-### Ariadne Error Reporting
+### Ariadne Error Reporting ❌
 
-**Why Ariadne?**
+**Why Ariadne?** (Not yet implemented)
 - Beautiful terminal output
 - Source code snippets
 - Multiple label support

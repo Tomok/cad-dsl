@@ -22,6 +22,18 @@ pub enum ParseError {
 
     #[error("Invalid syntax")]
     InvalidSyntax { message: String, span: Span },
+
+    #[error("Missing semicolon after statement")]
+    MissingSemicolon { span: Span },
+
+    #[error("Left-associativity chain not yet implemented: {operation}")]
+    LeftAssociativityNotImplemented { operation: String, span: Span },
+
+    #[error("Expression chain requires parentheses for clarity")]
+    ExpressionChainAmbiguous { span: Span },
+
+    #[error("Operator precedence violation")]
+    PrecedenceViolation { span: Span },
 }
 
 impl ParseError {
@@ -32,6 +44,10 @@ impl ParseError {
             ParseError::InvalidExpression { span } => *span,
             ParseError::UnterminatedDelimiter { span, .. } => *span,
             ParseError::InvalidSyntax { span, .. } => *span,
+            ParseError::MissingSemicolon { span } => *span,
+            ParseError::LeftAssociativityNotImplemented { span, .. } => *span,
+            ParseError::ExpressionChainAmbiguous { span } => *span,
+            ParseError::PrecedenceViolation { span } => *span,
         }
     }
 

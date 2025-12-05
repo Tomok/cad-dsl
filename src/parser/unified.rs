@@ -185,7 +185,7 @@ pub fn unified_expr_parser()
                 })
         });
 
-        // Multiplication expressions (left-associative, single operation for now)
+        // Multiplication expressions (left-associative using folding)
         let multiplication = power
             .clone()
             .then(
@@ -195,27 +195,27 @@ pub fn unified_expr_parser()
                     just(ProcessedTokenKind::Percent).to(MultOp::Modulo),
                 ))
                 .then(power)
-                .or_not(),
+                .repeated(),
             )
-            .map_with_span(|(first, op_right_opt), span| match op_right_opt {
-                Some((op, right)) => match op {
-                    MultOp::Multiply => MultiplicationExpr::Multiply {
-                        left: Box::new(first.into()),
-                        right: Box::new(right),
-                        span: range_to_span(span),
-                    },
-                    MultOp::Divide => MultiplicationExpr::Divide {
-                        left: Box::new(first.into()),
-                        right: Box::new(right),
-                        span: range_to_span(span),
-                    },
-                    MultOp::Modulo => MultiplicationExpr::Modulo {
-                        left: Box::new(first.into()),
-                        right: Box::new(right),
-                        span: range_to_span(span),
-                    },
-                },
-                None => first.into(),
+            .map_with_span(|(first, ops), span: Range<usize>| {
+                ops.into_iter()
+                    .fold(first.into(), |acc, (op, right)| match op {
+                        MultOp::Multiply => MultiplicationExpr::Multiply {
+                            left: Box::new(acc),
+                            right: Box::new(right),
+                            span: range_to_span(span.clone()),
+                        },
+                        MultOp::Divide => MultiplicationExpr::Divide {
+                            left: Box::new(acc),
+                            right: Box::new(right),
+                            span: range_to_span(span.clone()),
+                        },
+                        MultOp::Modulo => MultiplicationExpr::Modulo {
+                            left: Box::new(acc),
+                            right: Box::new(right),
+                            span: range_to_span(span.clone()),
+                        },
+                    })
             });
 
         // Addition expressions (left-associative using folding)
@@ -316,22 +316,37 @@ pub fn unified_expr_parser()
                     })
             });
 
-        // Logical OR expressions
-        let logical_or = logical_and
-            .clone()
-            .then(
-                just(ProcessedTokenKind::Or)
-                    .ignore_then(logical_and)
-                    .or_not(),
-            )
-            .map_with_span(|(first, right_opt), span| match right_opt {
-                Some(right) => LogicalOrExpr::LogicalOr {
-                    left: Box::new(first),
-                    right: Box::new(right),
-                    span: range_to_span(span),
-                },
-                None => first.into(),
-            });
+        // Logical OR expressions (left-associative using recursive approach)
+        let logical_or = recursive(|logical_or_inner| {
+            logical_and
+                .clone()
+                .then(
+                    just(ProcessedTokenKind::Or)
+                        .ignore_then(logical_or_inner)
+                        .or_not(),
+                )
+                .map_with_span(|(left, right_opt), span| match right_opt {
+                    Some(right) => {
+                        // For OR chains, we need to create a new LogicalAndExpr that contains
+                        // a LogicalOrExpr::LogicalOr, since OR has lower precedence than AND
+                        let or_expr = LogicalOrExpr::LogicalOr {
+                            left: Box::new(left),
+                            right: Box::new(match right {
+                                LogicalOrExpr::LogicalAnd(and) => and,
+                                LogicalOrExpr::LogicalOr {
+                                    left: nested_left, ..
+                                } => {
+                                    // For left-associativity in chains, we want the left operand
+                                    *nested_left
+                                }
+                            }),
+                            span: range_to_span(span),
+                        };
+                        or_expr
+                    }
+                    None => left.into(),
+                })
+        });
 
         // Final expression
         logical_or.map(Expr::LogicalOr)
