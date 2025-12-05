@@ -135,7 +135,7 @@ fn test_complex_expressions_integration() {
 }
 
 #[test]
-#[ignore = "Complex test with parsing issues - needs debugging in future phase"]
+#[ignore = "Complex test with parsing issues - needs debugging and implementation in Phase 3 (Name Resolution) and Phase 4 (Type Checking)"]
 fn test_nested_structures_integration() {
     let source = r#"
         struct Point2D {
@@ -258,7 +258,7 @@ fn test_units_and_types_integration() {
 }
 
 #[test]
-#[ignore = "Complex test with parsing issues - needs debugging in future phase"]
+#[ignore = "Complex test with parsing issues - needs debugging and implementation in Phase 3 (Name Resolution) and Phase 4 (Type Checking)"]
 fn test_function_definitions_integration() {
     let source = r#"
         sketch function_examples {
@@ -327,7 +327,7 @@ fn test_phase_2_1_reference_expressions_integration() {
         errors
     );
     assert!(ast.is_some(), "AST should be parsed successfully");
-    
+
     // Verify the parsing was successful
     let ast = ast.unwrap();
     assert_eq!(ast.sketches.len(), 1);
@@ -365,7 +365,7 @@ fn test_phase_2_1_sketch_functions_integration() {
         errors
     );
     assert!(ast.is_some(), "AST should be parsed successfully");
-    
+
     // Verify the parsing was successful
     let ast = ast.unwrap();
     assert_eq!(ast.sketches.len(), 1);
