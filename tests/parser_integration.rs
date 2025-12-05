@@ -4,7 +4,7 @@
 use cad_dsl::{IdentArena, parse, tokenize};
 
 #[test]
-#[ignore = "Requires implicit return expressions in functions (Phase 3+ feature)"]
+#[ignore = "Requires implicit return expressions in functions - will be implemented in Phase 4 (Type Checking)"]
 fn test_complete_geometric_sketch() {
     let source = r#"
         import geometry;
@@ -135,7 +135,7 @@ fn test_complex_expressions_integration() {
 }
 
 #[test]
-#[ignore = "Requires reference syntax (&variable) parsing"]
+#[ignore = "Requires reference expression parsing (&variable syntax) - will be implemented in Phase 2.1 (Parser Extensions)"]
 fn test_nested_structures_integration() {
     let source = r#"
         struct Point2D {
@@ -213,7 +213,7 @@ fn test_nested_structures_integration() {
 }
 
 #[test]
-#[ignore = "Requires advanced literal and function expression parsing"]
+#[ignore = "Requires advanced literal and function expression parsing - will be implemented in Phase 4 (Type Checking)"]
 fn test_units_and_types_integration() {
     let source = r#"
         sketch units_demo {
@@ -254,7 +254,7 @@ fn test_units_and_types_integration() {
 }
 
 #[test]
-#[ignore = "Requires function definitions in sketch context and return statements"]
+#[ignore = "Requires function definitions in sketch context - will be implemented in Phase 2.1 (Parser Extensions)"]
 fn test_function_definitions_integration() {
     let source = r#"
         sketch function_examples {
@@ -300,7 +300,7 @@ fn test_function_definitions_integration() {
 }
 
 #[test]
-#[ignore = "Requires advanced function features and return statement parsing"]
+#[ignore = "Requires multiple advanced features - will be implemented across Phase 2.1 (Parser Extensions) and Phase 4 (Type Checking)"]
 fn test_real_world_cad_example() {
     let source = r#"
         import geometry;
