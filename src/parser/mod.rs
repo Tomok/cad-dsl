@@ -1,15 +1,6 @@
-pub mod addition;
-pub mod comparison;
 pub mod error;
-pub mod expression;
-pub mod logical_and;
-pub mod logical_or;
-pub mod multiplication;
-pub mod power;
-pub mod primary;
 pub mod recursive;
 pub mod tests;
-pub mod unary;
 pub mod unified;
 
 pub use error::*;
