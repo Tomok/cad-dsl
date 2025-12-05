@@ -241,14 +241,14 @@ pub fn recursive_parser()
         .map_with_span(|(name, items), span| {
             let mut body = Vec::new();
             let mut functions = Vec::new();
-            
+
             for item in items {
                 match item {
                     SketchItem::Statement(s) => body.push(s),
                     SketchItem::Function(f) => functions.push(f),
                 }
             }
-            
+
             SketchDef {
                 name,
                 body,
