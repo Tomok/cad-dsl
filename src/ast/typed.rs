@@ -1,5 +1,5 @@
 use crate::ast::resolved::*;
-use crate::ast::unresolved::{BinOp, LiteralKind, UnaryOp};
+use crate::ast::unresolved::LiteralKind;
 use crate::ident::IdentId;
 use crate::span::Span;
 use std::collections::HashMap;
@@ -63,6 +63,113 @@ pub struct TypedExpr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
+    LogicalOr(TypedLogicalOrExpr),
+}
+
+// Type aliases for clarity
+pub type TypedPowerLevel = TypedPowerExpr;
+pub type TypedMultiplicationLevel = TypedMultiplicationExpr;
+pub type TypedAdditionLevel = TypedAdditionExpr;
+pub type TypedComparisonLevel = TypedComparisonExpr;
+pub type TypedLogicalAndLevel = TypedLogicalAndExpr;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedLogicalOrExpr {
+    LogicalOr {
+        left: Box<TypedLogicalAndLevel>,
+        right: Box<TypedLogicalAndLevel>,
+    },
+    LogicalAnd(TypedLogicalAndExpr),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedLogicalAndExpr {
+    LogicalAnd {
+        left: Box<TypedComparisonLevel>,
+        right: Box<TypedComparisonLevel>,
+    },
+    Comparison(TypedComparisonExpr),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedComparisonExpr {
+    Equal {
+        left: Box<TypedAdditionLevel>,
+        right: Box<TypedAdditionLevel>,
+    },
+    NotEqual {
+        left: Box<TypedAdditionLevel>,
+        right: Box<TypedAdditionLevel>,
+    },
+    LessThan {
+        left: Box<TypedAdditionLevel>,
+        right: Box<TypedAdditionLevel>,
+    },
+    GreaterThan {
+        left: Box<TypedAdditionLevel>,
+        right: Box<TypedAdditionLevel>,
+    },
+    LessEqual {
+        left: Box<TypedAdditionLevel>,
+        right: Box<TypedAdditionLevel>,
+    },
+    GreaterEqual {
+        left: Box<TypedAdditionLevel>,
+        right: Box<TypedAdditionLevel>,
+    },
+    Addition(TypedAdditionExpr),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedAdditionExpr {
+    Add {
+        left: Box<TypedMultiplicationLevel>,
+        right: Box<TypedMultiplicationLevel>,
+    },
+    Subtract {
+        left: Box<TypedMultiplicationLevel>,
+        right: Box<TypedMultiplicationLevel>,
+    },
+    Multiplication(TypedMultiplicationExpr),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedMultiplicationExpr {
+    Multiply {
+        left: Box<TypedMultiplicationLevel>,
+        right: Box<TypedPowerLevel>,
+    },
+    Divide {
+        left: Box<TypedMultiplicationLevel>,
+        right: Box<TypedPowerLevel>,
+    },
+    Modulo {
+        left: Box<TypedMultiplicationLevel>,
+        right: Box<TypedPowerLevel>,
+    },
+    Power(TypedPowerExpr),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedPowerExpr {
+    Power {
+        left: Box<TypedUnaryExpr>,
+        right: Box<TypedPowerLevel>,
+    },
+    Unary(TypedUnaryExpr),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedUnaryExpr {
+    Negation { expr: Box<TypedUnaryExpr> },
+    Not { expr: Box<TypedUnaryExpr> },
+    Reference { expr: Box<TypedUnaryExpr> },
+    Dereference { expr: Box<TypedUnaryExpr> },
+    Primary(TypedPrimaryExpr),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedPrimaryExpr {
     Literal {
         kind: LiteralKind,
     },
@@ -70,27 +177,18 @@ pub enum ExprKind {
         name: IdentId,
         symbol_id: SymbolId,
     },
-    BinaryOp {
-        op: BinOp,
-        left: Box<TypedExpr>,
-        right: Box<TypedExpr>,
-    },
-    UnaryOp {
-        op: UnaryOp,
-        expr: Box<TypedExpr>,
-    },
     Call {
-        func: Box<TypedExpr>,
+        func: Box<TypedPrimaryExpr>,
         func_id: Option<FunctionId>,
         args: Vec<TypedExpr>,
     },
     FieldAccess {
-        base: Box<TypedExpr>,
+        base: Box<TypedPrimaryExpr>,
         field: IdentId,
         field_symbol_id: Option<SymbolId>,
     },
     ArrayIndex {
-        array: Box<TypedExpr>,
+        array: Box<TypedPrimaryExpr>,
         index: Box<TypedExpr>,
     },
     StructLiteral {
@@ -104,12 +202,7 @@ pub enum ExprKind {
         start: Box<TypedExpr>,
         end: Box<TypedExpr>,
     },
-    Reference {
-        expr: Box<TypedExpr>,
-    },
-    Dereference {
-        expr: Box<TypedExpr>,
-    },
+    Parenthesized(Box<TypedExpr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

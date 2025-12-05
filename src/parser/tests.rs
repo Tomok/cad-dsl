@@ -360,4 +360,30 @@ mod tests {
         );
         assert!(ast.is_some(), "AST should be parsed successfully");
     }
+
+    #[test]
+    fn test_import_parsing() {
+        let source = r#"
+            import geometry;
+            import utils;
+            
+            sketch MySketch {
+                let x: Point = Point(0.0, 0.0);
+            }
+        "#;
+
+        let mut idents = IdentArena::new();
+        let tokens = tokenize(source, &mut idents).expect("Tokenization should succeed");
+        let (ast, errors) = parse(tokens, &idents);
+
+        assert!(
+            errors.is_empty(),
+            "Parsing should not have errors: {:?}",
+            errors
+        );
+
+        let ast = ast.expect("AST should be parsed successfully");
+        assert_eq!(ast.imports.len(), 2, "Should have two import statements");
+        assert_eq!(ast.sketches.len(), 1, "Should have one sketch");
+    }
 }

@@ -223,8 +223,18 @@ pub fn recursive_parser()
             span: range_to_span(span),
         });
 
-    // Top level - support both sketches and structs
+    // Import statement parser
+    let import_def = just(ProcessedTokenKind::Import)
+        .ignore_then(ident) // For now, we'll use identifiers as import paths
+        .then_ignore(just(ProcessedTokenKind::Semicolon))
+        .map_with_span(|path_id, span| ImportDef {
+            path: format!("{:?}", path_id), // Convert IdentId to string representation
+            span: range_to_span(span),
+        });
+
+    // Top level - support imports, sketches and structs
     let top_level_item = choice((
+        import_def.map(TopLevelItem::Import),
         struct_def.map(TopLevelItem::Struct),
         sketch.map(TopLevelItem::Sketch),
     ));
@@ -233,18 +243,20 @@ pub fn recursive_parser()
         .repeated()
         .then_ignore(just(ProcessedTokenKind::Eof))
         .map(|items| {
+            let mut imports = Vec::new();
             let mut sketches = Vec::new();
             let mut structs = Vec::new();
 
             for item in items {
                 match item {
+                    TopLevelItem::Import(i) => imports.push(i),
                     TopLevelItem::Struct(s) => structs.push(s),
                     TopLevelItem::Sketch(s) => sketches.push(s),
                 }
             }
 
             UnresolvedAst {
-                imports: Vec::new(),
+                imports,
                 structs,
                 sketches,
             }
@@ -253,6 +265,7 @@ pub fn recursive_parser()
 
 #[derive(Debug, Clone)]
 enum TopLevelItem {
+    Import(ImportDef),
     Struct(StructDef),
     Sketch(SketchDef),
 }
