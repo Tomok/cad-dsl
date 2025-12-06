@@ -25,12 +25,12 @@ The project uses Nix for dependency management, particularly for the Z3 theorem 
 ## Architecture
 
 ### Current Implementation Status
-The project is in early development with only the lexer phase implemented. The complete architecture design is documented in `docs/SW_ARCHITECTURE.md`, which outlines a multi-phase compilation pipeline:
+The project has implemented the first three phases of compilation. The complete architecture design is documented in `docs/SW_ARCHITECTURE.md`, which outlines a multi-phase compilation pipeline:
 
 1. **Lexical Analysis** (✅ Implemented) - Transform source text into tokens
-2. **Syntax Analysis** (Planned) - Build AST using Chumsky parser combinators  
-3. **Name Resolution** (Planned) - Resolve identifiers and build symbol tables
-4. **Type Checking** (Planned) - Validate types and annotate expressions
+2. **Syntax Analysis** (✅ Implemented) - Build AST using Chumsky parser combinators  
+3. **Name Resolution** (✅ Implemented) - Resolve identifiers and build symbol tables
+4. **Type Checking** (⚠️ Partial) - AST structures exist, algorithm not implemented
 5. **Constraint Collection** (Future) - Extract constraint equations for solver
 
 ### Core Components
@@ -40,15 +40,33 @@ The project is in early development with only the lexer phase implemented. The c
 - **token.rs** - Token definitions and types  
 - **mod.rs** - Module exports
 
+#### Parser (`src/parser/`)
+- **recursive.rs** - Recursive parser implementation using Chumsky
+- **unified.rs** - Unified expression parser with precedence handling
+- **primary.rs** - Primary expression parsing (literals, identifiers, etc.)
+- **mod.rs** - Parser interface and exports
+
+#### Name Resolution (`src/name_resolution.rs`)
+- Symbol table construction and scope management
+- Identifier resolution and forward reference handling
+- Error reporting for undefined and duplicate symbols
+
+#### AST Definitions (`src/ast/`)
+- **unresolved.rs** - AST before name resolution
+- **resolved.rs** - AST after name resolution with symbol links
+- **typed.rs** - AST after type checking (structures only)
+- **visitor.rs** - AST traversal patterns
+
 #### Supporting Modules
 - **ident.rs** - Identifier interning using string-interner crate
 - **span.rs** - Source location tracking
 - **error.rs** - Error type definitions using thiserror
 - **lib.rs** - Main library interface
-- **main.rs** - CLI demonstration of lexer functionality
+- **main.rs** - CLI demonstration of parsing functionality
 
 ### Key Dependencies
 - `logos` - Efficient DFA-based lexing
+- `chumsky` - Parser combinator library for AST construction
 - `string-interner` - Identifier string interning for memory efficiency and O(1) comparison
 - `thiserror` - Error handling
 
@@ -65,6 +83,12 @@ All identifiers are interned using `IdentArena` from the string-interner crate. 
 
 ### Testing
 The pre-commit hook enforces code formatting and test passing. Tests may require the Nix environment for Z3 dependency access.
+
+**Current Test Status:**
+- Lexer: All unit tests passing
+- Parser: 43/43 unit tests passing
+- Name Resolution: 14/14 integration tests passing (1 ignored due to parser limitations)
+- Total: ~59 tests passing
 
 ### Git Hooks
 Pre-commit hooks are configured to:

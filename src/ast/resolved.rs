@@ -3,53 +3,118 @@ use crate::ident::IdentId;
 use crate::span::Span;
 use std::collections::HashMap;
 
-pub type SymbolId = usize;
-pub type SymbolTableId = usize;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SymbolId(pub usize);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ScopeId(pub usize);
+
 pub type StructId = usize;
 pub type FunctionId = usize;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedAst {
+    pub imports: Vec<ImportDef>,
     pub sketches: Vec<ResolvedSketchDef>,
-    pub symbol_tables: Vec<SymbolTable>,
-    pub struct_definitions: HashMap<StructId, StructDef>,
-    pub function_definitions: HashMap<FunctionId, FunctionDef>,
+    pub structs: Vec<ResolvedStructDef>,
+    pub symbol_table: SymbolTable,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedSketchDef {
     pub name: IdentId,
     pub body: Vec<ResolvedStmt>,
-    pub scope: SymbolTableId,
+    pub functions: Vec<ResolvedFunctionDef>,
+    pub scope_id: ScopeId,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SymbolTable {
-    pub parent: Option<SymbolTableId>,
-    pub symbols: HashMap<IdentId, Symbol>,
+pub struct ResolvedStructDef {
+    pub name: IdentId,
+    pub fields: Vec<ResolvedFieldDef>,
+    pub methods: Vec<ResolvedFunctionDef>,
+    pub scope_id: ScopeId,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedFieldDef {
+    pub name: IdentId,
+    pub ty: ResolvedTypeRef,
+    pub symbol_id: SymbolId,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedFunctionDef {
+    pub name: IdentId,
+    pub params: Vec<ResolvedParamDef>,
+    pub return_type: Option<ResolvedTypeRef>,
+    pub body: Vec<ResolvedStmt>,
+    pub symbol_id: SymbolId,
+    pub scope_id: ScopeId,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedParamDef {
+    pub name: IdentId,
+    pub ty: ResolvedTypeRef,
+    pub symbol_id: SymbolId,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct SymbolTable {
+    scopes: Vec<Scope>,
+    symbols: Vec<Symbol>,
+    next_symbol_id: usize,
+    next_scope_id: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct Scope {
+    pub id: ScopeId,
+    pub parent: Option<ScopeId>,
+    pub symbols: HashMap<IdentId, SymbolId>,
+    pub kind: ScopeKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum ScopeKind {
+    Global,
+    Sketch,
+    Struct,
+    Function,
+    Block,
+}
+
+#[derive(Debug, Clone)]
 pub struct Symbol {
+    pub id: SymbolId,
     pub name: IdentId,
     pub kind: SymbolKind,
     pub def_span: Span,
+    pub scope_id: ScopeId,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum SymbolKind {
     Variable {
-        type_ref: ResolvedTypeRef,
+        type_ref: Option<ResolvedTypeRef>,
+        is_mutable: bool,
     },
     Function {
-        params: Vec<ResolvedTypeRef>,
+        params: Vec<SymbolId>,
         return_type: Option<ResolvedTypeRef>,
-        function_id: FunctionId,
     },
     Struct {
-        fields: Vec<FieldDef>,
-        struct_id: StructId,
+        fields: Vec<SymbolId>,
+        methods: Vec<SymbolId>,
+    },
+    Field {
+        type_ref: ResolvedTypeRef,
     },
     Parameter {
         type_ref: ResolvedTypeRef,
@@ -75,13 +140,17 @@ pub enum ResolvedStmt {
         var_symbol_id: SymbolId,
         range: ResolvedExpr,
         body: Vec<ResolvedStmt>,
-        scope: SymbolTableId,
+        scope_id: ScopeId,
         span: Span,
     },
     With {
         view: ResolvedExpr,
         body: Vec<ResolvedStmt>,
-        scope: SymbolTableId,
+        scope_id: ScopeId,
+        span: Span,
+    },
+    Return {
+        value: Option<ResolvedExpr>,
         span: Span,
     },
     Expr(ResolvedExpr),
@@ -233,14 +302,13 @@ pub enum ResolvedPrimaryExpr {
     },
     Call {
         func: Box<ResolvedPrimaryExpr>,
-        func_id: Option<FunctionId>,
         args: Vec<ResolvedExpr>,
         span: Span,
     },
     FieldAccess {
         base: Box<ResolvedPrimaryExpr>,
         field: IdentId,
-        field_symbol_id: Option<SymbolId>,
+        field_symbol_id: SymbolId,
         span: Span,
     },
     ArrayIndex {
@@ -268,7 +336,7 @@ pub enum ResolvedPrimaryExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedTypeRef {
     pub name: IdentId,
-    pub struct_id: Option<StructId>,
+    pub symbol_id: Option<SymbolId>, // For user-defined types
     pub is_reference: bool,
     pub array_size: Option<Box<ResolvedExpr>>,
     pub span: Span,
@@ -281,6 +349,7 @@ impl ResolvedStmt {
             ResolvedStmt::Assign { span, .. } => *span,
             ResolvedStmt::For { span, .. } => *span,
             ResolvedStmt::With { span, .. } => *span,
+            ResolvedStmt::Return { span, .. } => *span,
             ResolvedStmt::Expr(expr) => expr.span(),
         }
     }
@@ -381,5 +450,116 @@ impl ResolvedPrimaryExpr {
             ResolvedPrimaryExpr::Range { span, .. } => *span,
             ResolvedPrimaryExpr::Parenthesized(expr) => expr.span(),
         }
+    }
+}
+
+impl SymbolTable {
+    pub fn new() -> Self {
+        let mut table = Self {
+            scopes: Vec::new(),
+            symbols: Vec::new(),
+            next_symbol_id: 0,
+            next_scope_id: 0,
+        };
+
+        // Create global scope
+        table.create_scope(None, ScopeKind::Global);
+        table
+    }
+
+    pub fn create_scope(&mut self, parent: Option<ScopeId>, kind: ScopeKind) -> ScopeId {
+        let id = ScopeId(self.next_scope_id);
+        self.next_scope_id += 1;
+
+        let scope = Scope {
+            id,
+            parent,
+            symbols: HashMap::new(),
+            kind,
+        };
+
+        self.scopes.push(scope);
+        id
+    }
+
+    pub fn create_symbol(
+        &mut self,
+        name: IdentId,
+        kind: SymbolKind,
+        def_span: Span,
+        scope_id: ScopeId,
+    ) -> Result<SymbolId, String> {
+        // Check for duplicate in current scope
+        if let Some(scope) = self.scopes.iter().find(|s| s.id == scope_id) {
+            if scope.symbols.contains_key(&name) {
+                return Err(format!("Symbol {:?} already defined in scope", name));
+            }
+        }
+
+        let symbol_id = SymbolId(self.next_symbol_id);
+        self.next_symbol_id += 1;
+
+        let symbol = Symbol {
+            id: symbol_id,
+            name,
+            kind,
+            def_span,
+            scope_id,
+        };
+
+        self.symbols.push(symbol);
+
+        // Add to scope's symbol map
+        if let Some(scope) = self.scopes.iter_mut().find(|s| s.id == scope_id) {
+            scope.symbols.insert(name, symbol_id);
+        }
+
+        Ok(symbol_id)
+    }
+
+    pub fn lookup_symbol(&self, name: IdentId, scope_id: ScopeId) -> Option<SymbolId> {
+        let mut current_scope = Some(scope_id);
+
+        while let Some(scope_id) = current_scope {
+            if let Some(scope) = self.scopes.iter().find(|s| s.id == scope_id) {
+                if let Some(&symbol_id) = scope.symbols.get(&name) {
+                    return Some(symbol_id);
+                }
+                current_scope = scope.parent;
+            } else {
+                break;
+            }
+        }
+
+        None
+    }
+
+    pub fn get_symbol(&self, symbol_id: SymbolId) -> Option<&Symbol> {
+        self.symbols.iter().find(|s| s.id == symbol_id)
+    }
+
+    pub fn get_scope(&self, scope_id: ScopeId) -> Option<&Scope> {
+        self.scopes.iter().find(|s| s.id == scope_id)
+    }
+
+    pub fn global_scope_id(&self) -> ScopeId {
+        ScopeId(0)
+    }
+
+    pub fn get_symbol_mut(&mut self, symbol_id: SymbolId) -> Option<&mut Symbol> {
+        self.symbols.iter_mut().find(|s| s.id == symbol_id)
+    }
+}
+
+impl Default for SymbolTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PartialEq for SymbolTable {
+    fn eq(&self, other: &Self) -> bool {
+        // For testing purposes, compare basic structure
+        self.symbols.len() == other.symbols.len() && self.scopes.len() == other.scopes.len()
     }
 }

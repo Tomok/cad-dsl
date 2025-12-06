@@ -17,7 +17,7 @@ pub struct TypedIr {
 pub struct TypedSketch {
     pub name: IdentId,
     pub body: Vec<TypedStmt>,
-    pub scope: SymbolTableId,
+    pub scope: ScopeId,
     pub span: Span,
 }
 
