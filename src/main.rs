@@ -1,14 +1,12 @@
-use cad_dsl::{IdentArena, parse, tokenize};
+use cad_dsl::{IdentArena, check_types, parse, resolve_names, tokenize};
 
 fn main() {
     let source = r#"
-        sketch simple_triangle {
-            let p1: Point = point(0mm, 0mm);
-            let p2: Point = point(30mm, 0mm);
-            let p3: Point = point();
-            
-            distance(&p1, &p3) = 40mm;
-            distance(&p2, &p3) = 50mm;
+        sketch type_error_example {
+            let x: Length = 10mm;
+            let y: Angle = 45deg;
+            let sum: Length = x;
+            sum = y;
         }
     "#;
 
@@ -56,6 +54,60 @@ fn main() {
                             idents.resolve(sketch.name),
                             sketch.body.len()
                         );
+                    }
+
+                    println!("\n=== Name Resolution ===");
+                    let (resolved_ast, name_errors) = resolve_names(ast, &idents);
+                    {
+                        if !name_errors.is_empty() {
+                            println!(
+                                "Name resolution completed with {} errors:",
+                                name_errors.len()
+                            );
+                            for error in &name_errors {
+                                println!("  Error: {}", error);
+                            }
+                        } else {
+                            println!("Name resolution successful!");
+                        }
+
+                        if name_errors.is_empty() {
+                            println!("\n=== Type Checking ===");
+                            let (typed_ir, type_errors) = check_types(
+                                resolved_ast.clone(),
+                                &resolved_ast.symbol_table,
+                                &idents,
+                            );
+
+                            if !type_errors.is_empty() {
+                                println!(
+                                    "Type checking completed with {} errors:",
+                                    type_errors.len()
+                                );
+                                for error in &type_errors {
+                                    println!("  Error: {} at {:?}", error.kind, error.span);
+                                }
+                            } else {
+                                println!("Type checking successful!");
+                                println!("Typed IR:");
+                                println!("  Sketches: {}", typed_ir.sketches.len());
+                                println!(
+                                    "  Type table entries: {}",
+                                    typed_ir.type_table.types.len()
+                                );
+
+                                for (i, sketch) in typed_ir.sketches.iter().enumerate() {
+                                    println!(
+                                        "  Typed Sketch {}: {} with {} statements",
+                                        i,
+                                        idents.resolve(sketch.name),
+                                        sketch.body.len()
+                                    );
+                                }
+                            }
+                        } else {
+                            println!("Skipping type checking due to name resolution errors.");
+                        }
                     }
                 }
                 (None, errors) => {

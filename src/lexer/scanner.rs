@@ -27,7 +27,6 @@ pub fn tokenize(
                     TokenKind::For => ProcessedTokenKind::For,
                     TokenKind::In => ProcessedTokenKind::In,
                     TokenKind::With => ProcessedTokenKind::With,
-                    TokenKind::View => ProcessedTokenKind::View,
                     TokenKind::If => ProcessedTokenKind::If,
                     TokenKind::Else => ProcessedTokenKind::Else,
                     TokenKind::Return => ProcessedTokenKind::Return,

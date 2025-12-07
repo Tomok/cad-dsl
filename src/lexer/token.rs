@@ -24,7 +24,6 @@ pub enum ProcessedTokenKind {
     For,
     In,
     With,
-    View,
     If,
     Else,
     Return,
@@ -114,8 +113,6 @@ pub enum TokenKind {
     In,
     #[token("with")]
     With,
-    #[token("view")]
-    View,
     #[token("if")]
     If,
     #[token("else")]
@@ -289,7 +286,6 @@ impl TokenKind {
                 | "for"
                 | "in"
                 | "with"
-                | "view"
                 | "if"
                 | "else"
                 | "return"
@@ -329,7 +325,6 @@ impl std::fmt::Display for ProcessedTokenKind {
             ProcessedTokenKind::For => write!(f, "for"),
             ProcessedTokenKind::In => write!(f, "in"),
             ProcessedTokenKind::With => write!(f, "with"),
-            ProcessedTokenKind::View => write!(f, "view"),
             ProcessedTokenKind::If => write!(f, "if"),
             ProcessedTokenKind::Else => write!(f, "else"),
             ProcessedTokenKind::Return => write!(f, "return"),

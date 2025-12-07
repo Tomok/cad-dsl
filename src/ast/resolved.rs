@@ -490,6 +490,9 @@ impl SymbolTable {
         scope_id: ScopeId,
     ) -> Result<SymbolId, String> {
         // Check for duplicate in current scope
+        // Note: Clippy suggests collapsing this if statement using `let ... && condition` syntax,
+        // but that requires unstable Rust features (RFC #53667). We use nested ifs for stable compatibility.
+        #[allow(clippy::collapsible_if)]
         if let Some(scope) = self.scopes.iter().find(|s| s.id == scope_id) {
             if scope.symbols.contains_key(&name) {
                 return Err(format!("Symbol {:?} already defined in scope", name));

@@ -91,9 +91,35 @@ pub fn unified_expr_parser()
                 span: range_to_span(span),
             });
 
+        // Struct literals (copied from primary.rs)
+        let struct_literal = ident
+            .then_ignore(just(ProcessedTokenKind::LBrace))
+            .then(
+                ident
+                    .then_ignore(just(ProcessedTokenKind::Colon))
+                    .then(expr.clone())
+                    .separated_by(just(ProcessedTokenKind::Comma))
+                    .allow_trailing(),
+            )
+            .then_ignore(just(ProcessedTokenKind::RBrace))
+            .map_with_span(|(ty_name, fields), span| {
+                let span_value = range_to_span(span);
+                PrimaryExpr::StructLiteral {
+                    ty: TypeRef {
+                        name: ty_name,
+                        is_reference: false,
+                        array_size: None,
+                        span: span_value,
+                    },
+                    fields,
+                    span: span_value,
+                }
+            });
+
         // Primary expressions
         let primary = choice((
             range_expr,
+            struct_literal,
             literal,
             parenthesized,
             array_literal,

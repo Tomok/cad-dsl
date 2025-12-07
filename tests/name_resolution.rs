@@ -438,7 +438,6 @@ fn test_array_type_resolution() {
 }
 
 #[test]
-#[ignore] // TODO: Fix with statement parsing
 fn test_with_statement_scoping() {
     let source = r#"
         sketch test {
