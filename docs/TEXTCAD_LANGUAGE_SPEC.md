@@ -1,9 +1,5 @@
 # TextCAD Domain-Specific Language Specification
 
-**Version:** 1.0 (MVP)  
-**Date:** 2025-01-20  
-**Status:** Draft
-
 ## Table of Contents
 
 1. [Introduction](#introduction)
@@ -13,15 +9,17 @@
 5. [Assignment Semantics](#assignment-semantics)
 6. [Entities vs References](#entities-vs-references)
 7. [Structs](#structs)
-8. [Arrays](#arrays)
-9. [Functions](#functions)
-10. [Control Flow](#control-flow)
-11. [Functional Operations](#functional-operations)
-12. [Views and Coordinate Systems](#views-and-coordinate-systems)
-13. [Units](#units)
-14. [Comments](#comments)
-15. [Import System](#import-system)
-16. [Complete Examples](#complete-examples)
+8. [Container Structs](#container-structs)
+9. [Transform Pattern](#transform-pattern)
+10. [With Statements](#with-statements)
+11. [Arrays](#arrays)
+12. [Functions](#functions)
+13. [Control Flow](#control-flow)
+14. [Functional Operations](#functional-operations)
+15. [Units](#units)
+16. [Comments](#comments)
+17. [Standard Library](#standard-library)
+18. [Complete Examples](#complete-examples)
 
 ---
 
@@ -31,7 +29,13 @@ TextCAD is a declarative domain-specific language for constraint-based 2D geomet
 
 ### Design Principles
 
-The language adheres to several fundamental principles that distinguish it from imperative programming languages. All statements within a scope are declarative, meaning their execution order does not affect the final result. The solver receives all entities and constraints simultaneously and determines a solution that satisfies the complete constraint system. Variables cannot be mutated after initialization; instead, assignments create constraints that the solver must satisfy. New entities are created exclusively through constructor functions called within let statements, while all other operations work with references to existing entities.
+The language adheres to several fundamental principles that distinguish it from imperative programming languages:
+
+- **Declarative**: All statements within a scope are declarative, meaning their execution order does not affect the final result
+- **Constraint-based**: The solver receives all entities and constraints simultaneously and determines a solution that satisfies the complete constraint system
+- **Immutable bindings**: Variables cannot be mutated after initialization; instead, assignments create constraints that the solver must satisfy
+- **Entity creation**: New entities are created exclusively through constructor functions called within let statements
+- **Reference semantics**: All other operations work with references to existing entities
 
 ---
 
@@ -41,19 +45,9 @@ The language adheres to several fundamental principles that distinguish it from 
 
 TextCAD operates as a constraint satisfaction system rather than an imperative program. When you write statements, you are declaring relationships and properties that must hold in the final solution, not specifying a sequence of operations to execute. The order in which you write constraints does not affect the outcome.
 
-### Sketches
-
-A sketch represents a complete geometric design. All entity definitions and constraints exist within a sketch scope.
-
-```rust
-sketch example_name {
-    // Entity definitions and constraints
-}
-```
-
 ### Entities
 
-Entities are geometric objects such as points, lines, circles, and user-defined structures. Each entity exists globally within the sketch once created, even if the name used to reference it goes out of scope.
+Entities are geometric objects such as points, lines, circles, and user-defined structures. Each entity exists globally within its scope once created, even if the name used to reference it goes out of scope.
 
 ### Constraints
 
@@ -81,6 +75,24 @@ The language provides several fundamental types that cannot be user-defined.
 
 **f64** represents floating-point numbers for scale factors and ratios.
 
+**Real** represents mathematical real numbers with exact precision for geometric calculations and constraint solving.
+
+**Algebraic** represents algebraic numbers (roots of polynomials with integer coefficients) for exact geometric constructions involving square roots and trigonometric values.
+
+#### Type Characteristics and Performance
+
+**Length, Angle, Area** are built on the Real type, providing exact arithmetic without rounding errors. Linear operations are efficiently solved using dual simplex algorithms. However, nonlinear operations (multiplication between unknowns) are computationally expensive and may result in undecidable constraint systems.
+
+**bool** constraints are efficiently handled by Z3's boolean satisfiability algorithms with minimal performance overhead.
+
+**i32** uses exact integer arithmetic with efficient linear integer programming solvers employing cuts and branch-and-bound techniques. No automatic conversion to Real types occurs.
+
+**f64** provides machine floating-point arithmetic for approximate calculations where exact precision is unnecessary. Should be avoided for constraint variables due to rounding error accumulation.
+
+**Real** offers exact mathematical precision ideal for geometric measurements and constraints. Linear real arithmetic is efficiently solvable, but nonlinear real arithmetic can be very expensive and Z3 is not complete for such formulas.
+
+**Algebraic** enables exact representation of irrational solutions from polynomial constraints. Z3 represents these numbers precisely internally while displaying decimal approximations for readability. Suitable for geometric constructions requiring exact roots and trigonometric values.
+
 ### User-Defined Types
 
 Users can define custom struct types to encapsulate related geometric entities and computed properties.
@@ -89,11 +101,11 @@ Users can define custom struct types to encapsulate related geometric entities a
 struct Circle {
     center: Point,
     radius: Length,
-    
+
     fn diameter() -> Length {
         self.radius * 2.0
     }
-    
+
     fn area() -> Area {
         PI * self.radius * self.radius
     }
@@ -122,55 +134,44 @@ let p2: Point = point();           // Unconstrained position
 let x: Length;                     // Unconstrained length
 ```
 
+### Container Field Declaration
+
+Variables can be declared as fields of container structs using dot notation:
+
+```rust
+let sketch.entities.p1: Point = point(0mm, 0mm);
+```
+
+This creates a field `p1` within the `entities` container of the `sketch` object.
+
 ### Lexical Scoping
 
 Variables follow lexical scoping rules. A variable declared in a block is visible within that block and any nested blocks, but not outside the declaring block. The language supports shadowing, where an inner scope can redeclare a variable with the same name as one in an outer scope.
 
 ```rust
-sketch scoping_example {
-    let x: Length = 10mm;
-    
-    with view1 {
-        let x: Length = 20mm;  // Shadows outer x
-        // Inner x is 20mm here
-    }
-    
-    // Outer x is 10mm here
+let x: Length = 10mm;
+
+{
+    let x: Length = 20mm;  // Shadows outer x
+    // Inner x is 20mm here
 }
+
+// Outer x is 10mm here
 ```
 
 ### Entity Lifetimes
 
-While variable names are scoped, the entities they refer to have global lifetime within the sketch. Once an entity is created, it continues to exist until the sketch completes, even if the name used to reference it goes out of scope. Entities can still be accessed through struct fields or other references.
-
-```rust
-sketch entity_lifetime {
-    let line: Line;
-    
-    with view1 {
-        let p1: Point = point(0mm, 0mm);
-        let p2: Point = point(10mm, 10mm);
-        
-        line = Line { start: p1, end: p2 };
-    }
-    
-    // p1 and p2 names are out of scope
-    // But the entities still exist and can be accessed via line.start and line.end
-    line.start.x = 5mm;  // Valid constraint
-}
-```
+While variable names are scoped, the entities they refer to have global lifetime within their container or scope. Once an entity is created, it continues to exist until the container completes, even if the name used to reference it goes out of scope. Entities can still be accessed through struct fields or other references.
 
 ### Forward References
 
 The declarative nature of the language permits forward references within a scope. You can reference a variable before it is declared, as all declarations and constraints are processed together by the solver.
 
 ```rust
-sketch forward_reference {
-    p2.x = p1.x + 10mm;  // p1 not yet declared
-    
-    let p1: Point = point(0mm, 0mm);
-    let p2: Point = point();
-}
+p2.x = p1.x + 10mm;  // p1 not yet declared
+
+let p1: Point = point(0mm, 0mm);
+let p2: Point = point();
 ```
 
 ---
@@ -224,7 +225,7 @@ Functions that return entity types without the ampersand prefix create new entit
 struct Circle {
     center: Point,
     radius: Length,
-    
+
     // Creates NEW point each time called
     fn point_on_border() -> Point {
         let p: Point = point();
@@ -246,50 +247,21 @@ Functions that return reference types (prefixed with ampersand) always return th
 struct Line {
     start: Point,
     end: Point,
-    
+
     // Returns reference to existing start point
     fn get_start() -> &Point {
         &self.start
     }
 }
 
-let line: Line = Line { 
-    start: point(0mm, 0mm), 
-    end: point(10mm, 10mm) 
+let line: Line = Line {
+    start: point(0mm, 0mm),
+    end: point(10mm, 10mm)
 };
 
 let start1: &Point = line.get_start();
 let start2: &Point = line.get_start();
 // start1 and start2 refer to the SAME entity
-```
-
-### Computed References
-
-When an entity is fully determined by other properties and always returns the same logical entity, functions should return references even though the entity might be computed.
-
-```rust
-struct Link {
-    start: Point,
-    length: Length,
-    angle: Angle,
-    
-    // end is fully determined by start, length, angle
-    // Returns reference to the (computed) end point
-    fn end() -> &Point {
-        // Implementation creates constrained end point
-        &self._computed_end
-    }
-}
-
-let link: Link = Link { 
-    start: point(0mm, 0mm), 
-    length: 100mm, 
-    angle: 0deg 
-};
-
-let end1: &Point = link.end();
-let end2: &Point = link.end();
-// end1 and end2 refer to the SAME entity
 ```
 
 ### Function Parameters
@@ -311,18 +283,6 @@ fn create_circle(center: &Point, radius: &Length) -> Circle {
 
 This design allows constraints on parameters to propagate correctly through function calls.
 
-### Automatic Temporaries
-
-When entity-creating functions are called in nested expressions, the compiler automatically generates temporary let statements to hold intermediate results.
-
-```rust
-let result: Point = transform2.apply(&transform1.apply(&p));
-
-// Compiler expands to:
-// let _temp1: Point = transform1.apply(&p);
-// let result: Point = transform2.apply(&_temp1);
-```
-
 ---
 
 ## Structs
@@ -337,11 +297,11 @@ struct Rectangle {
     width: Length,
     height: Length,
     rotation: Angle,
-    
+
     fn area() -> Area {
         self.width * self.height
     }
-    
+
     fn corner(index: &i32) -> Point {
         // Implementation that creates new point at corner
     }
@@ -407,6 +367,292 @@ let line: Line = Line {
 
 ---
 
+## Container Structs
+
+### Container Declaration
+
+A struct can contain a single container field using the `container` keyword. This field acts as a namespace for dynamically added entities during `with` statements.
+
+```rust
+struct Sketch {
+    container entities,  // Container for dynamically added entities
+    origin: Point,       // Regular field
+    scale: f64,
+}
+```
+
+A struct may have at most one container field. Regular fields and the container field exist in separate namespaces.
+
+### Container Field Access
+
+Entities within a container are accessed using standard dot notation:
+
+```rust
+let sketch: Sketch = Sketch {
+    origin: point(0mm, 0mm),
+    scale: 1.0,
+};
+
+// Add entity to container directly
+let sketch.entities.p1: Point = point(10mm, 10mm);
+
+// Access from outside
+sketch.entities.p1.x = 15mm;
+```
+
+### Container Semantics
+
+The container field provides:
+
+1. **Dynamic entity addition**: Entities can be added to the container at any point after the struct is created
+2. **Namespace isolation**: Container entities are separate from regular struct fields
+3. **Full entity access**: All entities in the container can be accessed and constrained from outside the container
+4. **Multiple additions**: Multiple `with` blocks or direct declarations can add entities to the same container
+
+```rust
+let sketch: Sketch = Sketch { origin: point(0mm, 0mm), scale: 1.0 };
+
+// First addition
+let sketch.entities.p1: Point = point(0mm, 0mm);
+
+// Second addition
+let sketch.entities.p2: Point = point(10mm, 10mm);
+
+// Access both
+distance(&sketch.entities.p1, &sketch.entities.p2) = 20mm;
+```
+
+---
+
+## Transform Pattern
+
+### Transform Methods
+
+Structs can define `__transform__` methods that specify how to transform entities of specific types. These methods are automatically invoked when accessing entities within `with` statements.
+
+```rust
+struct Translate {
+    offset_x: Length,
+    offset_y: Length,
+    
+    // Transform Point entities
+    fn __transform__(p: &Point) -> Point {
+        let new_p: Point = point();
+        new_p.x = p.x + self.offset_x;
+        new_p.y = p.y + self.offset_y;
+        new_p
+    }
+}
+```
+
+### Multiple Transform Methods
+
+A struct can define multiple `__transform__` methods for different types:
+
+```rust
+struct Scale {
+    factor: f64,
+    center: Point,
+    
+    fn __transform__(p: &Point) -> Point {
+        let new_p: Point = point();
+        new_p.x = self.center.x + (p.x - self.center.x) * self.factor;
+        new_p.y = self.center.y + (p.y - self.center.y) * self.factor;
+        new_p
+    }
+    
+    fn __transform__(len: &Length) -> Length {
+        len * self.factor
+    }
+}
+```
+
+### Type Transformations
+
+Transform methods can change the type of entities, enabling projections between different coordinate systems or dimensions:
+
+```rust
+struct Sketch2D {
+    origin: Point3D,
+    u_axis: Vector3D,  // Local x-axis
+    v_axis: Vector3D,  // Local y-axis
+    
+    // Transform 3D points to 2D
+    fn __transform__(p3d: &Point3D) -> Point {
+        let local: Vector3D = p3d - self.origin;
+        let u: Length = dot(&local, &self.u_axis);
+        let v: Length = dot(&local, &self.v_axis);
+        point(u, v)
+    }
+}
+```
+
+### Automatic Nested Transformation
+
+Transformations automatically apply to nested field accesses. If a struct contains fields that have `__transform__` methods defined, accessing those fields triggers the transformation recursively:
+
+```rust
+struct Line {
+    start: Point,
+    end: Point,
+}
+
+let shift: Translate = Translate {
+    offset_x: 5mm,
+    offset_y: 3mm
+};
+
+let line: Line = Line {
+    start: point(0mm, 0mm),
+    end: point(10mm, 10mm)
+};
+
+with shift {
+    // line.start is automatically transformed
+    let p: Point = line.start;
+    // p.x = 5mm, p.y = 3mm
+    
+    // Nested access also transformed
+    line.end.x = 20mm;  // Sets (line.end.x + 5mm) = 20mm
+                        // Therefore line.end.x = 15mm in outer context
+}
+```
+
+---
+
+## With Statements
+
+### Basic Syntax
+
+The `with` statement applies a transform context to all entity accesses within its block:
+
+```rust
+let transform: Translate = Translate {
+    offset_x: 10mm,
+    offset_y: 5mm
+};
+
+with transform {
+    // All Point accesses are transformed here
+    let p: Point = point(0mm, 0mm);
+    // p is created at (10mm, 5mm) in global coordinates
+}
+```
+
+### Container Context
+
+When used with container structs, `with` statements enable convenient entity creation within the container using the dot prefix:
+
+```rust
+struct Sketch {
+    container entities,
+    origin: Point,
+}
+
+let sketch: Sketch = Sketch {
+    origin: point(100mm, 50mm)
+};
+
+with sketch {
+    // Local variable (not added to container)
+    let temp: Length = 10mm;
+    
+    // Container entity (added to sketch.entities)
+    let .p1: Point = point(0mm, 0mm);
+    // Equivalent to: let sketch.entities.p1: Point = point(0mm, 0mm);
+    
+    // Access existing container entity
+    let .p2: Point = point(.p1.x + temp, .p1.y);
+    // .p1 is equivalent to sketch.entities.p1 inside the block
+}
+
+// Access from outside
+sketch.entities.p1.x = 15mm;
+```
+
+### Dot Prefix Semantics
+
+Within a `with` block, the dot prefix (`.`) references the container field of the context struct:
+
+- `let .name: Type = value;` creates a new field in the container
+- `.name` accesses an existing field in the container
+- Without the dot prefix, variables are local to the block
+
+```rust
+with sketch {
+    let local: Point = point(0mm, 0mm);  // Local variable
+    let .stored: Point = local;           // Stored in container
+    
+    .stored.x = 10mm;  // Constraints sketch.entities.stored
+    local.x = 5mm;     // Constraints local variable only
+}
+
+// local is out of scope here
+// sketch.entities.stored is accessible
+```
+
+### Nested With Statements
+
+With statements can be nested. The innermost context takes precedence:
+
+```rust
+let outer: Sketch = Sketch { origin: point(0mm, 0mm) };
+let inner: Sketch = Sketch { origin: point(50mm, 50mm) };
+
+with outer {
+    let .p1: Point = point(0mm, 0mm);  // outer.entities.p1
+    
+    with inner {
+        let .p2: Point = point(0mm, 0mm);  // inner.entities.p2
+        let .p3: Point = .p2;              // inner.entities.p3 = inner.entities.p2
+        
+        // Access outer context explicitly
+        let .p4: Point = outer.entities.p1;
+    }
+    
+    let .line: Line = Line {
+        start: .p1,
+        end: inner.entities.p2
+    };
+}
+```
+
+### Transform Application in With
+
+If the context struct has `__transform__` methods, they are automatically applied to all matching entity accesses:
+
+```rust
+struct Sketch {
+    container entities,
+    origin: Point,
+    
+    fn __transform__(p: &Point) -> Point {
+        let new_p: Point = point();
+        new_p.x = p.x + self.origin.x;
+        new_p.y = p.y + self.origin.y;
+        new_p
+    }
+}
+
+let base: Point = point(10mm, 20mm);
+
+let sketch: Sketch = Sketch {
+    origin: point(100mm, 50mm)
+};
+
+with sketch {
+    // base is transformed when accessed
+    let .p: Point = base;
+    // .p = point(110mm, 70mm) in global coordinates
+    
+    // Constraints are also transformed
+    base.x = 50mm;  // Actually constrains (base.x + 100mm) = 50mm
+                    // Therefore base.x = -50mm in outer context
+}
+```
+
+---
+
 ## Arrays
 
 ### Declaration
@@ -457,7 +703,7 @@ let range: [i32; 10] = [0..10];  // [0, 1, 2, ..., 9]
 
 ### Function Definition
 
-Functions are defined within structs or at the sketch level. They specify parameter types (with references for entities) and return types.
+Functions are defined within structs or at the top level. They specify parameter types (with references for entities) and return types.
 
 ```rust
 fn distance(p1: &Point, p2: &Point) -> Length {
@@ -467,7 +713,7 @@ fn distance(p1: &Point, p2: &Point) -> Length {
 struct Circle {
     center: Point,
     radius: Length,
-    
+
     fn circumference() -> Length {
         2.0 * PI * self.radius
     }
@@ -523,7 +769,7 @@ for p in points {
 }
 ```
 
-Loop variables are scoped to the loop body and cannot be accessed outside. The range bounds must be constant literals in the MVP, though extension to const expressions is planned.
+Loop variables are scoped to the loop body and cannot be accessed outside. The range bounds must be constant literals in the current version.
 
 ### Loop Semantics
 
@@ -601,127 +847,6 @@ let total_area: Area = circles
 total_area = 10000mm²;
 ```
 
-### Standard Library Helpers
-
-The standard library provides common operations built on map and reduce.
-
-```rust
-fn sum<T>(array: [T; N]) -> T {
-    array.reduce(T::zero(), |acc, val| acc + val)
-}
-
-fn average(array: [Length; N]) -> Length {
-    sum(array) / N
-}
-
-fn min<T>(array: [T; N]) -> T {
-    array.reduce(T::max_value(), |acc, val| {
-        if val < acc { val } else { acc }
-    })
-}
-
-fn max<T>(array: [T; N]) -> T {
-    array.reduce(T::min_value(), |acc, val| {
-        if val > acc { val } else { acc }
-    })
-}
-```
-
----
-
-## Views and Coordinate Systems
-
-### View Definition
-
-Views represent coordinate systems with specified origins, rotations, and scales. They are first-class objects created with let statements.
-
-```rust
-let native_view: View = view();  // Identity view
-let rotated: View = view(rotation: 45deg);
-let shifted: View = view(origin: point(100mm, 50mm));
-let complex: View = view(
-    origin: point(50mm, 50mm),
-    rotation: 30deg,
-    scale: 2.0
-);
-```
-
-### View Parameters
-
-View parameters can be dynamic, referencing points or angles determined by the solver.
-
-```rust
-let center: Point = point();  // Unconstrained
-let angle: Angle;             // Unconstrained
-
-let dynamic_view: View = view(
-    origin: center,
-    rotation: angle
-);
-
-// Later constraints determine center and angle
-center.x = 50mm;
-angle = 45deg;
-```
-
-### With Blocks
-
-The with statement applies a view context to all entities and constraints within its block.
-
-```rust
-let v1: View = view(rotation: 45deg);
-
-with v1 {
-    // Entities defined here use v1's coordinate system
-    let p: Point = point(10mm, 0mm);
-    // p is 10mm "right" in v1 (45° rotated in global)
-    
-    // Constraints defined here are interpreted in v1
-    horizontal(line);  // line is horizontal in v1
-}
-```
-
-### View Coordinate Transformation
-
-When entities are created within a view block, their coordinates are transformed according to the view's origin, rotation, and scale.
-
-```rust
-let v: View = view(
-    origin: point(50mm, 50mm),
-    rotation: 90deg,
-    scale: 2.0
-);
-
-with v {
-    let p: Point = point(10mm, 0mm);
-    // In v: p is at (10mm, 0mm)
-    // In global: p is at (50mm, 70mm) approximately
-    // (50mm origin.x + 0mm*cos(90°)*2.0 - 10mm*sin(90°)*2.0,
-    //  50mm origin.y + 0mm*sin(90°)*2.0 + 10mm*cos(90°)*2.0)
-}
-```
-
-### View-Based Constraints
-
-Constraints defined within a view block are interpreted relative to that view's coordinate system.
-
-```rust
-let line: Line = Line { 
-    start: point(0mm, 0mm), 
-    end: point(10mm, 10mm) 
-};
-
-with view(rotation: 45deg) {
-    horizontal(line);  
-    // line is horizontal in this rotated view
-    // → line is at 45° in global coordinates
-}
-```
-
-### View Nesting
-
-View blocks cannot be nested. Attempting to use a with block inside another with block results in a compilation error.
-
 ---
 
 ## Units
@@ -797,28 +922,175 @@ Multi-line comments are enclosed between `/*` and `*/` and can span multiple lin
  * This is a multi-line comment
  * spanning several lines
  */
-let circle: Circle = Circle { 
-    center: point(0mm, 0mm), 
-    radius: 50mm 
+let circle: Circle = Circle {
+    center: point(0mm, 0mm),
+    radius: 50mm
 };
 ```
 
 ---
 
-## Import System
+## Standard Library
 
-### Import Statement
+The standard library provides commonly used structs, functions, and constraint helpers. These are not part of the core language but are expected to be available in most TextCAD environments.
 
-The import statement includes definitions from other files. Imports are planned for future implementation but not included in the MVP.
+### Geometric Primitives
+
+#### Point Constructor
 
 ```rust
-import "standard_library.tcad";
-import "bolt_pattern.tcad";
+fn point(x: Length, y: Length) -> Point  // Fully specified point
+fn point() -> Point                       // Unconstrained point
 ```
 
-### Future Scope
+**Language feature**: Point type is built-in
+**Standard library**: Constructor functions
 
-The import system will enable code reuse and modular design. Imported definitions will be available at the sketch scope level, allowing reuse of struct definitions, helper functions, and parameterized designs.
+#### Distance Function
+
+```rust
+fn distance(p1: &Point, p2: &Point) -> Length
+```
+
+Calculates the Euclidean distance between two points.
+
+### Mathematical Functions
+
+```rust
+fn abs(x: Length) -> Length
+fn sqrt(x: f64) -> f64
+fn cos(angle: Angle) -> f64
+fn sin(angle: Angle) -> f64
+fn tan(angle: Angle) -> f64
+fn acos(x: f64) -> Angle
+fn asin(x: f64) -> Angle
+fn atan2(y: f64, x: f64) -> Angle
+```
+
+### Array Utilities
+
+```rust
+fn sum<T>(array: [T; N]) -> T
+fn product<T>(array: [T; N]) -> T
+fn min<T>(array: [T; N]) -> T
+fn max<T>(array: [T; N]) -> T
+fn average(array: [Length; N]) -> Length
+```
+
+These functions are implemented using map and reduce operations.
+
+### Geometric Constraints
+
+```rust
+fn horizontal(line: &Line)               // Line is horizontal
+fn vertical(line: &Line)                 // Line is vertical
+fn parallel(l1: &Line, l2: &Line)        // Lines are parallel
+fn perpendicular(l1: &Line, l2: &Line)   // Lines are perpendicular
+fn coincident(p1: &Point, p2: &Point)    // Points at same location
+```
+
+**Note**: These constraint functions operate in the current coordinate system context (affected by `with` statements).
+
+### View Transforms (Standard Library)
+
+The `View` struct is a standard library component that provides coordinate system transformations:
+
+```rust
+struct View {
+    origin: Point,
+    rotation: Angle,
+    scale: f64,
+    
+    fn __transform__(p: &Point) -> Point {
+        // Applies translation, rotation, and scaling
+        let rotated_x: Length = (p.x - self.origin.x) * cos(self.rotation) - 
+                                 (p.y - self.origin.y) * sin(self.rotation);
+        let rotated_y: Length = (p.x - self.origin.x) * sin(self.rotation) + 
+                                 (p.y - self.origin.y) * cos(self.rotation);
+        
+        let new_p: Point = point();
+        new_p.x = self.origin.x + rotated_x * self.scale;
+        new_p.y = self.origin.y + rotated_y * self.scale;
+        new_p
+    }
+}
+
+// Constructor
+fn view(origin: Point, rotation: Angle, scale: f64) -> View
+fn view() -> View  // Identity view (origin at 0,0, no rotation, scale 1.0)
+```
+
+**Usage**:
+
+```rust
+let v: View = view(
+    origin: point(100mm, 50mm),
+    rotation: 45deg,
+    scale: 2.0
+);
+
+with v {
+    let p: Point = point(10mm, 0mm);
+    // p is transformed according to view
+}
+```
+
+### Common Transform Structs (Standard Library)
+
+#### Translate
+
+```rust
+struct Translate {
+    offset_x: Length,
+    offset_y: Length,
+    
+    fn __transform__(p: &Point) -> Point {
+        let new_p: Point = point();
+        new_p.x = p.x + self.offset_x;
+        new_p.y = p.y + self.offset_y;
+        new_p
+    }
+}
+```
+
+#### Rotate
+
+```rust
+struct Rotate {
+    center: Point,
+    angle: Angle,
+    
+    fn __transform__(p: &Point) -> Point {
+        let dx: Length = p.x - self.center.x;
+        let dy: Length = p.y - self.center.y;
+        
+        let new_p: Point = point();
+        new_p.x = self.center.x + dx * cos(self.angle) - dy * sin(self.angle);
+        new_p.y = self.center.y + dx * sin(self.angle) + dy * cos(self.angle);
+        new_p
+    }
+}
+```
+
+#### Scale
+
+```rust
+struct Scale {
+    center: Point,
+    factor: f64,
+    
+    fn __transform__(p: &Point) -> Point {
+        let new_p: Point = point();
+        new_p.x = self.center.x + (p.x - self.center.x) * self.factor;
+        new_p.y = self.center.y + (p.y - self.center.y) * self.factor;
+        new_p
+    }
+    
+    fn __transform__(len: &Length) -> Length {
+        len * self.factor
+    }
+}
+```
 
 ---
 
@@ -826,51 +1098,90 @@ The import system will enable code reuse and modular design. Imported definition
 
 ### Simple Triangle
 
-This example demonstrates basic point creation, constraints, and the 3-4-5 right triangle.
+This example demonstrates basic point creation and constraints.
 
 ```rust
-sketch simple_triangle {
-    let p1: Point = point(0mm, 0mm);
-    let p2: Point = point(30mm, 0mm);
-    let p3: Point = point();
-    
-    distance(&p1, &p3) = 40mm;
-    distance(&p2, &p3) = 50mm;
-    
-    // Solver determines p3 position to satisfy both constraints
-}
+let p1: Point = point(0mm, 0mm);
+let p2: Point = point(30mm, 0mm);
+let p3: Point = point();
+
+distance(&p1, &p3) = 40mm;
+distance(&p2, &p3) = 50mm;
+
+// Solver determines p3 position to satisfy both constraints
+// Forms a 3-4-5 right triangle
 ```
 
 ### Regular Hexagon
 
-This example shows array usage, loops, and circular positioning.
+This example shows array usage and circular positioning.
 
 ```rust
-sketch regular_hexagon {
-    let center: Point = point(50mm, 50mm);
-    let radius: Length = 30mm;
+let center: Point = point(50mm, 50mm);
+let radius: Length = 30mm;
+
+let vertices: [Point; 6] = [];
+
+for i in 0..6 {
+    let angle: Angle = (360deg / 6.0) * i;
+    vertices[i] = point(
+        center.x + radius * cos(angle),
+        center.y + radius * sin(angle)
+    );
+}
+
+// All edges have equal length
+for i in 0..6 {
+    let next: i32 = (i + 1) % 6;
+    distance(&vertices[i], &vertices[next]) = 30mm;
+}
+```
+
+### Container Struct with Sketch
+
+This example demonstrates container structs and the dot prefix syntax.
+
+```rust
+struct Sketch {
+    container entities,
+    origin: Point,
+    scale: f64,
     
-    let vertices: [Point; 6] = [];
-    
-    for i in 0..6 {
-        let angle: Angle = (360deg / 6.0) * i;
-        vertices[i] = point(
-            center.x + radius * cos(angle),
-            center.y + radius * sin(angle)
-        );
-    }
-    
-    // All edges have equal length
-    for i in 0..6 {
-        let next: i32 = (i + 1) % 6;
-        distance(&vertices[i], &vertices[next]) = 30mm;
+    fn __transform__(p: &Point) -> Point {
+        let new_p: Point = point();
+        new_p.x = self.origin.x + (p.x * self.scale);
+        new_p.y = self.origin.y + (p.y * self.scale);
+        new_p
     }
 }
+
+let main_sketch: Sketch = Sketch {
+    origin: point(100mm, 50mm),
+    scale: 1.0
+};
+
+with main_sketch {
+    // Create entities in the container
+    let .p1: Point = point(0mm, 0mm);
+    let .p2: Point = point(10mm, 0mm);
+    let .p3: Point = point(5mm, 8.66mm);
+    
+    // Local variable (not in container)
+    let side_length: Length = 10mm;
+    
+    // Constraints
+    distance(&.p1, &.p2) = side_length;
+    distance(&.p2, &.p3) = side_length;
+    distance(&.p3, &.p1) = side_length;
+}
+
+// Access from outside
+main_sketch.entities.p1.x = 5mm;
 ```
 
 ### Kinematic Chain
 
-This example demonstrates linked structures with computed endpoints.
+This example demonstrates linked structures with references.
 
 ```rust
 struct Link {
@@ -879,36 +1190,62 @@ struct Link {
     angle: Angle,
     
     fn end() -> &Point {
-        // Returns reference to computed end point
-        &self._computed_end
+        let end_point: Point = point();
+        end_point.x = self.start.x + self.length * cos(self.angle);
+        end_point.y = self.start.y + self.length * sin(self.angle);
+        &end_point
     }
 }
 
-sketch kinematic_chain {
-    let link1: Link = Link {
-        start: point(0mm, 0mm),
-        length: 100mm,
-        angle: 0deg,
-    };
-    
-    let link2: Link = Link {
-        start: link1.end(),
-        length: 80mm,
-        angle: 45deg,
-    };
-    
-    let link3: Link = Link {
-        start: link2.end(),
-        length: 60mm,
-        angle: 90deg,
-    };
-    
-    // Constrain final position
-    let final_pos: &Point = link3.end();
-    final_pos.x = 150mm;
-    final_pos.y = 100mm;
-    
-    // Solver determines angles to reach target
+let link1: Link = Link {
+    start: point(0mm, 0mm),
+    length: 100mm,
+    angle: 0deg,
+};
+
+let link2: Link = Link {
+    start: link1.end(),
+    length: 80mm,
+    angle: 45deg,
+};
+
+let link3: Link = Link {
+    start: link2.end(),
+    length: 60mm,
+    angle: 90deg,
+};
+
+// Constrain final position
+let final_pos: &Point = link3.end();
+final_pos.x = 150mm;
+final_pos.y = 100mm;
+
+// Solver determines angles to reach target
+```
+
+### Nested Transforms
+
+This example shows how transforms compose through nesting.
+
+```rust
+let shift: Translate = Translate {
+    offset_x: 50mm,
+    offset_y: 30mm
+};
+
+let rotation: Rotate = Rotate {
+    center: point(0mm, 0mm),
+    angle: 45deg
+};
+
+let base_point: Point = point(10mm, 0mm);
+
+with shift {
+    with rotation {
+        // base_point is first rotated, then translated
+        let transformed: Point = base_point;
+        // Result: rotated 45° then shifted by (50mm, 30mm)
+    }
 }
 ```
 
@@ -921,72 +1258,31 @@ struct Gear {
     center: Point,
     pitch_radius: Length,
     tooth_count: i32,
-    
+
     fn module() -> Length {
         (self.pitch_radius * 2.0) / self.tooth_count
     }
 }
 
-sketch gear_pair {
-    let gear1: Gear = Gear {
-        center: point(0mm, 0mm),
-        pitch_radius: 50mm,
-        tooth_count: 20,
-    };
-    
-    let gear2: Gear = Gear {
-        center: point(),
-        tooth_count: 12,
-    };
-    
-    // Gears must touch
-    distance(&gear1.center, &gear2.center) = 
-        gear1.pitch_radius + gear2.pitch_radius;
-    
-    // Same module (tooth size)
-    gear1.module() = gear2.module();
-    
-    // Solver determines gear2 radius and position
-}
-```
+let gear1: Gear = Gear {
+    center: point(0mm, 0mm),
+    pitch_radius: 50mm,
+    tooth_count: 20,
+};
 
-### Rotated Rectangle with View
+let gear2: Gear = Gear {
+    center: point(),
+    tooth_count: 12,
+};
 
-This example demonstrates view-based coordinate systems.
+// Gears must touch
+distance(&gear1.center, &gear2.center) =
+    gear1.pitch_radius + gear2.pitch_radius;
 
-```rust
-struct Rectangle {
-    center: Point,
-    width: Length,
-    height: Length,
-    rotation: Angle,
-    
-    fn area() -> Area {
-        self.width * self.height
-    }
-}
+// Same module (tooth size)
+gear1.module() = gear2.module();
 
-sketch rotated_rectangle {
-    let rect: Rectangle = Rectangle {
-        center: point(0mm, 0mm),
-        rotation: 45deg,
-    };
-    
-    // Define constraints in rotated view
-    let rect_view: View = view(
-        origin: rect.center,
-        rotation: rect.rotation
-    );
-    
-    with rect_view {
-        // In this view, rectangle appears axis-aligned
-        let corner: Point = point(50mm, 30mm);
-        // This point is at (50mm, 30mm) in rect_view
-        // Which is rotated 45° in global coordinates
-    }
-    
-    rect.area() = 6000mm²;
-}
+// Solver determines gear2 radius and position
 ```
 
 ### Polygon with Map/Reduce
@@ -996,7 +1292,7 @@ This example shows functional operations for complex calculations.
 ```rust
 struct Polygon {
     vertices: [Point; 6],
-    
+
     fn perimeter() -> Length {
         [0..6]
             .map(|i| distance(
@@ -1007,26 +1303,73 @@ struct Polygon {
     }
 }
 
-sketch polygon_design {
-    let poly: Polygon = Polygon {
-        vertices: [
-            point(0mm, 0mm),
-            point(10mm, 0mm),
-            point(),
-            point(),
-            point(),
-            point(),
-        ],
-    };
+let poly: Polygon = Polygon {
+    vertices: [
+        point(0mm, 0mm),
+        point(10mm, 0mm),
+        point(),
+        point(),
+        point(),
+        point(),
+    ],
+};
+
+// Constraint on total perimeter
+poly.perimeter() = 100mm;
+
+// Regular polygon: all edges equal
+let edge_length: Length = 100mm / 6.0;
+for i in 0..6 {
+    distance(&poly.vertices[i], &poly.vertices[(i + 1) % 6]) = edge_length;
+}
+```
+
+### 3D to 2D Projection
+
+This example demonstrates type transformation through `__transform__`.
+
+```rust
+struct Point3D {
+    x: Length,
+    y: Length,
+    z: Length,
+}
+
+struct Sketch2D {
+    container entities,
+    origin: Point3D,
+    u_axis: Vector3D,  // Local x-axis
+    v_axis: Vector3D,  // Local y-axis
     
-    // Constraint on total perimeter
-    poly.perimeter() = 100mm;
-    
-    // Regular polygon: all edges equal
-    let edge_length: Length = 100mm / 6.0;
-    for i in 0..6 {
-        distance(&poly.vertices[i], &poly.vertices[(i + 1) % 6]) = edge_length;
+    // Transform 3D points to 2D
+    fn __transform__(p3d: &Point3D) -> Point {
+        let local: Vector3D = vector3d(
+            p3d.x - self.origin.x,
+            p3d.y - self.origin.y,
+            p3d.z - self.origin.z
+        );
+        let u: Length = dot(&local, &self.u_axis);
+        let v: Length = dot(&local, &self.v_axis);
+        point(u, v)
     }
+}
+
+let p3d_1: Point3D = Point3D { x: 10mm, y: 20mm, z: 5mm };
+let p3d_2: Point3D = Point3D { x: 15mm, y: 25mm, z: 5mm };
+
+let sketch_plane: Sketch2D = Sketch2D {
+    origin: Point3D { x: 0mm, y: 0mm, z: 5mm },
+    u_axis: vector3d(1.0, 0.0, 0.0),
+    v_axis: vector3d(0.0, 1.0, 0.0),
+};
+
+with sketch_plane {
+    // 3D points automatically project to 2D
+    let .projected_1: Point = p3d_1;  // (10mm, 20mm) in 2D
+    let .projected_2: Point = p3d_2;  // (15mm, 25mm) in 2D
+    
+    // Work with 2D projections
+    distance(&.projected_1, &.projected_2) = 20mm;
 }
 ```
 
@@ -1036,46 +1379,30 @@ sketch polygon_design {
 
 The following keywords are reserved and cannot be used as identifiers:
 
-`sketch`, `struct`, `fn`, `let`, `for`, `in`, `with`, `view`, `if`, `else`, `or`, `and`, `import`, `return`, `true`, `false`
+`struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`
 
 ---
 
-## Appendix: Built-in Functions
+## Appendix: Language vs Standard Library
 
-### Geometric Functions
+### Language Features
 
-```rust
-fn point(x: Length, y: Length) -> Point
-fn point() -> Point  // Unconstrained
+These are built into the language itself:
 
-fn distance(p1: &Point, p2: &Point) -> Length
-fn abs(x: Length) -> Length
-fn sqrt(x: f64) -> f64
+- **Types**: `Point`, `Length`, `Angle`, `Area`, `bool`, `i32`, `f64`, `Real`, `Algebraic`
+- **Keywords**: `struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`
+- **Syntax**: Struct definitions, function definitions, with statements, for loops, dot prefix notation
+- **Semantics**: Constraint-based assignment, entity vs reference distinction, container semantics, transform pattern
 
-fn cos(angle: Angle) -> f64
-fn sin(angle: Angle) -> f64
-fn atan2(y: f64, x: f64) -> Angle
-```
+### Standard Library Components
 
-### Array Functions
+These are expected to be provided but are not part of the core language:
 
-```rust
-fn sum<T>(array: [T; N]) -> T
-fn product<T>(array: [T; N]) -> T
-fn min<T>(array: [T; N]) -> T
-fn max<T>(array: [T; N]) -> T
-fn average(array: [Length; N]) -> Length
-```
-
-### Constraint Functions
-
-```rust
-fn horizontal(line: &Line)      // Line is horizontal in current view
-fn vertical(line: &Line)        // Line is vertical in current view
-fn parallel(l1: &Line, l2: &Line)
-fn perpendicular(l1: &Line, l2: &Line)
-fn coincident(p1: &Point, p2: &Point)  // Points at same location
-```
+- **Constructors**: `point()`, `view()`
+- **Math functions**: `distance()`, `abs()`, `sqrt()`, `sin()`, `cos()`, `tan()`, `asin()`, `acos()`, `atan2()`
+- **Array utilities**: `sum()`, `product()`, `min()`, `max()`, `average()`
+- **Constraint helpers**: `horizontal()`, `vertical()`, `parallel()`, `perpendicular()`, `coincident()`
+- **Transform structs**: `View`, `Translate`, `Rotate`, `Scale`
 
 ---
 
