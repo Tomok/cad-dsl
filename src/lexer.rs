@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn test_literals() {
-        let input = "123 3.14 identifier_name _private";
+        let input = "123 3.45 identifier_name _private";
         let tokens = lex_tokens(input);
         assert_eq!(
             tokens,
@@ -390,7 +390,7 @@ mod tests {
                     }
                 )),
                 Token::FloatLiteral((
-                    3.14,
+                    3.45,
                     Span {
                         start: LineColumn { line: 1, column: 5 },
                         lines: 0,
@@ -770,7 +770,7 @@ mod tests {
 
     #[test]
     fn test_comments_are_skipped() {
-        let input = "let x = 42; // This is a comment\nlet y = 3.14; /* Multi-line\n   comment */";
+        let input = "let x = 42; // This is a comment\nlet y = 3.45; /* Multi-line\n   comment */";
         let tokens = lex_tokens(input);
         assert_eq!(
             tokens,
@@ -808,7 +808,7 @@ mod tests {
                 )),
                 Token::Equals(LineColumn { line: 2, column: 8 }),
                 Token::FloatLiteral((
-                    3.14,
+                    3.45,
                     Span {
                         start: LineColumn {
                             line: 2,
