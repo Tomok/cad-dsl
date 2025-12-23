@@ -1,8 +1,7 @@
 mod lexer;
-mod parser;
 
 use clap::{Parser, Subcommand};
-use logos::Logos;
+use lexer::TokenTrait;
 use std::fs;
 
 #[derive(Parser)]
@@ -24,13 +23,19 @@ fn main() {
     match &cli.command {
         Commands::Lex { file } => {
             let content = fs::read_to_string(file).expect("Failed to read file");
-            let tokens = lexer::Token::lexer(&content);
 
-            for token_result in tokens {
-                match token_result {
-                    Ok(token) => println!("{:?}", token),
-                    Err(error) => eprintln!("Lexing error: {:?}", error),
+            match lexer::tokenize(&content) {
+                Ok(tokens) => {
+                    for token in tokens {
+                        println!(
+                            "{:?} at {:?} - value: {}",
+                            token,
+                            token.position(),
+                            token.value_str()
+                        );
+                    }
                 }
+                Err(error) => eprintln!("Lexing error: {}", error),
             }
         }
     }
