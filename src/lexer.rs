@@ -44,7 +44,7 @@ impl Default for NewLineTracer {
 // ============================================================================
 
 /// Common trait for all token types
-pub trait TokenTrait {
+pub trait TokenTrait<'src> {
     /// Get the position of this token
     fn position(&self) -> LineColumn;
 
@@ -52,6 +52,9 @@ pub trait TokenTrait {
     /// For fixed tokens (keywords, operators), this is the literal text
     /// For dynamic tokens (identifiers, literals), this is the parsed value
     fn value_str(&self) -> &str;
+
+    /// Convert this token struct back into a Token enum variant
+    fn as_token(self) -> Token<'src>;
 }
 
 // ============================================================================
@@ -61,7 +64,7 @@ pub trait TokenTrait {
 /// Macro to generate token structs for fixed-content tokens
 /// (keywords, operators, delimiters, punctuation)
 macro_rules! fixed_token {
-    ($name:ident, $text:literal) => {
+    ($name:ident, $variant:ident, $text:literal) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub struct $name {
             pub position: LineColumn,
@@ -77,13 +80,17 @@ macro_rules! fixed_token {
             }
         }
 
-        impl TokenTrait for $name {
+        impl<'src> TokenTrait<'src> for $name {
             fn position(&self) -> LineColumn {
                 self.position
             }
 
             fn value_str(&self) -> &str {
                 $text
+            }
+
+            fn as_token(self) -> Token<'src> {
+                Token::$variant(self)
             }
         }
 
@@ -99,68 +106,68 @@ macro_rules! fixed_token {
 // Keyword Tokens
 // ============================================================================
 
-fixed_token!(TokenStruct, "struct");
-fixed_token!(TokenContainer, "container");
-fixed_token!(TokenFn, "fn");
-fixed_token!(TokenLet, "let");
-fixed_token!(TokenFor, "for");
-fixed_token!(TokenIn, "in");
-fixed_token!(TokenWith, "with");
-fixed_token!(TokenIf, "if");
-fixed_token!(TokenElse, "else");
-fixed_token!(TokenOr, "or");
-fixed_token!(TokenAnd, "and");
-fixed_token!(TokenReturn, "return");
-fixed_token!(TokenTrue, "true");
-fixed_token!(TokenFalse, "false");
-fixed_token!(TokenSelf, "self");
+fixed_token!(TokenStruct, Struct, "struct");
+fixed_token!(TokenContainer, Container, "container");
+fixed_token!(TokenFn, Fn, "fn");
+fixed_token!(TokenLet, Let, "let");
+fixed_token!(TokenFor, For, "for");
+fixed_token!(TokenIn, In, "in");
+fixed_token!(TokenWith, With, "with");
+fixed_token!(TokenIf, If, "if");
+fixed_token!(TokenElse, Else, "else");
+fixed_token!(TokenOr, Or, "or");
+fixed_token!(TokenAnd, And, "and");
+fixed_token!(TokenReturn, Return, "return");
+fixed_token!(TokenTrue, True, "true");
+fixed_token!(TokenFalse, False, "false");
+fixed_token!(TokenSelf, SelfKw, "self");
 
 // ============================================================================
 // Operator Tokens
 // ============================================================================
 
-fixed_token!(TokenEquals, "=");
-fixed_token!(TokenEqualsEquals, "==");
-fixed_token!(TokenNotEquals, "!=");
-fixed_token!(TokenLessThan, "<");
-fixed_token!(TokenGreaterThan, ">");
-fixed_token!(TokenLessEquals, "<=");
-fixed_token!(TokenGreaterEquals, ">=");
-fixed_token!(TokenPlus, "+");
-fixed_token!(TokenMinus, "-");
-fixed_token!(TokenMultiply, "*");
-fixed_token!(TokenDivide, "/");
-fixed_token!(TokenPower, "^");
-fixed_token!(TokenModulo, "%");
-fixed_token!(TokenAmpersand, "&");
+fixed_token!(TokenEquals, Equals, "=");
+fixed_token!(TokenEqualsEquals, EqualsEquals, "==");
+fixed_token!(TokenNotEquals, NotEquals, "!=");
+fixed_token!(TokenLessThan, LessThan, "<");
+fixed_token!(TokenGreaterThan, GreaterThan, ">");
+fixed_token!(TokenLessEquals, LessEquals, "<=");
+fixed_token!(TokenGreaterEquals, GreaterEquals, ">=");
+fixed_token!(TokenPlus, Plus, "+");
+fixed_token!(TokenMinus, Minus, "-");
+fixed_token!(TokenMultiply, Multiply, "*");
+fixed_token!(TokenDivide, Divide, "/");
+fixed_token!(TokenPower, Power, "^");
+fixed_token!(TokenModulo, Modulo, "%");
+fixed_token!(TokenAmpersand, Ampersand, "&");
 
 // ============================================================================
 // Punctuation Tokens
 // ============================================================================
 
-fixed_token!(TokenColon, ":");
-fixed_token!(TokenSemiColon, ";");
-fixed_token!(TokenComma, ",");
-fixed_token!(TokenDot, ".");
-fixed_token!(TokenDotDot, "..");
-fixed_token!(TokenLeftParen, "(");
-fixed_token!(TokenRightParen, ")");
-fixed_token!(TokenLeftBracket, "[");
-fixed_token!(TokenRightBracket, "]");
-fixed_token!(TokenLeftBrace, "{");
-fixed_token!(TokenRightBrace, "}");
-fixed_token!(TokenPipe, "|");
-fixed_token!(TokenArrow, "->");
+fixed_token!(TokenColon, Colon, ":");
+fixed_token!(TokenSemiColon, SemiColon, ";");
+fixed_token!(TokenComma, Comma, ",");
+fixed_token!(TokenDot, Dot, ".");
+fixed_token!(TokenDotDot, DotDot, "..");
+fixed_token!(TokenLeftParen, LeftParen, "(");
+fixed_token!(TokenRightParen, RightParen, ")");
+fixed_token!(TokenLeftBracket, LeftBracket, "[");
+fixed_token!(TokenRightBracket, RightBracket, "]");
+fixed_token!(TokenLeftBrace, LeftBrace, "{");
+fixed_token!(TokenRightBrace, RightBrace, "}");
+fixed_token!(TokenPipe, Pipe, "|");
+fixed_token!(TokenArrow, Arrow, "->");
 
 // ============================================================================
 // Built-in Type Tokens
 // ============================================================================
 
-fixed_token!(TokenBoolType, "bool");
-fixed_token!(TokenI32Type, "i32");
-fixed_token!(TokenF64Type, "f64");
-fixed_token!(TokenRealType, "Real");
-fixed_token!(TokenAlgebraicType, "Algebraic");
+fixed_token!(TokenBoolType, BoolType, "bool");
+fixed_token!(TokenI32Type, I32Type, "i32");
+fixed_token!(TokenF64Type, F64Type, "f64");
+fixed_token!(TokenRealType, RealType, "Real");
+fixed_token!(TokenAlgebraicType, AlgebraicType, "Algebraic");
 
 // ============================================================================
 // Dynamic Content Tokens (Literals and Identifiers)
@@ -184,13 +191,17 @@ impl TokenFloatLiteral {
     }
 }
 
-impl TokenTrait for TokenFloatLiteral {
+impl<'src> TokenTrait<'src> for TokenFloatLiteral {
     fn position(&self) -> LineColumn {
         self.span.start
     }
 
     fn value_str(&self) -> &str {
         "float_literal"
+    }
+
+    fn as_token(self) -> Token<'src> {
+        Token::FloatLiteral(self)
     }
 }
 
@@ -218,13 +229,17 @@ impl TokenIntLiteral {
     }
 }
 
-impl TokenTrait for TokenIntLiteral {
+impl<'src> TokenTrait<'src> for TokenIntLiteral {
     fn position(&self) -> LineColumn {
         self.span.start
     }
 
     fn value_str(&self) -> &str {
         "int_literal"
+    }
+
+    fn as_token(self) -> Token<'src> {
+        Token::IntLiteral(self)
     }
 }
 
@@ -252,13 +267,17 @@ impl<'src> TokenIdentifier<'src> {
     }
 }
 
-impl<'src> TokenTrait for TokenIdentifier<'src> {
+impl<'src> TokenTrait<'src> for TokenIdentifier<'src> {
     fn position(&self) -> LineColumn {
         self.span.start
     }
 
     fn value_str(&self) -> &str {
         self.name
+    }
+
+    fn as_token(self) -> Token<'src> {
+        Token::Identifier(self)
     }
 }
 
@@ -390,9 +409,9 @@ pub enum Token<'src> {
     Identifier(TokenIdentifier<'src>),
 }
 
-impl<'src> Token<'src> {
-    /// Get the position of any token variant
-    pub fn position(&self) -> LineColumn {
+// Implement TokenTrait for Token enum - delegates to inner token structs
+impl<'src> TokenTrait<'src> for Token<'src> {
+    fn position(&self) -> LineColumn {
         match self {
             Token::Struct(t) => t.position(),
             Token::Container(t) => t.position(),
@@ -447,8 +466,7 @@ impl<'src> Token<'src> {
         }
     }
 
-    /// Get the string value of any token variant
-    pub fn value_str(&self) -> &str {
+    fn value_str(&self) -> &str {
         match self {
             Token::Struct(t) => t.value_str(),
             Token::Container(t) => t.value_str(),
@@ -501,6 +519,10 @@ impl<'src> Token<'src> {
             Token::IntLiteral(t) => t.value_str(),
             Token::Identifier(t) => t.value_str(),
         }
+    }
+
+    fn as_token(self) -> Token<'src> {
+        self
     }
 }
 

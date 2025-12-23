@@ -1,6 +1,7 @@
 mod lexer;
 
 use clap::{Parser, Subcommand};
+use lexer::TokenTrait;
 use std::fs;
 
 #[derive(Parser)]
