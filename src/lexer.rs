@@ -44,7 +44,7 @@ impl Default for NewLineTracer {
 // ============================================================================
 
 /// Common trait for all token types
-pub trait TokenTrait<'src> {
+pub trait TokenTrait {
     /// Get the position of this token
     fn position(&self) -> LineColumn;
 
@@ -52,9 +52,6 @@ pub trait TokenTrait<'src> {
     /// For fixed tokens (keywords, operators), this is the literal text
     /// For dynamic tokens (identifiers, literals), this is the parsed value
     fn value_str(&self) -> &str;
-
-    /// Convert this token struct back into a Token enum variant
-    fn as_token(self) -> Token<'src>;
 }
 
 // ============================================================================
@@ -80,7 +77,7 @@ macro_rules! fixed_token {
             }
         }
 
-        impl<'src> TokenTrait<'src> for $name {
+        impl TokenTrait for $name {
             fn position(&self) -> LineColumn {
                 self.position
             }
@@ -88,9 +85,11 @@ macro_rules! fixed_token {
             fn value_str(&self) -> &str {
                 $text
             }
+        }
 
-            fn as_token(self) -> Token<'src> {
-                Token::$variant(self)
+        impl<'src> From<$name> for Token<'src> {
+            fn from(token: $name) -> Self {
+                Token::$variant(token)
             }
         }
 
@@ -191,7 +190,7 @@ impl TokenFloatLiteral {
     }
 }
 
-impl<'src> TokenTrait<'src> for TokenFloatLiteral {
+impl TokenTrait for TokenFloatLiteral {
     fn position(&self) -> LineColumn {
         self.span.start
     }
@@ -199,9 +198,11 @@ impl<'src> TokenTrait<'src> for TokenFloatLiteral {
     fn value_str(&self) -> &str {
         "float_literal"
     }
+}
 
-    fn as_token(self) -> Token<'src> {
-        Token::FloatLiteral(self)
+impl<'src> From<TokenFloatLiteral> for Token<'src> {
+    fn from(token: TokenFloatLiteral) -> Self {
+        Token::FloatLiteral(token)
     }
 }
 
@@ -229,7 +230,7 @@ impl TokenIntLiteral {
     }
 }
 
-impl<'src> TokenTrait<'src> for TokenIntLiteral {
+impl TokenTrait for TokenIntLiteral {
     fn position(&self) -> LineColumn {
         self.span.start
     }
@@ -237,9 +238,11 @@ impl<'src> TokenTrait<'src> for TokenIntLiteral {
     fn value_str(&self) -> &str {
         "int_literal"
     }
+}
 
-    fn as_token(self) -> Token<'src> {
-        Token::IntLiteral(self)
+impl<'src> From<TokenIntLiteral> for Token<'src> {
+    fn from(token: TokenIntLiteral) -> Self {
+        Token::IntLiteral(token)
     }
 }
 
@@ -267,7 +270,7 @@ impl<'src> TokenIdentifier<'src> {
     }
 }
 
-impl<'src> TokenTrait<'src> for TokenIdentifier<'src> {
+impl<'src> TokenTrait for TokenIdentifier<'src> {
     fn position(&self) -> LineColumn {
         self.span.start
     }
@@ -275,9 +278,11 @@ impl<'src> TokenTrait<'src> for TokenIdentifier<'src> {
     fn value_str(&self) -> &str {
         self.name
     }
+}
 
-    fn as_token(self) -> Token<'src> {
-        Token::Identifier(self)
+impl<'src> From<TokenIdentifier<'src>> for Token<'src> {
+    fn from(token: TokenIdentifier<'src>) -> Self {
+        Token::Identifier(token)
     }
 }
 
@@ -410,7 +415,7 @@ pub enum Token<'src> {
 }
 
 // Implement TokenTrait for Token enum - delegates to inner token structs
-impl<'src> TokenTrait<'src> for Token<'src> {
+impl<'src> TokenTrait for Token<'src> {
     fn position(&self) -> LineColumn {
         match self {
             Token::Struct(t) => t.position(),
@@ -519,10 +524,6 @@ impl<'src> TokenTrait<'src> for Token<'src> {
             Token::IntLiteral(t) => t.value_str(),
             Token::Identifier(t) => t.value_str(),
         }
-    }
-
-    fn as_token(self) -> Token<'src> {
-        self
     }
 }
 
