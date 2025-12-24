@@ -129,36 +129,63 @@ impl std::fmt::Display for Expr {
 
 impl std::fmt::Display for AddLhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let expr: Expr = self.clone().into();
-        write!(f, "{}", expr)
+        match self {
+            AddLhs::Add { lhs, rhs } => write!(f, "({} + {})", lhs, rhs),
+            AddLhs::Sub { lhs, rhs } => write!(f, "({} - {})", lhs, rhs),
+            AddLhs::Paren(inner) => write!(f, "({})", inner),
+            AddLhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
+            AddLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            AddLhs::Var(name) => write!(f, "{}", name),
+            AddLhs::IntLit(value) => write!(f, "{}", value),
+            AddLhs::FloatLit(value) => write!(f, "{}", value),
+        }
     }
 }
 
 impl std::fmt::Display for AddRhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let expr: Expr = self.clone().into();
-        write!(f, "{}", expr)
+        match self {
+            AddRhs::Paren(inner) => write!(f, "({})", inner),
+            AddRhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
+            AddRhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            AddRhs::Var(name) => write!(f, "{}", name),
+            AddRhs::IntLit(value) => write!(f, "{}", value),
+            AddRhs::FloatLit(value) => write!(f, "{}", value),
+        }
     }
 }
 
 impl std::fmt::Display for MulLhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let expr: Expr = self.clone().into();
-        write!(f, "{}", expr)
+        match self {
+            MulLhs::Paren(inner) => write!(f, "({})", inner),
+            MulLhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
+            MulLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            MulLhs::Var(name) => write!(f, "{}", name),
+            MulLhs::IntLit(value) => write!(f, "{}", value),
+            MulLhs::FloatLit(value) => write!(f, "{}", value),
+        }
     }
 }
 
 impl std::fmt::Display for MulRhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let expr: Expr = self.clone().into();
-        write!(f, "{}", expr)
+        match self {
+            MulRhs::Paren(inner) => write!(f, "({})", inner),
+            MulRhs::Var(name) => write!(f, "{}", name),
+            MulRhs::IntLit(value) => write!(f, "{}", value),
+            MulRhs::FloatLit(value) => write!(f, "{}", value),
+        }
     }
 }
 
 impl std::fmt::Display for Atom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let expr: Expr = self.clone().into();
-        write!(f, "{}", expr)
+        match self {
+            Atom::Var(name) => write!(f, "{}", name),
+            Atom::IntLit(value) => write!(f, "{}", value),
+            Atom::FloatLit(value) => write!(f, "{}", value),
+        }
     }
 }
 
