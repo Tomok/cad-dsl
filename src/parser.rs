@@ -1,6 +1,6 @@
 use chumsky::prelude::*;
 
-use crate::ast::{Atom, Expr, Term};
+use crate::ast::{AddRhs, Atom, Expr, MulLhs, MulRhs};
 use crate::lexer::Token;
 
 // ============================================================================
@@ -16,7 +16,7 @@ pub type ParseError<'src> = extra::Err<Rich<'src, Token<'src>>>;
 /// Parse an expression from a stream of tokens
 pub fn expr_parser<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> {
     recursive(|expr| {
-        // Atom parser: variables, literals, and parenthesized expressions
+        // Atom parser: variables and literals
         let atom = choice((
             // Variable
             select! {
@@ -43,51 +43,62 @@ pub fn expr_parser<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, Parse
                 .map(|e| Expr::Paren(Box::new(e))),
         ));
 
-        // Term parser: multiplication and division (left-associative)
-        let term = primary
+        // MulRhs parser: handles right-hand side of multiplication/division
+        // Can be: Paren, Atom (no Mul/Div allowed)
+        let mulrhs_parser = primary.clone();
+
+        // MulLhs parser: handles multiplication and division (left-associative)
+        // lhs can be Mul/Div/Paren/Atom, rhs can only be MulRhs (Paren/Atom)
+        let mullhs_parser = mulrhs_parser
             .clone()
             .foldl(
                 choice((
                     select! { Token::Multiply(_) => () }
-                        .then(primary.clone())
+                        .then(mulrhs_parser.clone())
                         .map(|(_, rhs)| (BinOp::Mul, rhs)),
                     select! { Token::Divide(_) => () }
-                        .then(primary.clone())
+                        .then(mulrhs_parser.clone())
                         .map(|(_, rhs)| (BinOp::Div, rhs)),
                 ))
                 .repeated(),
                 |lhs, (op, rhs)| {
-                    // Convert Expr to Term for left-hand side
-                    let lhs_term: Term = lhs.try_into()
-                        .expect("Left-hand side should be convertible to Term");
+                    // Convert Expr to MulLhs for left-hand side
+                    let lhs_mullhs: MulLhs = lhs.try_into()
+                        .expect("Left-hand side should be convertible to MulLhs");
 
-                    // Convert Expr to Term for right-hand side
-                    let rhs_term: Term = rhs.try_into()
-                        .expect("Right-hand side should be convertible to Term");
+                    // Convert Expr to MulRhs for right-hand side
+                    let rhs_mulrhs: MulRhs = rhs.try_into()
+                        .expect("Right-hand side should be convertible to MulRhs");
 
                     match op {
                         BinOp::Mul => Expr::Mul {
-                            lhs: Box::new(lhs_term),
-                            rhs: Box::new(rhs_term),
+                            lhs: Box::new(lhs_mullhs),
+                            rhs: Box::new(rhs_mulrhs),
                         },
                         BinOp::Div => Expr::Div {
-                            lhs: Box::new(lhs_term),
-                            rhs: Box::new(rhs_term),
+                            lhs: Box::new(lhs_mullhs),
+                            rhs: Box::new(rhs_mulrhs),
                         },
                         _ => unreachable!(),
                     }
                 },
             );
 
+        // AddRhs parser: right-hand side of addition/subtraction
+        // Can be: Paren, Mul, Div, Atom (no Add/Sub allowed)
+        let addrhs_parser = mullhs_parser.clone();
+
         // Expression parser: addition and subtraction (left-associative)
-        term.clone()
+        // lhs can be Add/Sub/Mul/Div/Paren/Atom, rhs can only be AddRhs (Mul/Div/Paren/Atom)
+        addrhs_parser
+            .clone()
             .foldl(
                 choice((
                     select! { Token::Plus(_) => () }
-                        .then(term.clone())
+                        .then(addrhs_parser.clone())
                         .map(|(_, rhs)| (BinOp::Add, rhs)),
                     select! { Token::Minus(_) => () }
-                        .then(term.clone())
+                        .then(addrhs_parser.clone())
                         .map(|(_, rhs)| (BinOp::Sub, rhs)),
                 ))
                 .repeated(),
@@ -96,18 +107,18 @@ pub fn expr_parser<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, Parse
                     let lhs_addlhs = lhs.try_into()
                         .expect("Left-hand side should be convertible to AddLhs");
 
-                    // Convert Expr to Term for right-hand side
-                    let rhs_term: Term = rhs.try_into()
-                        .expect("Right-hand side should be convertible to Term");
+                    // Convert Expr to AddRhs for right-hand side
+                    let rhs_addrhs: AddRhs = rhs.try_into()
+                        .expect("Right-hand side should be convertible to AddRhs");
 
                     match op {
                         BinOp::Add => Expr::Add {
                             lhs: Box::new(lhs_addlhs),
-                            rhs: Box::new(rhs_term),
+                            rhs: Box::new(rhs_addrhs),
                         },
                         BinOp::Sub => Expr::Sub {
                             lhs: Box::new(lhs_addlhs),
-                            rhs: Box::new(rhs_term),
+                            rhs: Box::new(rhs_addrhs),
                         },
                         _ => unreachable!(),
                     }
@@ -139,7 +150,8 @@ pub fn parse_expr(input: &str) -> Result<Expr, String> {
 
     // Then parse
     let parser = expr_parser().then_ignore(end());
-    parser.parse(&tokens)
+    parser
+        .parse(&tokens)
         .into_result()
         .map_err(|errors| {
             errors
@@ -188,8 +200,8 @@ mod tests {
         match result.unwrap() {
             Expr::Add { lhs, rhs } => {
                 assert_eq!(*lhs, AddLhs::Var("a".to_string()));
-                assert_eq!(*rhs, Term::Var("b".to_string()));
-            },
+                assert_eq!(*rhs, AddRhs::Var("b".to_string()));
+            }
             _ => panic!("Expected Add"),
         }
     }
@@ -201,9 +213,9 @@ mod tests {
 
         match result.unwrap() {
             Expr::Mul { lhs, rhs } => {
-                assert_eq!(*lhs, Term::Var("a".to_string()));
-                assert_eq!(*rhs, Term::Var("b".to_string()));
-            },
+                assert_eq!(*lhs, MulLhs::Var("a".to_string()));
+                assert_eq!(*rhs, MulRhs::Var("b".to_string()));
+            }
             _ => panic!("Expected Mul"),
         }
     }
@@ -218,13 +230,13 @@ mod tests {
             Expr::Add { lhs, rhs } => {
                 assert_eq!(*lhs, AddLhs::Var("a".to_string()));
                 match *rhs {
-                    Term::Mul { lhs: mul_lhs, rhs: mul_rhs } => {
-                        assert_eq!(*mul_lhs, Term::Var("b".to_string()));
-                        assert_eq!(*mul_rhs, Term::Var("c".to_string()));
-                    },
+                    AddRhs::Mul { lhs: mul_lhs, rhs: mul_rhs } => {
+                        assert_eq!(*mul_lhs, MulLhs::Var("b".to_string()));
+                        assert_eq!(*mul_rhs, MulRhs::Var("c".to_string()));
+                    }
                     _ => panic!("Expected Mul on rhs of Add"),
                 }
-            },
+            }
             _ => panic!("Expected Add"),
         }
     }
@@ -239,13 +251,13 @@ mod tests {
             Expr::Add { lhs, rhs } => {
                 match *lhs {
                     AddLhs::Mul { lhs: mul_lhs, rhs: mul_rhs } => {
-                        assert_eq!(*mul_lhs, Term::Var("a".to_string()));
-                        assert_eq!(*mul_rhs, Term::Var("b".to_string()));
-                    },
+                        assert_eq!(*mul_lhs, MulLhs::Var("a".to_string()));
+                        assert_eq!(*mul_rhs, MulRhs::Var("b".to_string()));
+                    }
                     _ => panic!("Expected Mul on lhs of Add"),
                 }
-                assert_eq!(*rhs, Term::Var("c".to_string()));
-            },
+                assert_eq!(*rhs, AddRhs::Var("c".to_string()));
+            }
             _ => panic!("Expected Add"),
         }
     }
@@ -259,14 +271,17 @@ mod tests {
         match result.unwrap() {
             Expr::Add { lhs, rhs } => {
                 match *lhs {
-                    AddLhs::Add { lhs: inner_lhs, rhs: inner_rhs } => {
+                    AddLhs::Add {
+                        lhs: inner_lhs,
+                        rhs: inner_rhs,
+                    } => {
                         assert_eq!(*inner_lhs, AddLhs::Var("a".to_string()));
-                        assert_eq!(*inner_rhs, Term::Var("b".to_string()));
-                    },
+                        assert_eq!(*inner_rhs, AddRhs::Var("b".to_string()));
+                    }
                     _ => panic!("Expected Add on lhs"),
                 }
-                assert_eq!(*rhs, Term::Var("c".to_string()));
-            },
+                assert_eq!(*rhs, AddRhs::Var("c".to_string()));
+            }
             _ => panic!("Expected Add"),
         }
     }
@@ -280,14 +295,17 @@ mod tests {
         match result.unwrap() {
             Expr::Mul { lhs, rhs } => {
                 match *lhs {
-                    Term::Mul { lhs: inner_lhs, rhs: inner_rhs } => {
-                        assert_eq!(*inner_lhs, Term::Var("a".to_string()));
-                        assert_eq!(*inner_rhs, Term::Var("b".to_string()));
-                    },
+                    MulLhs::Mul {
+                        lhs: inner_lhs,
+                        rhs: inner_rhs,
+                    } => {
+                        assert_eq!(*inner_lhs, MulLhs::Var("a".to_string()));
+                        assert_eq!(*inner_rhs, MulRhs::Var("b".to_string()));
+                    }
                     _ => panic!("Expected Mul on lhs"),
                 }
-                assert_eq!(*rhs, Term::Var("c".to_string()));
-            },
+                assert_eq!(*rhs, MulRhs::Var("c".to_string()));
+            }
             _ => panic!("Expected Mul"),
         }
     }
@@ -301,16 +319,14 @@ mod tests {
         match result.unwrap() {
             Expr::Mul { lhs, rhs } => {
                 match *lhs {
-                    Term::Paren(inner) => {
-                        match *inner {
-                            Expr::Add { .. } => {},
-                            _ => panic!("Expected Add inside Paren"),
-                        }
+                    MulLhs::Paren(inner) => match *inner {
+                        Expr::Add { .. } => {}
+                        _ => panic!("Expected Add inside Paren"),
                     },
                     _ => panic!("Expected Paren on lhs of Mul"),
                 }
-                assert_eq!(*rhs, Term::Var("c".to_string()));
-            },
+                assert_eq!(*rhs, MulRhs::Var("c".to_string()));
+            }
             _ => panic!("Expected Mul"),
         }
     }
