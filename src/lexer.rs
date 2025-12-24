@@ -299,9 +299,10 @@ impl<'src> std::fmt::Display for TokenIdentifier<'src> {
 /// Token enum with direct Logos integration
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[logos(extras = NewLineTracer)]
-#[logos(skip r"[ \t\n\f]+")]
-#[logos(skip(r"//[^\n]*", newline_callback))]
-#[logos(skip r"/\*[^*]*\*+(?:[^/*][^*]*\*+)*/")]
+#[logos(skip(r"[ \t\f]+"))]
+#[logos(skip(r"\n", newline_callback))]
+#[logos(skip(r"//[^\n]*"))]
+#[logos(skip(r"/\*([^*]|\*+[^*/])*\*+/", multiline_comment_callback))]
 pub enum Token<'src> {
     // Keywords
     #[token("struct", TokenStruct::from_lexer)]
@@ -537,6 +538,17 @@ fn newline_callback<'src>(lex: &mut Lexer<'src, Token<'src>>) -> Skip {
     Skip
 }
 
+fn multiline_comment_callback<'src>(lex: &mut Lexer<'src, Token<'src>>) -> Skip {
+    let text = lex.slice();
+    for (i, c) in text.char_indices() {
+        if c == '\n' {
+            lex.extras.line += 1;
+            lex.extras.last_newline_char_index = lex.span().start + i + 1;
+        }
+    }
+    Skip
+}
+
 fn derive_position<'src>(lex: &mut Lexer<'src, Token<'src>>) -> LineColumn {
     let line = lex.extras.line;
     let column = lex.span().start - lex.extras.last_newline_char_index + 1;
@@ -583,6 +595,7 @@ pub fn tokenize<'src>(input: &'src str) -> Result<Vec<Token<'src>>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_matches::assert_matches;
 
     #[test]
     fn test_keywords() {
@@ -590,13 +603,21 @@ mod tests {
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 15);
 
-        // Test that each keyword token has the correct position and value
-        assert!(matches!(tokens[0], Token::Struct(_)));
-        assert_eq!(tokens[0].value_str(), "struct");
-        assert_eq!(tokens[0].position(), LineColumn { line: 1, column: 1 });
-
-        assert!(matches!(tokens[1], Token::Container(_)));
-        assert_eq!(tokens[1].value_str(), "container");
+        assert_matches!(tokens[0], Token::Struct(_));
+        assert_matches!(tokens[1], Token::Container(_));
+        assert_matches!(tokens[2], Token::Fn(_));
+        assert_matches!(tokens[3], Token::Let(_));
+        assert_matches!(tokens[4], Token::For(_));
+        assert_matches!(tokens[5], Token::In(_));
+        assert_matches!(tokens[6], Token::With(_));
+        assert_matches!(tokens[7], Token::If(_));
+        assert_matches!(tokens[8], Token::Else(_));
+        assert_matches!(tokens[9], Token::Or(_));
+        assert_matches!(tokens[10], Token::And(_));
+        assert_matches!(tokens[11], Token::Return(_));
+        assert_matches!(tokens[12], Token::True(_));
+        assert_matches!(tokens[13], Token::False(_));
+        assert_matches!(tokens[14], Token::SelfKw(_));
     }
 
     #[test]
@@ -605,11 +626,20 @@ mod tests {
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 14);
 
-        assert!(matches!(tokens[0], Token::Equals(_)));
-        assert_eq!(tokens[0].value_str(), "=");
-
-        assert!(matches!(tokens[1], Token::EqualsEquals(_)));
-        assert_eq!(tokens[1].value_str(), "==");
+        assert_matches!(tokens[0], Token::Equals(_));
+        assert_matches!(tokens[1], Token::EqualsEquals(_));
+        assert_matches!(tokens[2], Token::NotEquals(_));
+        assert_matches!(tokens[3], Token::LessThan(_));
+        assert_matches!(tokens[4], Token::GreaterThan(_));
+        assert_matches!(tokens[5], Token::LessEquals(_));
+        assert_matches!(tokens[6], Token::GreaterEquals(_));
+        assert_matches!(tokens[7], Token::Plus(_));
+        assert_matches!(tokens[8], Token::Minus(_));
+        assert_matches!(tokens[9], Token::Multiply(_));
+        assert_matches!(tokens[10], Token::Divide(_));
+        assert_matches!(tokens[11], Token::Power(_));
+        assert_matches!(tokens[12], Token::Modulo(_));
+        assert_matches!(tokens[13], Token::Ampersand(_));
     }
 
     #[test]
@@ -618,8 +648,19 @@ mod tests {
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 13);
 
-        assert!(matches!(tokens[0], Token::Colon(_)));
-        assert_eq!(tokens[0].value_str(), ":");
+        assert_matches!(tokens[0], Token::Colon(_));
+        assert_matches!(tokens[1], Token::SemiColon(_));
+        assert_matches!(tokens[2], Token::Comma(_));
+        assert_matches!(tokens[3], Token::Dot(_));
+        assert_matches!(tokens[4], Token::DotDot(_));
+        assert_matches!(tokens[5], Token::LeftParen(_));
+        assert_matches!(tokens[6], Token::RightParen(_));
+        assert_matches!(tokens[7], Token::LeftBracket(_));
+        assert_matches!(tokens[8], Token::RightBracket(_));
+        assert_matches!(tokens[9], Token::LeftBrace(_));
+        assert_matches!(tokens[10], Token::RightBrace(_));
+        assert_matches!(tokens[11], Token::Pipe(_));
+        assert_matches!(tokens[12], Token::Arrow(_));
     }
 
     #[test]
@@ -628,25 +669,10 @@ mod tests {
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 4);
 
-        if let Token::IntLiteral(token) = &tokens[0] {
-            assert_eq!(token.value, 123);
-            assert_eq!(token.position(), LineColumn { line: 1, column: 1 });
-        } else {
-            panic!("Expected IntLiteral");
-        }
-
-        if let Token::FloatLiteral(token) = &tokens[1] {
-            assert_eq!(token.value, 3.45);
-        } else {
-            panic!("Expected FloatLiteral");
-        }
-
-        if let Token::Identifier(token) = &tokens[2] {
-            assert_eq!(token.name, "identifier_name");
-            assert_eq!(token.value_str(), "identifier_name");
-        } else {
-            panic!("Expected Identifier");
-        }
+        assert_matches!(tokens[0], Token::IntLiteral(ref t) if t.value == 123);
+        assert_matches!(tokens[1], Token::FloatLiteral(ref t) if t.value == 3.45);
+        assert_matches!(tokens[2], Token::Identifier(ref t) if t.name == "identifier_name");
+        assert_matches!(tokens[3], Token::Identifier(ref t) if t.name == "_private");
     }
 
     #[test]
@@ -655,11 +681,11 @@ mod tests {
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 5);
 
-        assert!(matches!(tokens[0], Token::BoolType(_)));
-        assert!(matches!(tokens[1], Token::I32Type(_)));
-        assert!(matches!(tokens[2], Token::F64Type(_)));
-        assert!(matches!(tokens[3], Token::RealType(_)));
-        assert!(matches!(tokens[4], Token::AlgebraicType(_)));
+        assert_matches!(tokens[0], Token::BoolType(_));
+        assert_matches!(tokens[1], Token::I32Type(_));
+        assert_matches!(tokens[2], Token::F64Type(_));
+        assert_matches!(tokens[3], Token::RealType(_));
+        assert_matches!(tokens[4], Token::AlgebraicType(_));
     }
 
     #[test]
@@ -668,13 +694,13 @@ mod tests {
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 7);
 
-        assert!(matches!(tokens[0], Token::Let(_)));
-        assert!(matches!(tokens[1], Token::Identifier(_)));
-        assert!(matches!(tokens[2], Token::Colon(_)));
-        assert!(matches!(tokens[3], Token::I32Type(_)));
-        assert!(matches!(tokens[4], Token::Equals(_)));
-        assert!(matches!(tokens[5], Token::IntLiteral(_)));
-        assert!(matches!(tokens[6], Token::SemiColon(_)));
+        assert_matches!(tokens[0], Token::Let(_));
+        assert_matches!(tokens[1], Token::Identifier(ref t) if t.name == "x");
+        assert_matches!(tokens[2], Token::Colon(_));
+        assert_matches!(tokens[3], Token::I32Type(_));
+        assert_matches!(tokens[4], Token::Equals(_));
+        assert_matches!(tokens[5], Token::IntLiteral(ref t) if t.value == 42);
+        assert_matches!(tokens[6], Token::SemiColon(_));
     }
 
     #[test]
@@ -683,11 +709,17 @@ mod tests {
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 11);
 
-        assert!(matches!(tokens[0], Token::Struct(_)));
-
-        if let Token::Identifier(token) = &tokens[1] {
-            assert_eq!(token.name, "Point");
-        }
+        assert_matches!(tokens[0], Token::Struct(_));
+        assert_matches!(tokens[1], Token::Identifier(ref t) if t.name == "Point");
+        assert_matches!(tokens[2], Token::LeftBrace(_));
+        assert_matches!(tokens[3], Token::Identifier(ref t) if t.name == "x");
+        assert_matches!(tokens[4], Token::Colon(_));
+        assert_matches!(tokens[5], Token::F64Type(_));
+        assert_matches!(tokens[6], Token::Comma(_));
+        assert_matches!(tokens[7], Token::Identifier(ref t) if t.name == "y");
+        assert_matches!(tokens[8], Token::Colon(_));
+        assert_matches!(tokens[9], Token::F64Type(_));
+        assert_matches!(tokens[10], Token::RightBrace(_));
     }
 
     #[test]
@@ -696,8 +728,9 @@ mod tests {
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 15);
 
-        assert!(matches!(tokens[0], Token::Fn(_)));
-        assert!(matches!(tokens[14], Token::F64Type(_)));
+        assert_matches!(tokens[0], Token::Fn(_));
+        assert_matches!(tokens[1], Token::Identifier(ref t) if t.name == "distance");
+        assert_matches!(tokens[14], Token::F64Type(_));
     }
 
     #[test]
@@ -706,12 +739,12 @@ mod tests {
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 6);
 
-        assert!(matches!(tokens[0], Token::For(_)));
-        assert!(matches!(tokens[1], Token::Identifier(_)));
-        assert!(matches!(tokens[2], Token::In(_)));
-        assert!(matches!(tokens[3], Token::IntLiteral(_)));
-        assert!(matches!(tokens[4], Token::DotDot(_)));
-        assert!(matches!(tokens[5], Token::IntLiteral(_)));
+        assert_matches!(tokens[0], Token::For(_));
+        assert_matches!(tokens[1], Token::Identifier(ref t) if t.name == "i");
+        assert_matches!(tokens[2], Token::In(_));
+        assert_matches!(tokens[3], Token::IntLiteral(ref t) if t.value == 0);
+        assert_matches!(tokens[4], Token::DotDot(_));
+        assert_matches!(tokens[5], Token::IntLiteral(ref t) if t.value == 5);
     }
 
     #[test]
@@ -720,23 +753,29 @@ mod tests {
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 9);
 
-        assert!(matches!(tokens[0], Token::With(_)));
-        assert!(matches!(tokens[8], Token::RightBrace(_)));
+        assert_matches!(tokens[0], Token::With(_));
+        assert_matches!(tokens[1], Token::Identifier(ref t) if t.name == "transform");
+        assert_matches!(tokens[8], Token::RightBrace(_));
     }
 
     #[test]
     fn test_comments_are_skipped() {
-        let input = "let x = 42; // This is a comment\nlet y = 3.45; /* Multi-line\n   comment */";
+        let input = "let x = 42; // This is a comment\nlet y = 3.45;";
         let tokens = tokenize(input).unwrap();
 
         // Should have: let x = 42 ; let y = 3.45 ;
         assert_eq!(tokens.len(), 10);
 
-        assert!(matches!(tokens[0], Token::Let(_)));
-        assert_eq!(tokens[0].position().line, 1);
-
-        assert!(matches!(tokens[5], Token::Let(_)));
-        assert_eq!(tokens[5].position().line, 2);
+        assert_matches!(tokens[0], Token::Let(_));
+        assert_matches!(tokens[1], Token::Identifier(ref t) if t.name == "x");
+        assert_matches!(tokens[2], Token::Equals(_));
+        assert_matches!(tokens[3], Token::IntLiteral(ref t) if t.value == 42);
+        assert_matches!(tokens[4], Token::SemiColon(_));
+        assert_matches!(tokens[5], Token::Let(_));
+        assert_matches!(tokens[6], Token::Identifier(ref t) if t.name == "y");
+        assert_matches!(tokens[7], Token::Equals(_));
+        assert_matches!(tokens[8], Token::FloatLiteral(ref t) if t.value == 3.45);
+        assert_matches!(tokens[9], Token::SemiColon(_));
     }
 
     #[test]
@@ -744,6 +783,12 @@ mod tests {
         let input = "  let    x  =  42  ;  ";
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 5);
+
+        assert_matches!(tokens[0], Token::Let(_));
+        assert_matches!(tokens[1], Token::Identifier(ref t) if t.name == "x");
+        assert_matches!(tokens[2], Token::Equals(_));
+        assert_matches!(tokens[3], Token::IntLiteral(ref t) if t.value == 42);
+        assert_matches!(tokens[4], Token::SemiColon(_));
     }
 
     #[test]
@@ -752,8 +797,18 @@ mod tests {
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 12);
 
-        assert!(matches!(tokens[0], Token::Let(_)));
-        assert!(matches!(tokens[11], Token::SemiColon(_)));
+        assert_matches!(tokens[0], Token::Let(_));
+        assert_matches!(tokens[1], Token::Identifier(ref t) if t.name == "points");
+        assert_matches!(tokens[2], Token::Colon(_));
+        assert_matches!(tokens[3], Token::LeftBracket(_));
+        assert_matches!(tokens[4], Token::Identifier(ref t) if t.name == "Point");
+        assert_matches!(tokens[5], Token::SemiColon(_));
+        assert_matches!(tokens[6], Token::IntLiteral(ref t) if t.value == 5);
+        assert_matches!(tokens[7], Token::RightBracket(_));
+        assert_matches!(tokens[8], Token::Equals(_));
+        assert_matches!(tokens[9], Token::LeftBracket(_));
+        assert_matches!(tokens[10], Token::RightBracket(_));
+        assert_matches!(tokens[11], Token::SemiColon(_));
     }
 
     #[test]
@@ -762,8 +817,11 @@ mod tests {
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 5);
 
-        assert!(matches!(tokens[0], Token::Identifier(_)));
-        assert!(matches!(tokens[1], Token::Dot(_)));
+        assert_matches!(tokens[0], Token::Identifier(ref t) if t.name == "circle");
+        assert_matches!(tokens[1], Token::Dot(_));
+        assert_matches!(tokens[2], Token::Identifier(ref t) if t.name == "area");
+        assert_matches!(tokens[3], Token::LeftParen(_));
+        assert_matches!(tokens[4], Token::RightParen(_));
     }
 
     #[test]
@@ -772,23 +830,135 @@ mod tests {
         let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 11);
 
-        assert!(matches!(tokens[0], Token::Identifier(_))); // points
-        assert!(matches!(tokens[1], Token::Dot(_))); // .
-        assert!(matches!(tokens[2], Token::Identifier(_))); // map
-        assert!(matches!(tokens[3], Token::LeftParen(_))); // (
-        assert!(matches!(tokens[4], Token::Pipe(_))); // |
-        assert!(matches!(tokens[5], Token::Identifier(_))); // p
-        assert!(matches!(tokens[6], Token::Pipe(_))); // |
-        assert!(matches!(tokens[7], Token::Identifier(_))); // p
-        assert!(matches!(tokens[8], Token::Dot(_))); // .
-        assert!(matches!(tokens[9], Token::Identifier(_))); // x
-        assert!(matches!(tokens[10], Token::RightParen(_))); // )
+        assert_matches!(tokens[0], Token::Identifier(ref t) if t.name == "points");
+        assert_matches!(tokens[1], Token::Dot(_));
+        assert_matches!(tokens[2], Token::Identifier(ref t) if t.name == "map");
+        assert_matches!(tokens[3], Token::LeftParen(_));
+        assert_matches!(tokens[4], Token::Pipe(_));
+        assert_matches!(tokens[5], Token::Identifier(ref t) if t.name == "p");
+        assert_matches!(tokens[6], Token::Pipe(_));
+        assert_matches!(tokens[7], Token::Identifier(ref t) if t.name == "p");
+        assert_matches!(tokens[8], Token::Dot(_));
+        assert_matches!(tokens[9], Token::Identifier(ref t) if t.name == "x");
+        assert_matches!(tokens[10], Token::RightParen(_));
+    }
+
+    // ========================================================================
+    // Position Tracking Tests
+    // ========================================================================
+
+    #[test]
+    fn test_position_single_line() {
+        let input = "let x = 42;";
+        let tokens = tokenize(input).unwrap();
+
+        assert_eq!(tokens[0].position(), LineColumn { line: 1, column: 1 }); // let
+        assert_eq!(tokens[1].position(), LineColumn { line: 1, column: 5 }); // x
+        assert_eq!(tokens[2].position(), LineColumn { line: 1, column: 7 }); // =
+        assert_eq!(tokens[3].position(), LineColumn { line: 1, column: 9 }); // 42
+        assert_eq!(
+            tokens[4].position(),
+            LineColumn {
+                line: 1,
+                column: 11
+            }
+        ); // ;
     }
 
     #[test]
-    fn test_token_trait() {
-        let token = TokenStruct::new(LineColumn { line: 1, column: 5 });
-        assert_eq!(token.position(), LineColumn { line: 1, column: 5 });
-        assert_eq!(token.value_str(), "struct");
+    fn test_position_multiple_lines() {
+        let input = "let x = 10;\nlet y = 20;";
+        let tokens = tokenize(input).unwrap();
+
+        assert_eq!(tokens[0].position(), LineColumn { line: 1, column: 1 }); // let (line 1)
+        assert_eq!(tokens[1].position(), LineColumn { line: 1, column: 5 }); // x
+        assert_eq!(tokens[5].position(), LineColumn { line: 2, column: 1 }); // let (line 2)
+        assert_eq!(tokens[6].position(), LineColumn { line: 2, column: 5 }); // y
+    }
+
+    #[test]
+    fn test_position_after_single_line_comment() {
+        let input = "let x = 10; // comment\nlet y = 20;";
+        let tokens = tokenize(input).unwrap();
+
+        assert_eq!(tokens[0].position(), LineColumn { line: 1, column: 1 }); // let
+        assert_eq!(tokens[5].position(), LineColumn { line: 2, column: 1 }); // let (after comment)
+        assert_eq!(tokens[6].position(), LineColumn { line: 2, column: 5 }); // y
+    }
+
+    #[test]
+    fn test_position_after_multiline_comment() {
+        let input = "let x = 10;\n/* comment\n   on multiple\n   lines */\nlet y = 20;";
+        let tokens = tokenize(input).unwrap();
+
+        assert_eq!(tokens[0].position(), LineColumn { line: 1, column: 1 }); // let
+        assert_eq!(tokens[1].position(), LineColumn { line: 1, column: 5 }); // x
+        assert_eq!(tokens[5].position(), LineColumn { line: 5, column: 1 }); // let (after multi-line comment)
+        assert_eq!(tokens[6].position(), LineColumn { line: 5, column: 5 }); // y
+    }
+
+    #[test]
+    fn test_position_complex_multiline_comment() {
+        let input = "struct Point {\n/* This is a\n * multi-line\n * comment\n */\nx: f64\n}";
+        let tokens = tokenize(input).unwrap();
+
+        assert_eq!(tokens[0].position(), LineColumn { line: 1, column: 1 }); // struct
+        assert_eq!(tokens[1].position(), LineColumn { line: 1, column: 8 }); // Point
+        assert_eq!(
+            tokens[2].position(),
+            LineColumn {
+                line: 1,
+                column: 14
+            }
+        ); // {
+        assert_eq!(tokens[3].position(), LineColumn { line: 6, column: 1 }); // x (after comment)
+        assert_eq!(tokens[4].position(), LineColumn { line: 6, column: 2 }); // :
+        assert_eq!(tokens[5].position(), LineColumn { line: 6, column: 4 }); // f64
+    }
+
+    #[test]
+    fn test_span_for_literals() {
+        let input = "123 45.67";
+        let tokens = tokenize(input).unwrap();
+
+        if let Token::IntLiteral(ref t) = tokens[0] {
+            assert_eq!(t.span.start, LineColumn { line: 1, column: 1 });
+            assert_eq!(t.span.end_column, 4);
+            assert_eq!(t.span.lines, 0);
+        } else {
+            panic!("Expected IntLiteral");
+        }
+
+        if let Token::FloatLiteral(ref t) = tokens[1] {
+            assert_eq!(t.span.start, LineColumn { line: 1, column: 5 });
+            assert_eq!(t.span.end_column, 10);
+            assert_eq!(t.span.lines, 0);
+        } else {
+            panic!("Expected FloatLiteral");
+        }
+    }
+
+    #[test]
+    fn test_span_for_identifiers() {
+        let input = "hello world";
+        let tokens = tokenize(input).unwrap();
+
+        if let Token::Identifier(ref t) = tokens[0] {
+            assert_eq!(t.name, "hello");
+            assert_eq!(t.span.start, LineColumn { line: 1, column: 1 });
+            assert_eq!(t.span.end_column, 6);
+            assert_eq!(t.span.lines, 0);
+        } else {
+            panic!("Expected Identifier");
+        }
+
+        if let Token::Identifier(ref t) = tokens[1] {
+            assert_eq!(t.name, "world");
+            assert_eq!(t.span.start, LineColumn { line: 1, column: 7 });
+            assert_eq!(t.span.end_column, 12);
+            assert_eq!(t.span.lines, 0);
+        } else {
+            panic!("Expected Identifier");
+        }
     }
 }
