@@ -822,6 +822,162 @@ mod tests {
     }
 
     // ========================================================================
+    // Power Operator Tests
+    // ========================================================================
+
+    #[test]
+    fn test_expr_simple_pow() {
+        // Test: 2 ^ 3
+        let result = parse_with_timeout(
+            "2 ^ 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Pow {
+            lhs: Box::new(PowLhs::IntLit(2)),
+            rhs: Box::new(PowRhs::IntLit(3)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_pow_right_associative() {
+        // Test: 2 ^ 3 ^ 4 should be 2 ^ (3 ^ 4) (right-associative)
+        let result = parse_with_timeout(
+            "2 ^ 3 ^ 4",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Pow {
+            lhs: Box::new(PowLhs::IntLit(2)),
+            rhs: Box::new(PowRhs::Pow {
+                lhs: Box::new(PowLhs::IntLit(3)),
+                rhs: Box::new(PowRhs::IntLit(4)),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_pow_with_mul() {
+        // Test: 2 * 3 ^ 4 should be 2 * (3 ^ 4) - power has higher precedence
+        let result = parse_with_timeout(
+            "2 * 3 ^ 4",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Mul {
+            lhs: Box::new(MulLhs::IntLit(2)),
+            rhs: Box::new(MulRhs::Pow {
+                lhs: Box::new(PowLhs::IntLit(3)),
+                rhs: Box::new(PowRhs::IntLit(4)),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_pow_with_add() {
+        // Test: 1 + 2 ^ 3 should be 1 + (2 ^ 3)
+        let result = parse_with_timeout(
+            "1 + 2 ^ 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Add {
+            lhs: Box::new(AddLhs::IntLit(1)),
+            rhs: Box::new(AddRhs::Pow {
+                lhs: Box::new(PowLhs::IntLit(2)),
+                rhs: Box::new(PowRhs::IntLit(3)),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_pow_with_parens() {
+        // Test: (2 ^ 3) ^ 4 - parentheses override right-associativity
+        let result = parse_with_timeout(
+            "(2 ^ 3) ^ 4",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Pow {
+            lhs: Box::new(PowLhs::Paren(Box::new(Expr::Pow {
+                lhs: Box::new(PowLhs::IntLit(2)),
+                rhs: Box::new(PowRhs::IntLit(3)),
+            }))),
+            rhs: Box::new(PowRhs::IntLit(4)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_pow_with_vars() {
+        // Test: x ^ y
+        let result = parse_with_timeout(
+            "x ^ y",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Pow {
+            lhs: Box::new(PowLhs::Var("x".to_string())),
+            rhs: Box::new(PowRhs::Var("y".to_string())),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_complex_pow_precedence() {
+        // Test: 2 + 3 * 4 ^ 5 should be 2 + (3 * (4 ^ 5))
+        let result = parse_with_timeout(
+            "2 + 3 * 4 ^ 5",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Add {
+            lhs: Box::new(AddLhs::IntLit(2)),
+            rhs: Box::new(AddRhs::Mul {
+                lhs: Box::new(MulLhs::IntLit(3)),
+                rhs: Box::new(MulRhs::Pow {
+                    lhs: Box::new(PowLhs::IntLit(4)),
+                    rhs: Box::new(PowRhs::IntLit(5)),
+                }),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_pow_chain_right_assoc() {
+        // Test: a ^ b ^ c ^ d should be a ^ (b ^ (c ^ d))
+        let result = parse_with_timeout(
+            "a ^ b ^ c ^ d",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Pow {
+            lhs: Box::new(PowLhs::Var("a".to_string())),
+            rhs: Box::new(PowRhs::Pow {
+                lhs: Box::new(PowLhs::Var("b".to_string())),
+                rhs: Box::new(PowRhs::Pow {
+                    lhs: Box::new(PowLhs::Var("c".to_string())),
+                    rhs: Box::new(PowRhs::Var("d".to_string())),
+                }),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    // ========================================================================
     // Error Case Tests
     // ========================================================================
 
