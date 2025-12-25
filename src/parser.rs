@@ -196,6 +196,38 @@ where
     )
 }
 
+/// Parser for comparison right-hand side (CmpRhs)
+fn cmp_rhs_parser<'src, A>(
+    add_lhs: A,
+) -> impl Parser<'src, &'src [Token<'src>], CmpRhs, ParseError<'src>> + Clone
+where
+    A: Parser<'src, &'src [Token<'src>], AddLhs, ParseError<'src>> + Clone,
+{
+    add_lhs.map(Into::into)
+}
+
+/// Parser for comparison left-hand side (CmpLhs) with operators
+fn cmp_lhs_parser<'src, A, R>(
+    add_lhs: A,
+    cmp_rhs: R,
+) -> impl Parser<'src, &'src [Token<'src>], CmpLhs, ParseError<'src>> + Clone
+where
+    A: Parser<'src, &'src [Token<'src>], AddLhs, ParseError<'src>> + Clone,
+    R: Parser<'src, &'src [Token<'src>], CmpRhs, ParseError<'src>> + Clone,
+{
+    let eq_op = select! { Token::EqualsEquals(_) => "==" };
+
+    let cmp_atom = add_lhs.map(Into::into);
+
+    // Left-associative equality
+    cmp_atom.foldl(eq_op.then(cmp_rhs).repeated(), |lhs, (_op, rhs)| {
+        CmpLhs::Eq {
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        }
+    })
+}
+
 /// Internal expression parser that builds the complete precedence hierarchy
 fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
     recursive(|expr_rec| {
@@ -203,9 +235,11 @@ fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError
         let mul_lhs = mul_lhs_parser(expr_rec, mul_rhs.clone());
         let add_rhs = add_rhs_parser(mul_lhs.clone());
         let add_lhs = add_lhs_parser(mul_lhs, add_rhs);
+        let cmp_rhs = cmp_rhs_parser(add_lhs.clone());
+        let cmp_lhs = cmp_lhs_parser(add_lhs, cmp_rhs);
 
-        // Convert AddLhs to Expr
-        add_lhs.map(Into::into)
+        // Convert CmpLhs to Expr
+        cmp_lhs.map(Into::into)
     })
 }
 
@@ -534,6 +568,79 @@ mod tests {
                 rhs: Box::new(AddRhs::IntLit(2)),
             }))),
             rhs: Box::new(MulRhs::IntLit(3)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_simple_eq() {
+        // Test: 1 == 2
+        let result = parse_with_timeout(
+            "1 == 2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Eq {
+            lhs: Box::new(CmpLhs::IntLit(1)),
+            rhs: Box::new(CmpRhs::IntLit(2)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_eq_with_addition() {
+        // Test: 1 + 2 == 3 + 4
+        let result = parse_with_timeout(
+            "1 + 2 == 3 + 4",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Eq {
+            lhs: Box::new(CmpLhs::Add {
+                lhs: Box::new(AddLhs::IntLit(1)),
+                rhs: Box::new(AddRhs::IntLit(2)),
+            }),
+            rhs: Box::new(CmpRhs::Add {
+                lhs: Box::new(AddLhs::IntLit(3)),
+                rhs: Box::new(AddRhs::IntLit(4)),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_eq_left_associative() {
+        // Test: 1 == 2 == 3 should be (1 == 2) == 3
+        let result = parse_with_timeout(
+            "1 == 2 == 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Eq {
+            lhs: Box::new(CmpLhs::Eq {
+                lhs: Box::new(CmpLhs::IntLit(1)),
+                rhs: Box::new(CmpRhs::IntLit(2)),
+            }),
+            rhs: Box::new(CmpRhs::IntLit(3)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_eq_with_bool() {
+        // Test: true == false
+        let result = parse_with_timeout(
+            "true == false",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Eq {
+            lhs: Box::new(CmpLhs::BoolLit(true)),
+            rhs: Box::new(CmpRhs::BoolLit(false)),
         };
         assert_eq!(result.unwrap(), expected);
     }
