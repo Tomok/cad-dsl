@@ -57,57 +57,6 @@ pub enum Expr {
     FloatLit(f64),
 }
 
-// The subenum macro automatically generates:
-//
-// pub enum AddLhs {
-//     Add { lhs: Box<AddLhs>, rhs: Box<AddRhs> },
-//     Sub { lhs: Box<AddLhs>, rhs: Box<AddRhs> },
-//     Paren(Box<Expr>),
-//     Mul { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
-//     Div { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
-//     Var(String),
-//     IntLit(i32),
-//     FloatLit(f64),
-// }
-//
-// pub enum AddRhs {
-//     Paren(Box<Expr>),
-//     Mul { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
-//     Div { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
-//     Var(String),
-//     IntLit(i32),
-//     FloatLit(f64),
-// }
-//
-// pub enum MulLhs {
-//     Paren(Box<Expr>),
-//     Mul { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
-//     Div { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
-//     Var(String),
-//     IntLit(i32),
-//     FloatLit(f64),
-// }
-//
-// pub enum MulRhs {
-//     Paren(Box<Expr>),
-//     Var(String),
-//     IntLit(i32),
-//     FloatLit(f64),
-// }
-//
-// pub enum Atom {
-//     Var(String),
-//     IntLit(i32),
-//     FloatLit(f64),
-// }
-//
-// With automatic conversions:
-// - Atom can be converted to MulRhs, MulLhs, AddRhs, AddLhs, or Expr
-// - MulRhs can be converted to AddRhs, AddLhs, or Expr
-// - MulLhs can be converted to AddRhs, AddLhs, or Expr
-// - AddRhs can be converted to AddLhs or Expr
-// - AddLhs can be converted to Expr
-
 // ============================================================================
 // Display Implementations
 // ============================================================================
