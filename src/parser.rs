@@ -127,18 +127,20 @@ where
     // rhs can recursively contain power operations
     recursive(|pow_rhs_rec| {
         let base_parser = pow_lhs.clone();
-        base_parser.then(pow_op.then(pow_rhs_rec).or_not()).map(|(base, rest)| {
-            match rest {
-                None => base.into(),  // No power operator, just return base as PowRhs
-                Some((_, rhs)) => {
-                    // Build Pow node
-                    PowRhs::Pow {
-                        lhs: Box::new(base),
-                        rhs: Box::new(rhs),
+        base_parser
+            .then(pow_op.then(pow_rhs_rec).or_not())
+            .map(|(base, rest)| {
+                match rest {
+                    None => base.into(), // No power operator, just return base as PowRhs
+                    Some((_, rhs)) => {
+                        // Build Pow node
+                        PowRhs::Pow {
+                            lhs: Box::new(base),
+                            rhs: Box::new(rhs),
+                        }
                     }
                 }
-            }
-        })
+            })
     })
 }
 
