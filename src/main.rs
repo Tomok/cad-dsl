@@ -3,6 +3,7 @@ mod lexer;
 mod parser;
 
 use clap::{Parser, Subcommand};
+use chumsky::Parser as _;
 use lexer::TokenTrait;
 use std::fs;
 
@@ -17,6 +18,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Lex { file: String },
+    Parse { file: String },
 }
 
 fn main() {
@@ -38,6 +40,31 @@ fn main() {
                     }
                 }
                 Err(error) => eprintln!("Lexing error: {}", error),
+            }
+        }
+        Commands::Parse { file } => {
+            let content = fs::read_to_string(file).expect("Failed to read file");
+
+            // First tokenize
+            let tokens = match lexer::tokenize(&content) {
+                Ok(tokens) => tokens,
+                Err(error) => {
+                    eprintln!("Lexing error: {}", error);
+                    std::process::exit(1);
+                }
+            };
+
+            // Then parse
+            match parser::expr().parse(&tokens).into_result() {
+                Ok(ast) => {
+                    println!("Successfully parsed!");
+                    println!("AST: {}", ast);
+                }
+                Err(errors) => {
+                    eprintln!("Parse errors:");
+                    parser::report_parse_errors(file, &content, errors);
+                    std::process::exit(1);
+                }
             }
         }
     }
