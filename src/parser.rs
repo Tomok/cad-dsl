@@ -67,6 +67,15 @@ fn var<'src>() -> impl Parser<'src, &'src [Token<'src>], String, ParseError<'src
     .labelled("variable")
 }
 
+/// Parse a boolean literal token
+fn bool_lit<'src>() -> impl Parser<'src, &'src [Token<'src>], bool, ParseError<'src>> + Clone {
+    select! {
+        Token::True(_) => true,
+        Token::False(_) => false,
+    }
+    .labelled("boolean")
+}
+
 /// Parse an atomic expression (Atom enum)
 fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom, ParseError<'src>> + Clone {
     choice((
@@ -74,6 +83,8 @@ fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom, ParseError<'src>
         float_lit().map(Atom::FloatLit),
         // Then integer
         int_lit().map(Atom::IntLit),
+        // Then boolean
+        bool_lit().map(Atom::BoolLit),
         // Finally variable
         var().map(Atom::Var),
     ))
@@ -185,6 +196,49 @@ where
     )
 }
 
+/// Parser for comparison right-hand side (CmpRhs)
+fn cmp_rhs_parser<'src, A>(
+    add_lhs: A,
+) -> impl Parser<'src, &'src [Token<'src>], CmpRhs, ParseError<'src>> + Clone
+where
+    A: Parser<'src, &'src [Token<'src>], AddLhs, ParseError<'src>> + Clone,
+{
+    add_lhs.map(Into::into)
+}
+
+/// Parser for comparison left-hand side (CmpLhs) with operators
+fn cmp_lhs_parser<'src, A, R>(
+    add_lhs: A,
+    cmp_rhs: R,
+) -> impl Parser<'src, &'src [Token<'src>], CmpLhs, ParseError<'src>> + Clone
+where
+    A: Parser<'src, &'src [Token<'src>], AddLhs, ParseError<'src>> + Clone,
+    R: Parser<'src, &'src [Token<'src>], CmpRhs, ParseError<'src>> + Clone,
+{
+    let eq_op = select! { Token::EqualsEquals(_) => "==" };
+    let neq_op = select! { Token::NotEquals(_) => "!=" };
+
+    let cmp_atom = add_lhs.map(Into::into);
+
+    // Left-associative equality and not-equal
+    cmp_atom.foldl(
+        choice((eq_op, neq_op)).then(cmp_rhs).repeated(),
+        |lhs, (op, rhs)| {
+            if op == "==" {
+                CmpLhs::Eq {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
+            } else {
+                CmpLhs::NotEq {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
+            }
+        },
+    )
+}
+
 /// Internal expression parser that builds the complete precedence hierarchy
 fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
     recursive(|expr_rec| {
@@ -192,9 +246,11 @@ fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError
         let mul_lhs = mul_lhs_parser(expr_rec, mul_rhs.clone());
         let add_rhs = add_rhs_parser(mul_lhs.clone());
         let add_lhs = add_lhs_parser(mul_lhs, add_rhs);
+        let cmp_rhs = cmp_rhs_parser(add_lhs.clone());
+        let cmp_lhs = cmp_lhs_parser(add_lhs, cmp_rhs);
 
-        // Convert AddLhs to Expr
-        add_lhs.map(Into::into)
+        // Convert CmpLhs to Expr
+        cmp_lhs.map(Into::into)
     })
 }
 
@@ -361,6 +417,66 @@ mod tests {
     }
 
     #[test]
+    fn test_bool_lit_true() {
+        let result = parse_with_timeout(
+            "true",
+            |input| bool_lit().parse(input).into_result(),
+            Duration::from_secs(1),
+        );
+        assert_eq!(result.unwrap(), true);
+    }
+
+    #[test]
+    fn test_bool_lit_false() {
+        let result = parse_with_timeout(
+            "false",
+            |input| bool_lit().parse(input).into_result(),
+            Duration::from_secs(1),
+        );
+        assert_eq!(result.unwrap(), false);
+    }
+
+    #[test]
+    fn test_atom_bool_true() {
+        let result = parse_with_timeout(
+            "true",
+            |input| atom().parse(input).into_result(),
+            Duration::from_secs(1),
+        );
+        assert_eq!(result.unwrap(), Atom::BoolLit(true));
+    }
+
+    #[test]
+    fn test_atom_bool_false() {
+        let result = parse_with_timeout(
+            "false",
+            |input| atom().parse(input).into_result(),
+            Duration::from_secs(1),
+        );
+        assert_eq!(result.unwrap(), Atom::BoolLit(false));
+    }
+
+    #[test]
+    fn test_expr_bool_true() {
+        let result = parse_with_timeout(
+            "true",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+        assert_eq!(result.unwrap(), Expr::BoolLit(true));
+    }
+
+    #[test]
+    fn test_expr_bool_false() {
+        let result = parse_with_timeout(
+            "false",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+        assert_eq!(result.unwrap(), Expr::BoolLit(false));
+    }
+
+    #[test]
     fn test_expr_simple_var() {
         let result = parse_with_timeout(
             "x",
@@ -463,6 +579,171 @@ mod tests {
                 rhs: Box::new(AddRhs::IntLit(2)),
             }))),
             rhs: Box::new(MulRhs::IntLit(3)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_simple_eq() {
+        // Test: 1 == 2
+        let result = parse_with_timeout(
+            "1 == 2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Eq {
+            lhs: Box::new(CmpLhs::IntLit(1)),
+            rhs: Box::new(CmpRhs::IntLit(2)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_eq_with_addition() {
+        // Test: 1 + 2 == 3 + 4
+        let result = parse_with_timeout(
+            "1 + 2 == 3 + 4",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Eq {
+            lhs: Box::new(CmpLhs::Add {
+                lhs: Box::new(AddLhs::IntLit(1)),
+                rhs: Box::new(AddRhs::IntLit(2)),
+            }),
+            rhs: Box::new(CmpRhs::Add {
+                lhs: Box::new(AddLhs::IntLit(3)),
+                rhs: Box::new(AddRhs::IntLit(4)),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_eq_left_associative() {
+        // Test: 1 == 2 == 3 should be (1 == 2) == 3
+        let result = parse_with_timeout(
+            "1 == 2 == 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Eq {
+            lhs: Box::new(CmpLhs::Eq {
+                lhs: Box::new(CmpLhs::IntLit(1)),
+                rhs: Box::new(CmpRhs::IntLit(2)),
+            }),
+            rhs: Box::new(CmpRhs::IntLit(3)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_eq_with_bool() {
+        // Test: true == false
+        let result = parse_with_timeout(
+            "true == false",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Eq {
+            lhs: Box::new(CmpLhs::BoolLit(true)),
+            rhs: Box::new(CmpRhs::BoolLit(false)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_simple_neq() {
+        // Test: 1 != 2
+        let result = parse_with_timeout(
+            "1 != 2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::NotEq {
+            lhs: Box::new(CmpLhs::IntLit(1)),
+            rhs: Box::new(CmpRhs::IntLit(2)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_neq_with_addition() {
+        // Test: 1 + 2 != 3 + 4
+        let result = parse_with_timeout(
+            "1 + 2 != 3 + 4",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::NotEq {
+            lhs: Box::new(CmpLhs::Add {
+                lhs: Box::new(AddLhs::IntLit(1)),
+                rhs: Box::new(AddRhs::IntLit(2)),
+            }),
+            rhs: Box::new(CmpRhs::Add {
+                lhs: Box::new(AddLhs::IntLit(3)),
+                rhs: Box::new(AddRhs::IntLit(4)),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_neq_left_associative() {
+        // Test: 1 != 2 != 3 should be (1 != 2) != 3
+        let result = parse_with_timeout(
+            "1 != 2 != 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::NotEq {
+            lhs: Box::new(CmpLhs::NotEq {
+                lhs: Box::new(CmpLhs::IntLit(1)),
+                rhs: Box::new(CmpRhs::IntLit(2)),
+            }),
+            rhs: Box::new(CmpRhs::IntLit(3)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_neq_with_bool() {
+        // Test: true != false
+        let result = parse_with_timeout(
+            "true != false",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::NotEq {
+            lhs: Box::new(CmpLhs::BoolLit(true)),
+            rhs: Box::new(CmpRhs::BoolLit(false)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_mixed_eq_neq() {
+        // Test: 1 == 2 != 3 should be (1 == 2) != 3
+        let result = parse_with_timeout(
+            "1 == 2 != 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::NotEq {
+            lhs: Box::new(CmpLhs::Eq {
+                lhs: Box::new(CmpLhs::IntLit(1)),
+                rhs: Box::new(CmpRhs::IntLit(2)),
+            }),
+            rhs: Box::new(CmpRhs::IntLit(3)),
         };
         assert_eq!(result.unwrap(), expected);
     }

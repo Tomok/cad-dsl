@@ -8,53 +8,70 @@ use subenum::subenum;
 ///
 /// Hierarchy with separate Left/Right-hand side types:
 /// - Expr: All variants (top-level)
-/// - AddLhs: Add, Sub, Paren, Mul, Div, Var, IntLit, FloatLit (left side of +/-)
-/// - AddRhs: Paren, Mul, Div, Var, IntLit, FloatLit (right side of +/-, NO Add/Sub)
-/// - MulLhs: Paren, Mul, Div, Var, IntLit, FloatLit (left side of *//, NO Add/Sub)
-/// - MulRhs: Paren, Var, IntLit, FloatLit (right side of *//, NO Mul/Div)
-/// - Atom: Var, IntLit, FloatLit (only literals and variables)
+/// - CmpLhs: Eq, Add, Sub, Paren, Mul, Div, Var, IntLit, FloatLit, BoolLit (left side of ==)
+/// - CmpRhs: Paren, Add, Sub, Mul, Div, Var, IntLit, FloatLit, BoolLit (right side of ==, NO Eq)
+/// - AddLhs: Add, Sub, Paren, Mul, Div, Var, IntLit, FloatLit, BoolLit (left side of +/-)
+/// - AddRhs: Paren, Mul, Div, Var, IntLit, FloatLit, BoolLit (right side of +/-, NO Add/Sub)
+/// - MulLhs: Paren, Mul, Div, Var, IntLit, FloatLit, BoolLit (left side of *//, NO Add/Sub)
+/// - MulRhs: Paren, Var, IntLit, FloatLit, BoolLit (right side of *//, NO Mul/Div)
+/// - Atom: Var, IntLit, FloatLit, BoolLit (only literals and variables)
 ///
 /// This ensures:
+/// - Comparison RHS cannot contain comparison operators (enforces precedence)
 /// - Addition RHS cannot contain addition/subtraction (enforces precedence)
 /// - Multiplication RHS cannot contain multiplication/division (enforces precedence)
 /// - Left-hand sides allow recursion at the same precedence level (left-associativity)
 /// - Right-hand sides enforce higher precedence
-#[subenum(AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
+#[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    // Addition - only in Expr and AddLhs
+    // Equality - only in Expr and CmpLhs
+    // lhs can be Eq, rhs cannot (enforces left-associativity and precedence)
+    #[subenum(CmpLhs)]
+    Eq { lhs: Box<CmpLhs>, rhs: Box<CmpRhs> },
+
+    // Not Equal - only in Expr and CmpLhs
+    // lhs can be NotEq, rhs cannot (enforces left-associativity and precedence)
+    #[subenum(CmpLhs)]
+    NotEq { lhs: Box<CmpLhs>, rhs: Box<CmpRhs> },
+
+    // Addition - in Expr, CmpLhs, CmpRhs, AddLhs
     // lhs can be Add/Sub, rhs cannot (enforces left-associativity and precedence)
-    #[subenum(AddLhs)]
+    #[subenum(CmpLhs, CmpRhs, AddLhs)]
     Add { lhs: Box<AddLhs>, rhs: Box<AddRhs> },
 
-    // Subtraction - only in Expr and AddLhs
-    #[subenum(AddLhs)]
+    // Subtraction - in Expr, CmpLhs, CmpRhs, AddLhs
+    #[subenum(CmpLhs, CmpRhs, AddLhs)]
     Sub { lhs: Box<AddLhs>, rhs: Box<AddRhs> },
 
     // Parentheses - in all contexts except Atom (resets precedence)
-    #[subenum(AddLhs, AddRhs, MulLhs, MulRhs)]
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs)]
     Paren(Box<Expr>),
 
-    // Multiplication - in AddLhs, AddRhs, MulLhs
+    // Multiplication - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs
     // lhs can be Mul/Div, rhs cannot (enforces left-associativity)
-    #[subenum(AddLhs, AddRhs, MulLhs)]
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs)]
     Mul { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
 
-    // Division - in AddLhs, AddRhs, MulLhs
-    #[subenum(AddLhs, AddRhs, MulLhs)]
+    // Division - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs)]
     Div { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
 
     // Variable reference - in all levels
-    #[subenum(AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
     Var(String),
 
     // Integer literal - in all levels
-    #[subenum(AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
     IntLit(i32),
 
     // Float literal - in all levels
-    #[subenum(AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
     FloatLit(f64),
+
+    // Boolean literal - in all levels
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
+    BoolLit(bool),
 }
 
 // ============================================================================
@@ -64,6 +81,8 @@ pub enum Expr {
 impl std::fmt::Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Expr::Eq { lhs, rhs } => write!(f, "({} == {})", lhs, rhs),
+            Expr::NotEq { lhs, rhs } => write!(f, "({} != {})", lhs, rhs),
             Expr::Add { lhs, rhs } => write!(f, "({} + {})", lhs, rhs),
             Expr::Sub { lhs, rhs } => write!(f, "({} - {})", lhs, rhs),
             Expr::Paren(inner) => write!(f, "({})", inner),
@@ -72,6 +91,41 @@ impl std::fmt::Display for Expr {
             Expr::Var(name) => write!(f, "{}", name),
             Expr::IntLit(value) => write!(f, "{}", value),
             Expr::FloatLit(value) => write!(f, "{}", value),
+            Expr::BoolLit(value) => write!(f, "{}", value),
+        }
+    }
+}
+
+impl std::fmt::Display for CmpLhs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CmpLhs::Eq { lhs, rhs } => write!(f, "({} == {})", lhs, rhs),
+            CmpLhs::NotEq { lhs, rhs } => write!(f, "({} != {})", lhs, rhs),
+            CmpLhs::Add { lhs, rhs } => write!(f, "({} + {})", lhs, rhs),
+            CmpLhs::Sub { lhs, rhs } => write!(f, "({} - {})", lhs, rhs),
+            CmpLhs::Paren(inner) => write!(f, "({})", inner),
+            CmpLhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
+            CmpLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            CmpLhs::Var(name) => write!(f, "{}", name),
+            CmpLhs::IntLit(value) => write!(f, "{}", value),
+            CmpLhs::FloatLit(value) => write!(f, "{}", value),
+            CmpLhs::BoolLit(value) => write!(f, "{}", value),
+        }
+    }
+}
+
+impl std::fmt::Display for CmpRhs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CmpRhs::Add { lhs, rhs } => write!(f, "({} + {})", lhs, rhs),
+            CmpRhs::Sub { lhs, rhs } => write!(f, "({} - {})", lhs, rhs),
+            CmpRhs::Paren(inner) => write!(f, "({})", inner),
+            CmpRhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
+            CmpRhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            CmpRhs::Var(name) => write!(f, "{}", name),
+            CmpRhs::IntLit(value) => write!(f, "{}", value),
+            CmpRhs::FloatLit(value) => write!(f, "{}", value),
+            CmpRhs::BoolLit(value) => write!(f, "{}", value),
         }
     }
 }
@@ -87,6 +141,7 @@ impl std::fmt::Display for AddLhs {
             AddLhs::Var(name) => write!(f, "{}", name),
             AddLhs::IntLit(value) => write!(f, "{}", value),
             AddLhs::FloatLit(value) => write!(f, "{}", value),
+            AddLhs::BoolLit(value) => write!(f, "{}", value),
         }
     }
 }
@@ -100,6 +155,7 @@ impl std::fmt::Display for AddRhs {
             AddRhs::Var(name) => write!(f, "{}", name),
             AddRhs::IntLit(value) => write!(f, "{}", value),
             AddRhs::FloatLit(value) => write!(f, "{}", value),
+            AddRhs::BoolLit(value) => write!(f, "{}", value),
         }
     }
 }
@@ -113,6 +169,7 @@ impl std::fmt::Display for MulLhs {
             MulLhs::Var(name) => write!(f, "{}", name),
             MulLhs::IntLit(value) => write!(f, "{}", value),
             MulLhs::FloatLit(value) => write!(f, "{}", value),
+            MulLhs::BoolLit(value) => write!(f, "{}", value),
         }
     }
 }
@@ -124,6 +181,7 @@ impl std::fmt::Display for MulRhs {
             MulRhs::Var(name) => write!(f, "{}", name),
             MulRhs::IntLit(value) => write!(f, "{}", value),
             MulRhs::FloatLit(value) => write!(f, "{}", value),
+            MulRhs::BoolLit(value) => write!(f, "{}", value),
         }
     }
 }
@@ -134,6 +192,7 @@ impl std::fmt::Display for Atom {
             Atom::Var(name) => write!(f, "{}", name),
             Atom::IntLit(value) => write!(f, "{}", value),
             Atom::FloatLit(value) => write!(f, "{}", value),
+            Atom::BoolLit(value) => write!(f, "{}", value),
         }
     }
 }
@@ -142,6 +201,40 @@ impl std::fmt::Display for Atom {
 // Additional From Implementations for Parser Convenience
 // ============================================================================
 
+/// Convert AddLhs to CmpRhs (AddLhs is a subset of CmpRhs)
+impl From<AddLhs> for CmpRhs {
+    fn from(add: AddLhs) -> Self {
+        match add {
+            AddLhs::Add { lhs, rhs } => CmpRhs::Add { lhs, rhs },
+            AddLhs::Sub { lhs, rhs } => CmpRhs::Sub { lhs, rhs },
+            AddLhs::Paren(e) => CmpRhs::Paren(e),
+            AddLhs::Mul { lhs, rhs } => CmpRhs::Mul { lhs, rhs },
+            AddLhs::Div { lhs, rhs } => CmpRhs::Div { lhs, rhs },
+            AddLhs::Var(s) => CmpRhs::Var(s),
+            AddLhs::IntLit(i) => CmpRhs::IntLit(i),
+            AddLhs::FloatLit(f) => CmpRhs::FloatLit(f),
+            AddLhs::BoolLit(b) => CmpRhs::BoolLit(b),
+        }
+    }
+}
+
+/// Convert AddLhs to CmpLhs (AddLhs is a subset of CmpLhs)
+impl From<AddLhs> for CmpLhs {
+    fn from(add: AddLhs) -> Self {
+        match add {
+            AddLhs::Add { lhs, rhs } => CmpLhs::Add { lhs, rhs },
+            AddLhs::Sub { lhs, rhs } => CmpLhs::Sub { lhs, rhs },
+            AddLhs::Paren(e) => CmpLhs::Paren(e),
+            AddLhs::Mul { lhs, rhs } => CmpLhs::Mul { lhs, rhs },
+            AddLhs::Div { lhs, rhs } => CmpLhs::Div { lhs, rhs },
+            AddLhs::Var(s) => CmpLhs::Var(s),
+            AddLhs::IntLit(i) => CmpLhs::IntLit(i),
+            AddLhs::FloatLit(f) => CmpLhs::FloatLit(f),
+            AddLhs::BoolLit(b) => CmpLhs::BoolLit(b),
+        }
+    }
+}
+
 /// Convert Atom to MulRhs (Atom is a subset of MulRhs)
 impl From<Atom> for MulRhs {
     fn from(atom: Atom) -> Self {
@@ -149,6 +242,7 @@ impl From<Atom> for MulRhs {
             Atom::Var(s) => MulRhs::Var(s),
             Atom::IntLit(i) => MulRhs::IntLit(i),
             Atom::FloatLit(f) => MulRhs::FloatLit(f),
+            Atom::BoolLit(b) => MulRhs::BoolLit(b),
         }
     }
 }
@@ -160,6 +254,7 @@ impl From<Atom> for MulLhs {
             Atom::Var(s) => MulLhs::Var(s),
             Atom::IntLit(i) => MulLhs::IntLit(i),
             Atom::FloatLit(f) => MulLhs::FloatLit(f),
+            Atom::BoolLit(b) => MulLhs::BoolLit(b),
         }
     }
 }
@@ -174,6 +269,7 @@ impl From<MulLhs> for AddRhs {
             MulLhs::Var(s) => AddRhs::Var(s),
             MulLhs::IntLit(i) => AddRhs::IntLit(i),
             MulLhs::FloatLit(f) => AddRhs::FloatLit(f),
+            MulLhs::BoolLit(b) => AddRhs::BoolLit(b),
         }
     }
 }
@@ -188,6 +284,7 @@ impl From<MulLhs> for AddLhs {
             MulLhs::Var(s) => AddLhs::Var(s),
             MulLhs::IntLit(i) => AddLhs::IntLit(i),
             MulLhs::FloatLit(f) => AddLhs::FloatLit(f),
+            MulLhs::BoolLit(b) => AddLhs::BoolLit(b),
         }
     }
 }
