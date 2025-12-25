@@ -216,16 +216,27 @@ where
     R: Parser<'src, &'src [Token<'src>], CmpRhs, ParseError<'src>> + Clone,
 {
     let eq_op = select! { Token::EqualsEquals(_) => "==" };
+    let neq_op = select! { Token::NotEquals(_) => "!=" };
 
     let cmp_atom = add_lhs.map(Into::into);
 
-    // Left-associative equality
-    cmp_atom.foldl(eq_op.then(cmp_rhs).repeated(), |lhs, (_op, rhs)| {
-        CmpLhs::Eq {
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-        }
-    })
+    // Left-associative equality and not-equal
+    cmp_atom.foldl(
+        choice((eq_op, neq_op)).then(cmp_rhs).repeated(),
+        |lhs, (op, rhs)| {
+            if op == "==" {
+                CmpLhs::Eq {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
+            } else {
+                CmpLhs::NotEq {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
+            }
+        },
+    )
 }
 
 /// Internal expression parser that builds the complete precedence hierarchy
@@ -641,6 +652,98 @@ mod tests {
         let expected = Expr::Eq {
             lhs: Box::new(CmpLhs::BoolLit(true)),
             rhs: Box::new(CmpRhs::BoolLit(false)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_simple_neq() {
+        // Test: 1 != 2
+        let result = parse_with_timeout(
+            "1 != 2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::NotEq {
+            lhs: Box::new(CmpLhs::IntLit(1)),
+            rhs: Box::new(CmpRhs::IntLit(2)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_neq_with_addition() {
+        // Test: 1 + 2 != 3 + 4
+        let result = parse_with_timeout(
+            "1 + 2 != 3 + 4",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::NotEq {
+            lhs: Box::new(CmpLhs::Add {
+                lhs: Box::new(AddLhs::IntLit(1)),
+                rhs: Box::new(AddRhs::IntLit(2)),
+            }),
+            rhs: Box::new(CmpRhs::Add {
+                lhs: Box::new(AddLhs::IntLit(3)),
+                rhs: Box::new(AddRhs::IntLit(4)),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_neq_left_associative() {
+        // Test: 1 != 2 != 3 should be (1 != 2) != 3
+        let result = parse_with_timeout(
+            "1 != 2 != 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::NotEq {
+            lhs: Box::new(CmpLhs::NotEq {
+                lhs: Box::new(CmpLhs::IntLit(1)),
+                rhs: Box::new(CmpRhs::IntLit(2)),
+            }),
+            rhs: Box::new(CmpRhs::IntLit(3)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_neq_with_bool() {
+        // Test: true != false
+        let result = parse_with_timeout(
+            "true != false",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::NotEq {
+            lhs: Box::new(CmpLhs::BoolLit(true)),
+            rhs: Box::new(CmpRhs::BoolLit(false)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_mixed_eq_neq() {
+        // Test: 1 == 2 != 3 should be (1 == 2) != 3
+        let result = parse_with_timeout(
+            "1 == 2 != 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::NotEq {
+            lhs: Box::new(CmpLhs::Eq {
+                lhs: Box::new(CmpLhs::IntLit(1)),
+                rhs: Box::new(CmpRhs::IntLit(2)),
+            }),
+            rhs: Box::new(CmpRhs::IntLit(3)),
         };
         assert_eq!(result.unwrap(), expected);
     }

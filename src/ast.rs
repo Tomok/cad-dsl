@@ -30,6 +30,11 @@ pub enum Expr {
     #[subenum(CmpLhs)]
     Eq { lhs: Box<CmpLhs>, rhs: Box<CmpRhs> },
 
+    // Not Equal - only in Expr and CmpLhs
+    // lhs can be NotEq, rhs cannot (enforces left-associativity and precedence)
+    #[subenum(CmpLhs)]
+    NotEq { lhs: Box<CmpLhs>, rhs: Box<CmpRhs> },
+
     // Addition - in Expr, CmpLhs, CmpRhs, AddLhs
     // lhs can be Add/Sub, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs, CmpRhs, AddLhs)]
@@ -77,6 +82,7 @@ impl std::fmt::Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expr::Eq { lhs, rhs } => write!(f, "({} == {})", lhs, rhs),
+            Expr::NotEq { lhs, rhs } => write!(f, "({} != {})", lhs, rhs),
             Expr::Add { lhs, rhs } => write!(f, "({} + {})", lhs, rhs),
             Expr::Sub { lhs, rhs } => write!(f, "({} - {})", lhs, rhs),
             Expr::Paren(inner) => write!(f, "({})", inner),
@@ -94,6 +100,7 @@ impl std::fmt::Display for CmpLhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CmpLhs::Eq { lhs, rhs } => write!(f, "({} == {})", lhs, rhs),
+            CmpLhs::NotEq { lhs, rhs } => write!(f, "({} != {})", lhs, rhs),
             CmpLhs::Add { lhs, rhs } => write!(f, "({} + {})", lhs, rhs),
             CmpLhs::Sub { lhs, rhs } => write!(f, "({} - {})", lhs, rhs),
             CmpLhs::Paren(inner) => write!(f, "({})", inner),
