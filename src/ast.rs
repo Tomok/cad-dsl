@@ -8,21 +8,24 @@ use subenum::subenum;
 ///
 /// Hierarchy with separate Left/Right-hand side types:
 /// - Expr: All variants (top-level)
-/// - CmpLhs: Eq, Add, Sub, Paren, Mul, Div, Var, IntLit, FloatLit, BoolLit (left side of ==)
-/// - CmpRhs: Paren, Add, Sub, Mul, Div, Var, IntLit, FloatLit, BoolLit (right side of ==, NO Eq)
-/// - AddLhs: Add, Sub, Paren, Mul, Div, Var, IntLit, FloatLit, BoolLit (left side of +/-)
-/// - AddRhs: Paren, Mul, Div, Var, IntLit, FloatLit, BoolLit (right side of +/-, NO Add/Sub)
-/// - MulLhs: Paren, Mul, Div, Var, IntLit, FloatLit, BoolLit (left side of *//, NO Add/Sub)
-/// - MulRhs: Paren, Var, IntLit, FloatLit, BoolLit (right side of *//, NO Mul/Div)
+/// - CmpLhs: Eq, Add, Sub, Paren, Mul, Div, Pow, Var, IntLit, FloatLit, BoolLit (left side of ==)
+/// - CmpRhs: Paren, Add, Sub, Mul, Div, Pow, Var, IntLit, FloatLit, BoolLit (right side of ==, NO Eq)
+/// - AddLhs: Add, Sub, Paren, Mul, Div, Pow, Var, IntLit, FloatLit, BoolLit (left side of +/-)
+/// - AddRhs: Paren, Mul, Div, Pow, Var, IntLit, FloatLit, BoolLit (right side of +/-, NO Add/Sub)
+/// - MulLhs: Paren, Mul, Div, Pow, Var, IntLit, FloatLit, BoolLit (left side of *//, NO Add/Sub)
+/// - MulRhs: Paren, Pow, Var, IntLit, FloatLit, BoolLit (right side of *//, NO Mul/Div)
+/// - PowLhs: Paren, Var, IntLit, FloatLit, BoolLit (left side of ^, NO operators)
+/// - PowRhs: Paren, Pow, Var, IntLit, FloatLit, BoolLit (right side of ^, allows Pow for right-associativity)
 /// - Atom: Var, IntLit, FloatLit, BoolLit (only literals and variables)
 ///
 /// This ensures:
 /// - Comparison RHS cannot contain comparison operators (enforces precedence)
 /// - Addition RHS cannot contain addition/subtraction (enforces precedence)
 /// - Multiplication RHS cannot contain multiplication/division (enforces precedence)
-/// - Left-hand sides allow recursion at the same precedence level (left-associativity)
+/// - Power is right-associative (PowRhs can contain Pow, PowLhs cannot)
+/// - Left-hand sides allow recursion at the same precedence level (left-associativity for +, -, *, /)
 /// - Right-hand sides enforce higher precedence
-#[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
+#[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     // Equality - only in Expr and CmpLhs
@@ -45,7 +48,7 @@ pub enum Expr {
     Sub { lhs: Box<AddLhs>, rhs: Box<AddRhs> },
 
     // Parentheses - in all contexts except Atom (resets precedence)
-    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs)]
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs)]
     Paren(Box<Expr>),
 
     // Multiplication - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs
@@ -57,20 +60,25 @@ pub enum Expr {
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs)]
     Div { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
 
+    // Power - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowRhs
+    // lhs cannot be Pow (enforces right-associativity), rhs can be Pow
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowRhs)]
+    Pow { lhs: Box<PowLhs>, rhs: Box<PowRhs> },
+
     // Variable reference - in all levels
-    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
     Var(String),
 
     // Integer literal - in all levels
-    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
     IntLit(i32),
 
     // Float literal - in all levels
-    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
     FloatLit(f64),
 
     // Boolean literal - in all levels
-    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
     BoolLit(bool),
 }
 
@@ -88,6 +96,7 @@ impl std::fmt::Display for Expr {
             Expr::Paren(inner) => write!(f, "({})", inner),
             Expr::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
             Expr::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            Expr::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
             Expr::Var(name) => write!(f, "{}", name),
             Expr::IntLit(value) => write!(f, "{}", value),
             Expr::FloatLit(value) => write!(f, "{}", value),
@@ -106,6 +115,7 @@ impl std::fmt::Display for CmpLhs {
             CmpLhs::Paren(inner) => write!(f, "({})", inner),
             CmpLhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
             CmpLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            CmpLhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
             CmpLhs::Var(name) => write!(f, "{}", name),
             CmpLhs::IntLit(value) => write!(f, "{}", value),
             CmpLhs::FloatLit(value) => write!(f, "{}", value),
@@ -122,6 +132,7 @@ impl std::fmt::Display for CmpRhs {
             CmpRhs::Paren(inner) => write!(f, "({})", inner),
             CmpRhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
             CmpRhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            CmpRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
             CmpRhs::Var(name) => write!(f, "{}", name),
             CmpRhs::IntLit(value) => write!(f, "{}", value),
             CmpRhs::FloatLit(value) => write!(f, "{}", value),
@@ -138,6 +149,7 @@ impl std::fmt::Display for AddLhs {
             AddLhs::Paren(inner) => write!(f, "({})", inner),
             AddLhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
             AddLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            AddLhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
             AddLhs::Var(name) => write!(f, "{}", name),
             AddLhs::IntLit(value) => write!(f, "{}", value),
             AddLhs::FloatLit(value) => write!(f, "{}", value),
@@ -152,6 +164,7 @@ impl std::fmt::Display for AddRhs {
             AddRhs::Paren(inner) => write!(f, "({})", inner),
             AddRhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
             AddRhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            AddRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
             AddRhs::Var(name) => write!(f, "{}", name),
             AddRhs::IntLit(value) => write!(f, "{}", value),
             AddRhs::FloatLit(value) => write!(f, "{}", value),
@@ -166,6 +179,7 @@ impl std::fmt::Display for MulLhs {
             MulLhs::Paren(inner) => write!(f, "({})", inner),
             MulLhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
             MulLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            MulLhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
             MulLhs::Var(name) => write!(f, "{}", name),
             MulLhs::IntLit(value) => write!(f, "{}", value),
             MulLhs::FloatLit(value) => write!(f, "{}", value),
@@ -178,10 +192,36 @@ impl std::fmt::Display for MulRhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MulRhs::Paren(inner) => write!(f, "({})", inner),
+            MulRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
             MulRhs::Var(name) => write!(f, "{}", name),
             MulRhs::IntLit(value) => write!(f, "{}", value),
             MulRhs::FloatLit(value) => write!(f, "{}", value),
             MulRhs::BoolLit(value) => write!(f, "{}", value),
+        }
+    }
+}
+
+impl std::fmt::Display for PowLhs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PowLhs::Paren(inner) => write!(f, "({})", inner),
+            PowLhs::Var(name) => write!(f, "{}", name),
+            PowLhs::IntLit(value) => write!(f, "{}", value),
+            PowLhs::FloatLit(value) => write!(f, "{}", value),
+            PowLhs::BoolLit(value) => write!(f, "{}", value),
+        }
+    }
+}
+
+impl std::fmt::Display for PowRhs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PowRhs::Paren(inner) => write!(f, "({})", inner),
+            PowRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
+            PowRhs::Var(name) => write!(f, "{}", name),
+            PowRhs::IntLit(value) => write!(f, "{}", value),
+            PowRhs::FloatLit(value) => write!(f, "{}", value),
+            PowRhs::BoolLit(value) => write!(f, "{}", value),
         }
     }
 }
@@ -210,6 +250,7 @@ impl From<AddLhs> for CmpRhs {
             AddLhs::Paren(e) => CmpRhs::Paren(e),
             AddLhs::Mul { lhs, rhs } => CmpRhs::Mul { lhs, rhs },
             AddLhs::Div { lhs, rhs } => CmpRhs::Div { lhs, rhs },
+            AddLhs::Pow { lhs, rhs } => CmpRhs::Pow { lhs, rhs },
             AddLhs::Var(s) => CmpRhs::Var(s),
             AddLhs::IntLit(i) => CmpRhs::IntLit(i),
             AddLhs::FloatLit(f) => CmpRhs::FloatLit(f),
@@ -227,6 +268,7 @@ impl From<AddLhs> for CmpLhs {
             AddLhs::Paren(e) => CmpLhs::Paren(e),
             AddLhs::Mul { lhs, rhs } => CmpLhs::Mul { lhs, rhs },
             AddLhs::Div { lhs, rhs } => CmpLhs::Div { lhs, rhs },
+            AddLhs::Pow { lhs, rhs } => CmpLhs::Pow { lhs, rhs },
             AddLhs::Var(s) => CmpLhs::Var(s),
             AddLhs::IntLit(i) => CmpLhs::IntLit(i),
             AddLhs::FloatLit(f) => CmpLhs::FloatLit(f),
@@ -266,6 +308,7 @@ impl From<MulLhs> for AddRhs {
             MulLhs::Paren(e) => AddRhs::Paren(e),
             MulLhs::Mul { lhs, rhs } => AddRhs::Mul { lhs, rhs },
             MulLhs::Div { lhs, rhs } => AddRhs::Div { lhs, rhs },
+            MulLhs::Pow { lhs, rhs } => AddRhs::Pow { lhs, rhs },
             MulLhs::Var(s) => AddRhs::Var(s),
             MulLhs::IntLit(i) => AddRhs::IntLit(i),
             MulLhs::FloatLit(f) => AddRhs::FloatLit(f),
@@ -281,10 +324,74 @@ impl From<MulLhs> for AddLhs {
             MulLhs::Paren(e) => AddLhs::Paren(e),
             MulLhs::Mul { lhs, rhs } => AddLhs::Mul { lhs, rhs },
             MulLhs::Div { lhs, rhs } => AddLhs::Div { lhs, rhs },
+            MulLhs::Pow { lhs, rhs } => AddLhs::Pow { lhs, rhs },
             MulLhs::Var(s) => AddLhs::Var(s),
             MulLhs::IntLit(i) => AddLhs::IntLit(i),
             MulLhs::FloatLit(f) => AddLhs::FloatLit(f),
             MulLhs::BoolLit(b) => AddLhs::BoolLit(b),
+        }
+    }
+}
+
+/// Convert Atom to PowLhs (Atom is a subset of PowLhs)
+impl From<Atom> for PowLhs {
+    fn from(atom: Atom) -> Self {
+        match atom {
+            Atom::Var(s) => PowLhs::Var(s),
+            Atom::IntLit(i) => PowLhs::IntLit(i),
+            Atom::FloatLit(f) => PowLhs::FloatLit(f),
+            Atom::BoolLit(b) => PowLhs::BoolLit(b),
+        }
+    }
+}
+
+/// Convert Atom to PowRhs (Atom is a subset of PowRhs)
+impl From<Atom> for PowRhs {
+    fn from(atom: Atom) -> Self {
+        match atom {
+            Atom::Var(s) => PowRhs::Var(s),
+            Atom::IntLit(i) => PowRhs::IntLit(i),
+            Atom::FloatLit(f) => PowRhs::FloatLit(f),
+            Atom::BoolLit(b) => PowRhs::BoolLit(b),
+        }
+    }
+}
+
+/// Convert PowLhs to PowRhs (PowLhs is a subset of PowRhs except for Pow)
+impl From<PowLhs> for PowRhs {
+    fn from(pow: PowLhs) -> Self {
+        match pow {
+            PowLhs::Paren(e) => PowRhs::Paren(e),
+            PowLhs::Var(s) => PowRhs::Var(s),
+            PowLhs::IntLit(i) => PowRhs::IntLit(i),
+            PowLhs::FloatLit(f) => PowRhs::FloatLit(f),
+            PowLhs::BoolLit(b) => PowRhs::BoolLit(b),
+        }
+    }
+}
+
+/// Convert PowLhs to MulRhs (PowLhs is a subset of MulRhs)
+impl From<PowLhs> for MulRhs {
+    fn from(pow: PowLhs) -> Self {
+        match pow {
+            PowLhs::Paren(e) => MulRhs::Paren(e),
+            PowLhs::Var(s) => MulRhs::Var(s),
+            PowLhs::IntLit(i) => MulRhs::IntLit(i),
+            PowLhs::FloatLit(f) => MulRhs::FloatLit(f),
+            PowLhs::BoolLit(b) => MulRhs::BoolLit(b),
+        }
+    }
+}
+
+/// Convert PowLhs to MulLhs (PowLhs is a subset of MulLhs)
+impl From<PowLhs> for MulLhs {
+    fn from(pow: PowLhs) -> Self {
+        match pow {
+            PowLhs::Paren(e) => MulLhs::Paren(e),
+            PowLhs::Var(s) => MulLhs::Var(s),
+            PowLhs::IntLit(i) => MulLhs::IntLit(i),
+            PowLhs::FloatLit(f) => MulLhs::FloatLit(f),
+            PowLhs::BoolLit(b) => MulLhs::BoolLit(b),
         }
     }
 }
