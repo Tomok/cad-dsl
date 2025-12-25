@@ -1,4 +1,5 @@
 use crate::ast::*;
+use crate::lexer::Token;
 use chumsky::prelude::*;
 
 // ============================================================================
@@ -6,53 +7,46 @@ use chumsky::prelude::*;
 // ============================================================================
 
 /// The error type used by the parser
-pub type ParseError<'a> = extra::Err<Rich<'a, char>>;
+pub type ParseError<'src> = extra::Err<Rich<'src, Token<'src>>>;
 
 // ============================================================================
 // Atomic Parsers (No recursion)
 // ============================================================================
 
-/// Parse an integer literal
-fn int_lit<'a>() -> impl Parser<'a, &'a str, i32, ParseError<'a>> + Clone {
-    text::int(10)
-        .try_map(|s: &str, span| {
-            s.parse::<i32>()
-                .map_err(|e| Rich::custom(span, format!("Invalid integer: {}", e)))
-        })
-        .labelled("integer")
+/// Parse an integer literal token
+fn int_lit<'src>() -> impl Parser<'src, &'src [Token<'src>], i32, ParseError<'src>> + Clone {
+    select! {
+        Token::IntLiteral(t) => t.value,
+    }
+    .labelled("integer")
 }
 
-/// Parse a float literal
-fn float_lit<'a>() -> impl Parser<'a, &'a str, f64, ParseError<'a>> + Clone {
-    text::int(10)
-        .then_ignore(just('.'))
-        .then(text::int(10))
-        .to_slice()
-        .try_map(|s: &str, span| {
-            s.parse::<f64>()
-                .map_err(|e| Rich::custom(span, format!("Invalid float: {}", e)))
-        })
-        .labelled("float")
+/// Parse a float literal token
+fn float_lit<'src>() -> impl Parser<'src, &'src [Token<'src>], f64, ParseError<'src>> + Clone {
+    select! {
+        Token::FloatLiteral(t) => t.value,
+    }
+    .labelled("float")
 }
 
-/// Parse a variable name (identifier)
-fn var<'a>() -> impl Parser<'a, &'a str, String, ParseError<'a>> + Clone {
-    text::ident()
-        .map(|s: &str| s.to_string())
-        .labelled("variable")
+/// Parse a variable name (identifier token)
+fn var<'src>() -> impl Parser<'src, &'src [Token<'src>], String, ParseError<'src>> + Clone {
+    select! {
+        Token::Identifier(t) => t.name.to_string(),
+    }
+    .labelled("variable")
 }
 
 /// Parse an atomic expression (Atom enum)
-fn atom<'a>() -> impl Parser<'a, &'a str, Atom, ParseError<'a>> + Clone {
+fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom, ParseError<'src>> + Clone {
     choice((
-        // Try float first (it's more specific with the decimal point requirement)
+        // Try float first (it's more specific)
         float_lit().map(Atom::FloatLit),
         // Then integer
         int_lit().map(Atom::IntLit),
         // Finally variable
         var().map(Atom::Var),
     ))
-    .padded()
     .labelled("atom")
 }
 
@@ -61,8 +55,18 @@ fn atom<'a>() -> impl Parser<'a, &'a str, Atom, ParseError<'a>> + Clone {
 // ============================================================================
 
 /// Internal expression parser without end-of-input check
-fn expr_inner<'a>() -> impl Parser<'a, &'a str, Expr, ParseError<'a>> + Clone {
+fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
     recursive(|expr_rec| {
+        // Parenthesis tokens
+        let lparen = select! { Token::LeftParen(_) => () };
+        let rparen = select! { Token::RightParen(_) => () };
+
+        // Operator tokens
+        let mul_op = select! { Token::Multiply(_) => '*' };
+        let div_op = select! { Token::Divide(_) => '/' };
+        let add_op = select! { Token::Plus(_) => '+' };
+        let sub_op = select! { Token::Minus(_) => '-' };
+
         // MulRhs: Paren, Var, IntLit, FloatLit
         let mul_rhs = choice((
             atom().map(|a| match a {
@@ -72,10 +76,9 @@ fn expr_inner<'a>() -> impl Parser<'a, &'a str, Expr, ParseError<'a>> + Clone {
             }),
             expr_rec
                 .clone()
-                .delimited_by(just('('), just(')'))
+                .delimited_by(lparen.clone(), rparen.clone())
                 .map(|e| MulRhs::Paren(Box::new(e))),
-        ))
-        .padded();
+        ));
 
         // MulLhs: Paren, Mul, Div, Var, IntLit, FloatLit
         let mul_atom = choice((
@@ -86,14 +89,13 @@ fn expr_inner<'a>() -> impl Parser<'a, &'a str, Expr, ParseError<'a>> + Clone {
             }),
             expr_rec
                 .clone()
-                .delimited_by(just('('), just(')'))
+                .delimited_by(lparen.clone(), rparen.clone())
                 .map(|e| MulLhs::Paren(Box::new(e))),
-        ))
-        .padded();
+        ));
 
         // Left-associative multiplication and division
         let mul_lhs = mul_atom.clone().foldl(
-            choice((just('*').padded(), just('/').padded()))
+            choice((mul_op, div_op))
                 .then(mul_rhs.clone())
                 .repeated(),
             |lhs, (op, rhs)| {
@@ -121,8 +123,7 @@ fn expr_inner<'a>() -> impl Parser<'a, &'a str, Expr, ParseError<'a>> + Clone {
                 MulLhs::IntLit(i) => AddRhs::IntLit(i),
                 MulLhs::FloatLit(f) => AddRhs::FloatLit(f),
             }),
-        ))
-        .padded();
+        ));
 
         // AddLhs: Add, Sub, Paren, Mul, Div, Var, IntLit, FloatLit
         let add_lhs = {
@@ -137,7 +138,7 @@ fn expr_inner<'a>() -> impl Parser<'a, &'a str, Expr, ParseError<'a>> + Clone {
 
             // Left-associative addition and subtraction
             add_atom.clone().foldl(
-                choice((just('+').padded(), just('-').padded()))
+                choice((add_op, sub_op))
                     .then(add_rhs.clone())
                     .repeated(),
                 |lhs, (op, rhs)| {
@@ -174,8 +175,8 @@ fn expr_inner<'a>() -> impl Parser<'a, &'a str, Expr, ParseError<'a>> + Clone {
 ///
 /// This is an example showing how to use `recursive()` to handle
 /// circular dependencies in the grammar.
-pub fn expr<'a>() -> impl Parser<'a, &'a str, Expr, ParseError<'a>> + Clone {
-    expr_inner().padded().then_ignore(end())
+pub fn expr<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
+    expr_inner().then_ignore(end())
 }
 
 // ============================================================================
@@ -185,21 +186,32 @@ pub fn expr<'a>() -> impl Parser<'a, &'a str, Expr, ParseError<'a>> + Clone {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lexer;
     use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
 
-    /// Helper function to run a parser test with a timeout
+    /// Helper function to parse with timeout
     /// This prevents tests from hanging indefinitely if there's infinite recursion
+    ///
+    /// Note: input must be 'static for thread safety
     fn parse_with_timeout<T: Send + 'static>(
         input: &'static str,
-        parser: impl Fn(&str) -> Result<T, Vec<Rich<char>>> + Send + 'static,
+        parse_fn: impl FnOnce(&'static [Token<'static>]) -> Result<T, Vec<Rich<'static, Token<'static>>>>
+            + Send
+            + 'static,
         timeout: Duration,
     ) -> Result<T, String> {
+        // First tokenize the input - since input is 'static, tokens will be too
+        let tokens = lexer::tokenize(input).map_err(|e| format!("Lexer error: {}", e))?;
+
+        // Make tokens static by leaking (only for tests)
+        let tokens_static: &'static [Token<'static>] = Box::leak(tokens.into_boxed_slice());
+
         let (tx, rx) = mpsc::channel();
 
         thread::spawn(move || {
-            let result = parser(input);
+            let result = parse_fn(tokens_static);
             let _ = tx.send(result);
         });
 
