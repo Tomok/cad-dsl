@@ -178,7 +178,7 @@ mod tests {
             rhs: Box::new(MulRhs::Var("b".to_string())),
         };
         match mul {
-            Expr::Mul { .. } => {},
+            Expr::Mul { .. } => {}
             _ => panic!("Expected Mul"),
         }
     }
@@ -190,7 +190,7 @@ mod tests {
             rhs: Box::new(AddRhs::Var("b".to_string())),
         };
         match add {
-            Expr::Add { .. } => {},
+            Expr::Add { .. } => {}
             _ => panic!("Expected Add"),
         }
     }
