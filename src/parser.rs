@@ -84,83 +84,114 @@ fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom, ParseError<'src>
 // Recursive Expression Parsers
 // ============================================================================
 
+/// Parser for multiplication right-hand side (MulRhs)
+fn mul_rhs_parser<'src, E>(
+    expr_rec: E,
+) -> impl Parser<'src, &'src [Token<'src>], MulRhs, ParseError<'src>> + Clone
+where
+    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
+{
+    let lparen = select! { Token::LeftParen(_) => () };
+    let rparen = select! { Token::RightParen(_) => () };
+
+    choice((
+        atom().map(Into::into),
+        expr_rec
+            .delimited_by(lparen, rparen)
+            .map(|e| MulRhs::Paren(Box::new(e))),
+    ))
+}
+
+/// Parser for multiplication left-hand side (MulLhs) with operators
+fn mul_lhs_parser<'src, E, R>(
+    expr_rec: E,
+    mul_rhs: R,
+) -> impl Parser<'src, &'src [Token<'src>], MulLhs, ParseError<'src>> + Clone
+where
+    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
+    R: Parser<'src, &'src [Token<'src>], MulRhs, ParseError<'src>> + Clone,
+{
+    let lparen = select! { Token::LeftParen(_) => () };
+    let rparen = select! { Token::RightParen(_) => () };
+    let mul_op = select! { Token::Multiply(_) => '*' };
+    let div_op = select! { Token::Divide(_) => '/' };
+
+    let mul_atom = choice((
+        atom().map(Into::into),
+        expr_rec
+            .delimited_by(lparen, rparen)
+            .map(|e| MulLhs::Paren(Box::new(e))),
+    ));
+
+    // Left-associative multiplication and division
+    mul_atom.foldl(
+        choice((mul_op, div_op)).then(mul_rhs).repeated(),
+        |lhs, (op, rhs)| {
+            if op == '*' {
+                MulLhs::Mul {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
+            } else {
+                MulLhs::Div {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
+            }
+        },
+    )
+}
+
+/// Parser for addition right-hand side (AddRhs)
+fn add_rhs_parser<'src, M>(
+    mul_lhs: M,
+) -> impl Parser<'src, &'src [Token<'src>], AddRhs, ParseError<'src>> + Clone
+where
+    M: Parser<'src, &'src [Token<'src>], MulLhs, ParseError<'src>> + Clone,
+{
+    mul_lhs.map(Into::into)
+}
+
+/// Parser for addition left-hand side (AddLhs) with operators
+fn add_lhs_parser<'src, M, R>(
+    mul_lhs: M,
+    add_rhs: R,
+) -> impl Parser<'src, &'src [Token<'src>], AddLhs, ParseError<'src>> + Clone
+where
+    M: Parser<'src, &'src [Token<'src>], MulLhs, ParseError<'src>> + Clone,
+    R: Parser<'src, &'src [Token<'src>], AddRhs, ParseError<'src>> + Clone,
+{
+    let add_op = select! { Token::Plus(_) => '+' };
+    let sub_op = select! { Token::Minus(_) => '-' };
+
+    let add_atom = mul_lhs.map(Into::into);
+
+    // Left-associative addition and subtraction
+    add_atom.foldl(
+        choice((add_op, sub_op)).then(add_rhs).repeated(),
+        |lhs, (op, rhs)| {
+            if op == '+' {
+                AddLhs::Add {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
+            } else {
+                AddLhs::Sub {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
+            }
+        },
+    )
+}
+
+/// Internal expression parser that builds the complete precedence hierarchy
 fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
     recursive(|expr_rec| {
-        // Parenthesis tokens
-        let lparen = select! { Token::LeftParen(_) => () };
-        let rparen = select! { Token::RightParen(_) => () };
-
-        // Operator tokens
-        let mul_op = select! { Token::Multiply(_) => '*' };
-        let div_op = select! { Token::Divide(_) => '/' };
-        let add_op = select! { Token::Plus(_) => '+' };
-        let sub_op = select! { Token::Minus(_) => '-' };
-
-        // MulRhs: Paren, Var, IntLit, FloatLit
-        let mul_rhs = choice((
-            atom().map(Into::into),
-            expr_rec
-                .clone()
-                .delimited_by(lparen, rparen)
-                .map(|e| MulRhs::Paren(Box::new(e))),
-        ));
-
-        // MulLhs: Paren, Mul, Div, Var, IntLit, FloatLit
-        let mul_atom = choice((
-            atom().map(Into::into),
-            expr_rec
-                .clone()
-                .delimited_by(lparen, rparen)
-                .map(|e| MulLhs::Paren(Box::new(e))),
-        ));
-
-        // Left-associative multiplication and division
-        let mul_lhs = mul_atom.clone().foldl(
-            choice((mul_op, div_op))
-                .then(mul_rhs.clone())
-                .repeated(),
-            |lhs, (op, rhs)| {
-                if op == '*' {
-                    MulLhs::Mul {
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    }
-                } else {
-                    MulLhs::Div {
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(rhs),
-                    }
-                }
-            },
-        );
-
-        // AddRhs: Paren, Mul, Div, Var, IntLit, FloatLit
-        let add_rhs = mul_lhs.clone().map(Into::into);
-
-        // AddLhs: Add, Sub, Paren, Mul, Div, Var, IntLit, FloatLit
-        let add_lhs = {
-            let add_atom = mul_lhs.clone().map(Into::into);
-
-            // Left-associative addition and subtraction
-            add_atom.clone().foldl(
-                choice((add_op, sub_op))
-                    .then(add_rhs.clone())
-                    .repeated(),
-                |lhs, (op, rhs)| {
-                    if op == '+' {
-                        AddLhs::Add {
-                            lhs: Box::new(lhs),
-                            rhs: Box::new(rhs),
-                        }
-                    } else {
-                        AddLhs::Sub {
-                            lhs: Box::new(lhs),
-                            rhs: Box::new(rhs),
-                        }
-                    }
-                },
-            )
-        };
+        let mul_rhs = mul_rhs_parser(expr_rec.clone());
+        let mul_lhs = mul_lhs_parser(expr_rec, mul_rhs.clone());
+        let add_rhs = add_rhs_parser(mul_lhs.clone());
+        let add_lhs = add_lhs_parser(mul_lhs, add_rhs);
 
         // Convert AddLhs to Expr
         add_lhs.map(Into::into)
