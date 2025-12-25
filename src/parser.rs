@@ -67,6 +67,15 @@ fn var<'src>() -> impl Parser<'src, &'src [Token<'src>], String, ParseError<'src
     .labelled("variable")
 }
 
+/// Parse a boolean literal token
+fn bool_lit<'src>() -> impl Parser<'src, &'src [Token<'src>], bool, ParseError<'src>> + Clone {
+    select! {
+        Token::True(_) => true,
+        Token::False(_) => false,
+    }
+    .labelled("boolean")
+}
+
 /// Parse an atomic expression (Atom enum)
 fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom, ParseError<'src>> + Clone {
     choice((
@@ -74,6 +83,8 @@ fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom, ParseError<'src>
         float_lit().map(Atom::FloatLit),
         // Then integer
         int_lit().map(Atom::IntLit),
+        // Then boolean
+        bool_lit().map(Atom::BoolLit),
         // Finally variable
         var().map(Atom::Var),
     ))
@@ -358,6 +369,66 @@ mod tests {
             Duration::from_secs(1),
         );
         assert_eq!(result.unwrap(), Atom::Var("x".to_string()));
+    }
+
+    #[test]
+    fn test_bool_lit_true() {
+        let result = parse_with_timeout(
+            "true",
+            |input| bool_lit().parse(input).into_result(),
+            Duration::from_secs(1),
+        );
+        assert_eq!(result.unwrap(), true);
+    }
+
+    #[test]
+    fn test_bool_lit_false() {
+        let result = parse_with_timeout(
+            "false",
+            |input| bool_lit().parse(input).into_result(),
+            Duration::from_secs(1),
+        );
+        assert_eq!(result.unwrap(), false);
+    }
+
+    #[test]
+    fn test_atom_bool_true() {
+        let result = parse_with_timeout(
+            "true",
+            |input| atom().parse(input).into_result(),
+            Duration::from_secs(1),
+        );
+        assert_eq!(result.unwrap(), Atom::BoolLit(true));
+    }
+
+    #[test]
+    fn test_atom_bool_false() {
+        let result = parse_with_timeout(
+            "false",
+            |input| atom().parse(input).into_result(),
+            Duration::from_secs(1),
+        );
+        assert_eq!(result.unwrap(), Atom::BoolLit(false));
+    }
+
+    #[test]
+    fn test_expr_bool_true() {
+        let result = parse_with_timeout(
+            "true",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+        assert_eq!(result.unwrap(), Expr::BoolLit(true));
+    }
+
+    #[test]
+    fn test_expr_bool_false() {
+        let result = parse_with_timeout(
+            "false",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+        assert_eq!(result.unwrap(), Expr::BoolLit(false));
     }
 
     #[test]

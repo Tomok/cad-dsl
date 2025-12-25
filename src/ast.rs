@@ -55,6 +55,10 @@ pub enum Expr {
     // Float literal - in all levels
     #[subenum(AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
     FloatLit(f64),
+
+    // Boolean literal - in all levels
+    #[subenum(AddLhs, AddRhs, MulLhs, MulRhs, Atom)]
+    BoolLit(bool),
 }
 
 // ============================================================================
@@ -72,6 +76,7 @@ impl std::fmt::Display for Expr {
             Expr::Var(name) => write!(f, "{}", name),
             Expr::IntLit(value) => write!(f, "{}", value),
             Expr::FloatLit(value) => write!(f, "{}", value),
+            Expr::BoolLit(value) => write!(f, "{}", value),
         }
     }
 }
@@ -87,6 +92,7 @@ impl std::fmt::Display for AddLhs {
             AddLhs::Var(name) => write!(f, "{}", name),
             AddLhs::IntLit(value) => write!(f, "{}", value),
             AddLhs::FloatLit(value) => write!(f, "{}", value),
+            AddLhs::BoolLit(value) => write!(f, "{}", value),
         }
     }
 }
@@ -100,6 +106,7 @@ impl std::fmt::Display for AddRhs {
             AddRhs::Var(name) => write!(f, "{}", name),
             AddRhs::IntLit(value) => write!(f, "{}", value),
             AddRhs::FloatLit(value) => write!(f, "{}", value),
+            AddRhs::BoolLit(value) => write!(f, "{}", value),
         }
     }
 }
@@ -113,6 +120,7 @@ impl std::fmt::Display for MulLhs {
             MulLhs::Var(name) => write!(f, "{}", name),
             MulLhs::IntLit(value) => write!(f, "{}", value),
             MulLhs::FloatLit(value) => write!(f, "{}", value),
+            MulLhs::BoolLit(value) => write!(f, "{}", value),
         }
     }
 }
@@ -124,6 +132,7 @@ impl std::fmt::Display for MulRhs {
             MulRhs::Var(name) => write!(f, "{}", name),
             MulRhs::IntLit(value) => write!(f, "{}", value),
             MulRhs::FloatLit(value) => write!(f, "{}", value),
+            MulRhs::BoolLit(value) => write!(f, "{}", value),
         }
     }
 }
@@ -134,6 +143,7 @@ impl std::fmt::Display for Atom {
             Atom::Var(name) => write!(f, "{}", name),
             Atom::IntLit(value) => write!(f, "{}", value),
             Atom::FloatLit(value) => write!(f, "{}", value),
+            Atom::BoolLit(value) => write!(f, "{}", value),
         }
     }
 }
@@ -149,6 +159,7 @@ impl From<Atom> for MulRhs {
             Atom::Var(s) => MulRhs::Var(s),
             Atom::IntLit(i) => MulRhs::IntLit(i),
             Atom::FloatLit(f) => MulRhs::FloatLit(f),
+            Atom::BoolLit(b) => MulRhs::BoolLit(b),
         }
     }
 }
@@ -160,6 +171,7 @@ impl From<Atom> for MulLhs {
             Atom::Var(s) => MulLhs::Var(s),
             Atom::IntLit(i) => MulLhs::IntLit(i),
             Atom::FloatLit(f) => MulLhs::FloatLit(f),
+            Atom::BoolLit(b) => MulLhs::BoolLit(b),
         }
     }
 }
@@ -174,6 +186,7 @@ impl From<MulLhs> for AddRhs {
             MulLhs::Var(s) => AddRhs::Var(s),
             MulLhs::IntLit(i) => AddRhs::IntLit(i),
             MulLhs::FloatLit(f) => AddRhs::FloatLit(f),
+            MulLhs::BoolLit(b) => AddRhs::BoolLit(b),
         }
     }
 }
@@ -188,6 +201,7 @@ impl From<MulLhs> for AddLhs {
             MulLhs::Var(s) => AddLhs::Var(s),
             MulLhs::IntLit(i) => AddLhs::IntLit(i),
             MulLhs::FloatLit(f) => AddLhs::FloatLit(f),
+            MulLhs::BoolLit(b) => AddLhs::BoolLit(b),
         }
     }
 }
