@@ -225,8 +225,8 @@ pub fn report_parse_errors<'src>(
         // Note: This requires the tokens to have proper span information
         let offset = span.start;
 
-        let mut report = Report::build(ReportKind::Error, filename, offset)
-            .with_message("Parse error");
+        let mut report =
+            Report::build(ReportKind::Error, filename, offset).with_message("Parse error");
 
         // Add the main error label
         report = report.with_label(
@@ -250,7 +250,10 @@ pub fn report_parse_errors<'src>(
             report = report.with_help("Unexpected end of input");
         }
 
-        report.finish().eprint((filename, Source::from(source))).unwrap();
+        report
+            .finish()
+            .eprint((filename, Source::from(source)))
+            .unwrap();
     }
 }
 
@@ -272,9 +275,11 @@ mod tests {
     /// Note: input must be 'static for thread safety
     fn parse_with_timeout<T: Send + 'static>(
         input: &'static str,
-        parse_fn: impl FnOnce(&'static [Token<'static>]) -> Result<T, Vec<Rich<'static, Token<'static>>>>
-            + Send
-            + 'static,
+        parse_fn: impl FnOnce(
+            &'static [Token<'static>],
+        ) -> Result<T, Vec<Rich<'static, Token<'static>>>>
+        + Send
+        + 'static,
         timeout: Duration,
     ) -> Result<T, String> {
         // First tokenize the input - since input is 'static, tokens will be too

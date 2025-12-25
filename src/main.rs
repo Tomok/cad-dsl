@@ -2,8 +2,8 @@ mod ast;
 mod lexer;
 mod parser;
 
-use clap::{Parser, Subcommand};
 use chumsky::Parser as _;
+use clap::{Parser, Subcommand};
 use lexer::TokenTrait;
 use std::fs;
 
