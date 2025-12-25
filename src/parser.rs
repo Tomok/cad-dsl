@@ -54,7 +54,6 @@ fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom, ParseError<'src>
 // Recursive Expression Parsers
 // ============================================================================
 
-/// Internal expression parser without end-of-input check
 fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
     recursive(|expr_rec| {
         // Parenthesis tokens
@@ -72,7 +71,7 @@ fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError
             atom().map(Into::into),
             expr_rec
                 .clone()
-                .delimited_by(lparen.clone(), rparen.clone())
+                .delimited_by(lparen, rparen)
                 .map(|e| MulRhs::Paren(Box::new(e))),
         ));
 
@@ -81,7 +80,7 @@ fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError
             atom().map(Into::into),
             expr_rec
                 .clone()
-                .delimited_by(lparen.clone(), rparen.clone())
+                .delimited_by(lparen, rparen)
                 .map(|e| MulLhs::Paren(Box::new(e))),
         ));
 
@@ -138,10 +137,6 @@ fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError
     })
 }
 
-/// Parse a complete expression with all precedence levels
-///
-/// This is an example showing how to use `recursive()` to handle
-/// circular dependencies in the grammar.
 pub fn expr<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
     expr_inner().then_ignore(end())
 }
@@ -200,11 +195,11 @@ mod tests {
     #[test]
     fn test_float_lit() {
         let result = parse_with_timeout(
-            "3.14",
+            "3.5",
             |input| float_lit().parse(input).into_result(),
             Duration::from_secs(1),
         );
-        assert_eq!(result.unwrap(), 3.14);
+        assert_eq!(result.unwrap(), 3.5);
     }
 
     #[test]
@@ -230,11 +225,11 @@ mod tests {
     #[test]
     fn test_atom_float() {
         let result = parse_with_timeout(
-            "3.14",
+            "3.5",
             |input| atom().parse(input).into_result(),
             Duration::from_secs(1),
         );
-        assert_eq!(result.unwrap(), Atom::FloatLit(3.14));
+        assert_eq!(result.unwrap(), Atom::FloatLit(3.5));
     }
 
     #[test]
