@@ -86,10 +86,12 @@ Tests use timeout mechanisms to prevent infinite loops during development.
 
 Currently implements:
 - Complete lexical analysis for TextCAD syntax
-- Expression parsing with proper operator precedence
+- Expression parsing with proper operator precedence (arithmetic only)
 - Error reporting infrastructure
 
 The language specification in `docs/TEXTCAD_LANGUAGE_SPEC.md` defines the full TextCAD language, including constraints, structs, transforms, and the standard library. The current implementation focuses on the foundational parsing infrastructure.
+
+See `docs/AST_PARSING_TODO.md` for a detailed checklist of parsing features aligned with the language specification.
 
 ## Dependencies
 
