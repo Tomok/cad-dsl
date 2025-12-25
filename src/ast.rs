@@ -139,6 +139,60 @@ impl std::fmt::Display for Atom {
 }
 
 // ============================================================================
+// Additional From Implementations for Parser Convenience
+// ============================================================================
+
+/// Convert Atom to MulRhs (Atom is a subset of MulRhs)
+impl From<Atom> for MulRhs {
+    fn from(atom: Atom) -> Self {
+        match atom {
+            Atom::Var(s) => MulRhs::Var(s),
+            Atom::IntLit(i) => MulRhs::IntLit(i),
+            Atom::FloatLit(f) => MulRhs::FloatLit(f),
+        }
+    }
+}
+
+/// Convert Atom to MulLhs (Atom is a subset of MulLhs)
+impl From<Atom> for MulLhs {
+    fn from(atom: Atom) -> Self {
+        match atom {
+            Atom::Var(s) => MulLhs::Var(s),
+            Atom::IntLit(i) => MulLhs::IntLit(i),
+            Atom::FloatLit(f) => MulLhs::FloatLit(f),
+        }
+    }
+}
+
+/// Convert MulLhs to AddRhs (MulLhs is a subset of AddRhs)
+impl From<MulLhs> for AddRhs {
+    fn from(mul: MulLhs) -> Self {
+        match mul {
+            MulLhs::Paren(e) => AddRhs::Paren(e),
+            MulLhs::Mul { lhs, rhs } => AddRhs::Mul { lhs, rhs },
+            MulLhs::Div { lhs, rhs } => AddRhs::Div { lhs, rhs },
+            MulLhs::Var(s) => AddRhs::Var(s),
+            MulLhs::IntLit(i) => AddRhs::IntLit(i),
+            MulLhs::FloatLit(f) => AddRhs::FloatLit(f),
+        }
+    }
+}
+
+/// Convert MulLhs to AddLhs (MulLhs is a subset of AddLhs)
+impl From<MulLhs> for AddLhs {
+    fn from(mul: MulLhs) -> Self {
+        match mul {
+            MulLhs::Paren(e) => AddLhs::Paren(e),
+            MulLhs::Mul { lhs, rhs } => AddLhs::Mul { lhs, rhs },
+            MulLhs::Div { lhs, rhs } => AddLhs::Div { lhs, rhs },
+            MulLhs::Var(s) => AddLhs::Var(s),
+            MulLhs::IntLit(i) => AddLhs::IntLit(i),
+            MulLhs::FloatLit(f) => AddLhs::FloatLit(f),
+        }
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 

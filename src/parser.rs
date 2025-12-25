@@ -69,11 +69,7 @@ fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError
 
         // MulRhs: Paren, Var, IntLit, FloatLit
         let mul_rhs = choice((
-            atom().map(|a| match a {
-                Atom::Var(s) => MulRhs::Var(s),
-                Atom::IntLit(i) => MulRhs::IntLit(i),
-                Atom::FloatLit(f) => MulRhs::FloatLit(f),
-            }),
+            atom().map(Into::into),
             expr_rec
                 .clone()
                 .delimited_by(lparen.clone(), rparen.clone())
@@ -82,11 +78,7 @@ fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError
 
         // MulLhs: Paren, Mul, Div, Var, IntLit, FloatLit
         let mul_atom = choice((
-            atom().map(|a| match a {
-                Atom::Var(s) => MulLhs::Var(s),
-                Atom::IntLit(i) => MulLhs::IntLit(i),
-                Atom::FloatLit(f) => MulLhs::FloatLit(f),
-            }),
+            atom().map(Into::into),
             expr_rec
                 .clone()
                 .delimited_by(lparen.clone(), rparen.clone())
@@ -114,27 +106,11 @@ fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError
         );
 
         // AddRhs: Paren, Mul, Div, Var, IntLit, FloatLit
-        let add_rhs = choice((
-            mul_lhs.clone().map(|m| match m {
-                MulLhs::Paren(e) => AddRhs::Paren(e),
-                MulLhs::Mul { lhs, rhs } => AddRhs::Mul { lhs, rhs },
-                MulLhs::Div { lhs, rhs } => AddRhs::Div { lhs, rhs },
-                MulLhs::Var(s) => AddRhs::Var(s),
-                MulLhs::IntLit(i) => AddRhs::IntLit(i),
-                MulLhs::FloatLit(f) => AddRhs::FloatLit(f),
-            }),
-        ));
+        let add_rhs = mul_lhs.clone().map(Into::into);
 
         // AddLhs: Add, Sub, Paren, Mul, Div, Var, IntLit, FloatLit
         let add_lhs = {
-            let add_atom = mul_lhs.clone().map(|m| match m {
-                MulLhs::Paren(e) => AddLhs::Paren(e),
-                MulLhs::Mul { lhs, rhs } => AddLhs::Mul { lhs, rhs },
-                MulLhs::Div { lhs, rhs } => AddLhs::Div { lhs, rhs },
-                MulLhs::Var(s) => AddLhs::Var(s),
-                MulLhs::IntLit(i) => AddLhs::IntLit(i),
-                MulLhs::FloatLit(f) => AddLhs::FloatLit(f),
-            });
+            let add_atom = mul_lhs.clone().map(Into::into);
 
             // Left-associative addition and subtraction
             add_atom.clone().foldl(
@@ -158,16 +134,7 @@ fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError
         };
 
         // Convert AddLhs to Expr
-        add_lhs.map(|a| match a {
-            AddLhs::Add { lhs, rhs } => Expr::Add { lhs, rhs },
-            AddLhs::Sub { lhs, rhs } => Expr::Sub { lhs, rhs },
-            AddLhs::Paren(e) => Expr::Paren(e),
-            AddLhs::Mul { lhs, rhs } => Expr::Mul { lhs, rhs },
-            AddLhs::Div { lhs, rhs } => Expr::Div { lhs, rhs },
-            AddLhs::Var(s) => Expr::Var(s),
-            AddLhs::IntLit(i) => Expr::IntLit(i),
-            AddLhs::FloatLit(f) => Expr::FloatLit(f),
-        })
+        add_lhs.map(Into::into)
     })
 }
 
