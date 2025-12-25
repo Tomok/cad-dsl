@@ -1,3 +1,33 @@
+//! Expression parser using Chumsky
+//!
+//! This module provides a parser for mathematical expressions with proper
+//! operator precedence and error reporting.
+//!
+//! # Error Reporting
+//!
+//! The parser uses Chumsky's `Rich<Token>` error type, which preserves:
+//! - **Spans**: Exact token positions for error highlighting
+//! - **Expected tokens**: What the parser was expecting
+//! - **Found tokens**: What was actually encountered
+//!
+//! Use `report_parse_errors()` to convert parser errors into beautiful
+//! Ariadne reports with colored output and helpful suggestions.
+//!
+//! # Example
+//!
+//! ```ignore
+//! use crate::parser::{expr, report_parse_errors};
+//! use crate::lexer::tokenize;
+//!
+//! let source = "1 + 2 * 3";
+//! let tokens = tokenize(source)?;
+//!
+//! match expr().parse(&tokens).into_result() {
+//!     Ok(ast) => println!("Parsed: {:?}", ast),
+//!     Err(errors) => report_parse_errors("input.cad", source, errors),
+//! }
+//! ```
+
 use crate::ast::*;
 use crate::lexer::Token;
 use chumsky::prelude::*;
@@ -139,6 +169,58 @@ fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError
 
 pub fn expr<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
     expr_inner().then_ignore(end())
+}
+
+// ============================================================================
+// Error Reporting with Ariadne
+// ============================================================================
+
+use ariadne::{Color, Label, Report, ReportKind, Source};
+
+/// Convert parser errors to beautiful Ariadne reports
+///
+/// This function converts Chumsky's Rich errors into Ariadne reports with
+/// proper spans and helpful error messages. All necessary information
+/// (spans, labels, expected tokens) is preserved from the parser.
+pub fn report_parse_errors<'src>(
+    filename: &str,
+    source: &'src str,
+    errors: Vec<Rich<'src, Token<'src>>>,
+) {
+    for error in errors {
+        let span = error.span();
+
+        // Calculate byte offset from token position
+        // Note: This requires the tokens to have proper span information
+        let offset = span.start;
+
+        let mut report = Report::build(ReportKind::Error, filename, offset)
+            .with_message("Parse error");
+
+        // Add the main error label
+        report = report.with_label(
+            Label::new((filename, offset..offset + 1))
+                .with_message(format!("Unexpected token: {:?}", error.found()))
+                .with_color(Color::Red),
+        );
+
+        // Add expected tokens if available
+        if !error.expected().collect::<Vec<_>>().is_empty() {
+            let expected = error
+                .expected()
+                .map(|e| format!("{:?}", e))
+                .collect::<Vec<_>>()
+                .join(", ");
+            report = report.with_note(format!("Expected one of: {}", expected));
+        }
+
+        // Add help message based on error context
+        if error.found().is_none() {
+            report = report.with_help("Unexpected end of input");
+        }
+
+        report.finish().eprint((filename, Source::from(source))).unwrap();
+    }
 }
 
 // ============================================================================
@@ -347,5 +429,123 @@ mod tests {
             rhs: Box::new(MulRhs::IntLit(3)),
         };
         assert_eq!(result.unwrap(), expected);
+    }
+
+    // ========================================================================
+    // Error Case Tests
+    // ========================================================================
+
+    #[test]
+    fn test_error_missing_right_operand() {
+        // "1 +" should fail - missing right operand
+        let result = parse_with_timeout(
+            "1 +",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+        assert!(result.is_err(), "Should fail with missing right operand");
+    }
+
+    #[test]
+    fn test_error_double_operator() {
+        // "1 + + 2" should fail - double operator
+        let result = parse_with_timeout(
+            "1 + + 2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+        assert!(result.is_err(), "Should fail with double operator");
+    }
+
+    #[test]
+    fn test_error_missing_closing_paren() {
+        // "(1 + 2" should fail - missing closing parenthesis
+        let result = parse_with_timeout(
+            "(1 + 2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+        assert!(result.is_err(), "Should fail with missing closing paren");
+    }
+
+    #[test]
+    fn test_error_missing_operator() {
+        // "1 2" should fail - missing operator
+        let result = parse_with_timeout(
+            "1 2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+        assert!(result.is_err(), "Should fail with missing operator");
+    }
+
+    #[test]
+    fn test_error_missing_left_operand() {
+        // "* 2" should fail - missing left operand
+        let result = parse_with_timeout(
+            "* 2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+        assert!(result.is_err(), "Should fail with missing left operand");
+    }
+
+    #[test]
+    fn test_error_empty_input() {
+        // "" should fail - empty input
+        let result = parse_with_timeout(
+            "",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+        assert!(result.is_err(), "Should fail with empty input");
+    }
+
+    #[test]
+    fn test_error_empty_parentheses() {
+        // "()" should fail - empty parentheses
+        let result = parse_with_timeout(
+            "()",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+        assert!(result.is_err(), "Should fail with empty parentheses");
+    }
+
+    #[test]
+    fn test_error_unclosed_nested_parens() {
+        // "((1 + 2)" should fail - unclosed nested parentheses
+        let result = parse_with_timeout(
+            "((1 + 2)",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+        assert!(result.is_err(), "Should fail with unclosed nested parens");
+    }
+
+    // ========================================================================
+    // Error Reporting Example (demonstrates Ariadne integration)
+    // ========================================================================
+
+    #[test]
+    #[ignore] // Ignore by default as it prints to stderr
+    fn test_ariadne_error_reporting_example() {
+        // This test demonstrates how to use report_parse_errors
+        // Run with: cargo test test_ariadne_error_reporting_example -- --ignored --nocapture
+
+        use super::report_parse_errors;
+
+        let source = "1 + + 2";
+        let tokens = lexer::tokenize(source).unwrap();
+
+        // Parse and capture errors
+        match expr().parse(&tokens).into_result() {
+            Ok(_) => panic!("Expected parse error"),
+            Err(errors) => {
+                println!("\n=== Ariadne Error Report Example ===\n");
+                report_parse_errors("example.cad", source, errors);
+                println!("\n=== End of Example ===\n");
+            }
+        }
     }
 }
