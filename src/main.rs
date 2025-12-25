@@ -1,5 +1,6 @@
 mod ast;
 mod lexer;
+mod parser;
 
 use clap::{Parser, Subcommand};
 use lexer::TokenTrait;
