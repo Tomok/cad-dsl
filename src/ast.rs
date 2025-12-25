@@ -250,6 +250,7 @@ impl From<AddLhs> for CmpRhs {
             AddLhs::Paren(e) => CmpRhs::Paren(e),
             AddLhs::Mul { lhs, rhs } => CmpRhs::Mul { lhs, rhs },
             AddLhs::Div { lhs, rhs } => CmpRhs::Div { lhs, rhs },
+            AddLhs::Pow { lhs, rhs } => CmpRhs::Pow { lhs, rhs },
             AddLhs::Var(s) => CmpRhs::Var(s),
             AddLhs::IntLit(i) => CmpRhs::IntLit(i),
             AddLhs::FloatLit(f) => CmpRhs::FloatLit(f),
@@ -267,6 +268,7 @@ impl From<AddLhs> for CmpLhs {
             AddLhs::Paren(e) => CmpLhs::Paren(e),
             AddLhs::Mul { lhs, rhs } => CmpLhs::Mul { lhs, rhs },
             AddLhs::Div { lhs, rhs } => CmpLhs::Div { lhs, rhs },
+            AddLhs::Pow { lhs, rhs } => CmpLhs::Pow { lhs, rhs },
             AddLhs::Var(s) => CmpLhs::Var(s),
             AddLhs::IntLit(i) => CmpLhs::IntLit(i),
             AddLhs::FloatLit(f) => CmpLhs::FloatLit(f),
@@ -306,6 +308,7 @@ impl From<MulLhs> for AddRhs {
             MulLhs::Paren(e) => AddRhs::Paren(e),
             MulLhs::Mul { lhs, rhs } => AddRhs::Mul { lhs, rhs },
             MulLhs::Div { lhs, rhs } => AddRhs::Div { lhs, rhs },
+            MulLhs::Pow { lhs, rhs } => AddRhs::Pow { lhs, rhs },
             MulLhs::Var(s) => AddRhs::Var(s),
             MulLhs::IntLit(i) => AddRhs::IntLit(i),
             MulLhs::FloatLit(f) => AddRhs::FloatLit(f),
@@ -350,6 +353,19 @@ impl From<Atom> for PowRhs {
             Atom::IntLit(i) => PowRhs::IntLit(i),
             Atom::FloatLit(f) => PowRhs::FloatLit(f),
             Atom::BoolLit(b) => PowRhs::BoolLit(b),
+        }
+    }
+}
+
+/// Convert PowLhs to PowRhs (PowLhs is a subset of PowRhs except for Pow)
+impl From<PowLhs> for PowRhs {
+    fn from(pow: PowLhs) -> Self {
+        match pow {
+            PowLhs::Paren(e) => PowRhs::Paren(e),
+            PowLhs::Var(s) => PowRhs::Var(s),
+            PowLhs::IntLit(i) => PowRhs::IntLit(i),
+            PowLhs::FloatLit(f) => PowRhs::FloatLit(f),
+            PowLhs::BoolLit(b) => PowRhs::BoolLit(b),
         }
     }
 }

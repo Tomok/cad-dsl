@@ -95,10 +95,10 @@ fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom, ParseError<'src>
 // Recursive Expression Parsers
 // ============================================================================
 
-/// Parser for multiplication right-hand side (MulRhs)
-fn mul_rhs_parser<'src, E>(
+/// Parser for power base (PowLhs) - just atoms and parens, no operators
+fn pow_lhs_parser<'src, E>(
     expr_rec: E,
-) -> impl Parser<'src, &'src [Token<'src>], MulRhs, ParseError<'src>> + Clone
+) -> impl Parser<'src, &'src [Token<'src>], PowLhs, ParseError<'src>> + Clone
 where
     E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
 {
@@ -109,26 +109,97 @@ where
         atom().map(Into::into),
         expr_rec
             .delimited_by(lparen, rparen)
+            .map(|e| PowLhs::Paren(Box::new(e))),
+    ))
+}
+
+/// Parser for power right-hand side (PowRhs) - can contain Pow recursively
+fn pow_rhs_parser<'src, E>(
+    _expr_rec: E,
+    pow_lhs: impl Parser<'src, &'src [Token<'src>], PowLhs, ParseError<'src>> + Clone + 'src,
+) -> impl Parser<'src, &'src [Token<'src>], PowRhs, ParseError<'src>> + Clone
+where
+    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
+{
+    let pow_op = select! { Token::Power(_) => () };
+
+    // Right-associative: base (^ rhs)?
+    // rhs can recursively contain power operations
+    recursive(|pow_rhs_rec| {
+        let base_parser = pow_lhs.clone();
+        base_parser.then(pow_op.clone().then(pow_rhs_rec).or_not()).map(|(base, rest)| {
+            match rest {
+                None => base.into(),  // No power operator, just return base as PowRhs
+                Some((_, rhs)) => {
+                    // Build Pow node
+                    PowRhs::Pow {
+                        lhs: Box::new(base),
+                        rhs: Box::new(rhs),
+                    }
+                }
+            }
+        })
+    })
+}
+
+/// Parser for multiplication right-hand side (MulRhs)
+fn mul_rhs_parser<'src, E>(
+    expr_rec: E,
+    pow_rhs: impl Parser<'src, &'src [Token<'src>], PowRhs, ParseError<'src>> + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], MulRhs, ParseError<'src>> + Clone
+where
+    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
+{
+    let lparen = select! { Token::LeftParen(_) => () };
+    let rparen = select! { Token::RightParen(_) => () };
+
+    choice((
+        pow_rhs.map(|p| {
+            // Convert PowRhs to MulRhs
+            match p {
+                PowRhs::Pow { lhs, rhs } => MulRhs::Pow { lhs, rhs },
+                PowRhs::Paren(e) => MulRhs::Paren(e),
+                PowRhs::Var(s) => MulRhs::Var(s),
+                PowRhs::IntLit(i) => MulRhs::IntLit(i),
+                PowRhs::FloatLit(f) => MulRhs::FloatLit(f),
+                PowRhs::BoolLit(b) => MulRhs::BoolLit(b),
+            }
+        }),
+        expr_rec
+            .delimited_by(lparen, rparen)
             .map(|e| MulRhs::Paren(Box::new(e))),
     ))
 }
 
 /// Parser for multiplication left-hand side (MulLhs) with operators
-fn mul_lhs_parser<'src, E, R>(
+fn mul_lhs_parser<'src, E, R, P>(
     expr_rec: E,
     mul_rhs: R,
+    pow_rhs: P,
 ) -> impl Parser<'src, &'src [Token<'src>], MulLhs, ParseError<'src>> + Clone
 where
     E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
     R: Parser<'src, &'src [Token<'src>], MulRhs, ParseError<'src>> + Clone,
+    P: Parser<'src, &'src [Token<'src>], PowRhs, ParseError<'src>> + Clone,
 {
     let lparen = select! { Token::LeftParen(_) => () };
     let rparen = select! { Token::RightParen(_) => () };
     let mul_op = select! { Token::Multiply(_) => '*' };
     let div_op = select! { Token::Divide(_) => '/' };
 
+    // mul_atom now uses pow_rhs which handles power operations
     let mul_atom = choice((
-        atom().map(Into::into),
+        pow_rhs.map(|p| {
+            // Convert PowRhs to MulLhs
+            match p {
+                PowRhs::Pow { lhs, rhs } => MulLhs::Pow { lhs, rhs },
+                PowRhs::Paren(e) => MulLhs::Paren(e),
+                PowRhs::Var(s) => MulLhs::Var(s),
+                PowRhs::IntLit(i) => MulLhs::IntLit(i),
+                PowRhs::FloatLit(f) => MulLhs::FloatLit(f),
+                PowRhs::BoolLit(b) => MulLhs::BoolLit(b),
+            }
+        }),
         expr_rec
             .delimited_by(lparen, rparen)
             .map(|e| MulLhs::Paren(Box::new(e))),
@@ -242,8 +313,10 @@ where
 /// Internal expression parser that builds the complete precedence hierarchy
 fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
     recursive(|expr_rec| {
-        let mul_rhs = mul_rhs_parser(expr_rec.clone());
-        let mul_lhs = mul_lhs_parser(expr_rec, mul_rhs.clone());
+        let pow_lhs = pow_lhs_parser(expr_rec.clone());
+        let pow_rhs = pow_rhs_parser(expr_rec.clone(), pow_lhs.clone());
+        let mul_rhs = mul_rhs_parser(expr_rec.clone(), pow_rhs.clone());
+        let mul_lhs = mul_lhs_parser(expr_rec, mul_rhs.clone(), pow_rhs);
         let add_rhs = add_rhs_parser(mul_lhs.clone());
         let add_lhs = add_lhs_parser(mul_lhs, add_rhs);
         let cmp_rhs = cmp_rhs_parser(add_lhs.clone());
