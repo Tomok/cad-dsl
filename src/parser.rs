@@ -45,8 +45,8 @@ use chumsky::prelude::*;
 // Submodules
 // ============================================================================
 
-mod atoms;
 mod arithmetic;
+mod atoms;
 mod comparison;
 mod error;
 mod logical;

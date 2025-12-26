@@ -10,8 +10,8 @@ use crate::ast::*;
 use crate::lexer::Token;
 use chumsky::prelude::*;
 
-use super::atoms::atom;
 use super::ParseError;
+use super::atoms::atom;
 
 // ============================================================================
 // Power Parsers (Highest precedence arithmetic operator)
