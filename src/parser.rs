@@ -95,22 +95,40 @@ fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom, ParseError<'src>
 // Recursive Expression Parsers
 // ============================================================================
 
-/// Parser for power base (PowLhs) - just atoms and parens, no operators
+/// Parser for power base (PowLhs) - atoms, parens, and unary operators
 fn pow_lhs_parser<'src, E>(
     expr_rec: E,
 ) -> impl Parser<'src, &'src [Token<'src>], PowLhs, ParseError<'src>> + Clone
 where
-    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
+    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone + 'src,
 {
     let lparen = select! { Token::LeftParen(_) => () };
     let rparen = select! { Token::RightParen(_) => () };
 
-    choice((
-        atom().map(Into::into),
-        expr_rec
-            .delimited_by(lparen, rparen)
-            .map(|e| PowLhs::Paren(Box::new(e))),
-    ))
+    // Recursive parser for unary operators (allows stacking like --x or &-x)
+    recursive(|unary_rec| {
+        let neg_op = select! { Token::Minus(_) => () };
+        let ref_op = select! { Token::Ampersand(_) => () };
+
+        choice((
+            // Unary negation: -<expr>
+            neg_op
+                .ignore_then(unary_rec.clone())
+                .map(|inner| PowLhs::Neg {
+                    inner: Box::new(inner),
+                }),
+            // Unary reference: &<expr>
+            ref_op.ignore_then(unary_rec).map(|inner| PowLhs::Ref {
+                inner: Box::new(inner),
+            }),
+            // Atom (base case)
+            atom().map(Into::into),
+            // Parenthesized expression
+            expr_rec
+                .delimited_by(lparen, rparen)
+                .map(|e| PowLhs::Paren(Box::new(e))),
+        ))
+    })
 }
 
 /// Parser for power right-hand side (PowRhs) - can contain Pow recursively
@@ -161,6 +179,8 @@ where
             match p {
                 PowRhs::Pow { lhs, rhs } => MulRhs::Pow { lhs, rhs },
                 PowRhs::Paren(e) => MulRhs::Paren(e),
+                PowRhs::Neg { inner } => MulRhs::Neg { inner },
+                PowRhs::Ref { inner } => MulRhs::Ref { inner },
                 PowRhs::Var(s) => MulRhs::Var(s),
                 PowRhs::IntLit(i) => MulRhs::IntLit(i),
                 PowRhs::FloatLit(f) => MulRhs::FloatLit(f),
@@ -197,6 +217,8 @@ where
             match p {
                 PowRhs::Pow { lhs, rhs } => MulLhs::Pow { lhs, rhs },
                 PowRhs::Paren(e) => MulLhs::Paren(e),
+                PowRhs::Neg { inner } => MulLhs::Neg { inner },
+                PowRhs::Ref { inner } => MulLhs::Ref { inner },
                 PowRhs::Var(s) => MulLhs::Var(s),
                 PowRhs::IntLit(i) => MulLhs::IntLit(i),
                 PowRhs::FloatLit(f) => MulLhs::FloatLit(f),
@@ -1180,6 +1202,201 @@ mod tests {
                     rhs: Box::new(MulRhs::IntLit(4)),
                 }),
                 rhs: Box::new(MulRhs::IntLit(5)),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    // ========================================================================
+    // Unary Operator Tests
+    // ========================================================================
+
+    #[test]
+    fn test_expr_simple_neg() {
+        // Test: -5
+        let result = parse_with_timeout(
+            "-5",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Neg {
+            inner: Box::new(PowLhs::IntLit(5)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_simple_ref() {
+        // Test: &x
+        let result = parse_with_timeout(
+            "&x",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Ref {
+            inner: Box::new(PowLhs::Var("x".to_string())),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_double_neg() {
+        // Test: --5
+        let result = parse_with_timeout(
+            "--5",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Neg {
+            inner: Box::new(PowLhs::Neg {
+                inner: Box::new(PowLhs::IntLit(5)),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_neg_ref() {
+        // Test: -&x
+        let result = parse_with_timeout(
+            "-&x",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Neg {
+            inner: Box::new(PowLhs::Ref {
+                inner: Box::new(PowLhs::Var("x".to_string())),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_ref_neg() {
+        // Test: &-x
+        let result = parse_with_timeout(
+            "&-x",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Ref {
+            inner: Box::new(PowLhs::Neg {
+                inner: Box::new(PowLhs::Var("x".to_string())),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_neg_with_pow() {
+        // Test: -2 ^ 3 should be (-2) ^ 3 - unary has higher precedence than power
+        let result = parse_with_timeout(
+            "-2 ^ 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Pow {
+            lhs: Box::new(PowLhs::Neg {
+                inner: Box::new(PowLhs::IntLit(2)),
+            }),
+            rhs: Box::new(PowRhs::IntLit(3)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_neg_with_mul() {
+        // Test: -2 * 3 should be (-2) * 3
+        let result = parse_with_timeout(
+            "-2 * 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Mul {
+            lhs: Box::new(MulLhs::Neg {
+                inner: Box::new(PowLhs::IntLit(2)),
+            }),
+            rhs: Box::new(MulRhs::IntLit(3)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_neg_with_add() {
+        // Test: -2 + 3 should be (-2) + 3
+        let result = parse_with_timeout(
+            "-2 + 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Add {
+            lhs: Box::new(AddLhs::Neg {
+                inner: Box::new(PowLhs::IntLit(2)),
+            }),
+            rhs: Box::new(AddRhs::IntLit(3)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_neg_paren() {
+        // Test: -(2 + 3)
+        let result = parse_with_timeout(
+            "-(2 + 3)",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Neg {
+            inner: Box::new(PowLhs::Paren(Box::new(Expr::Add {
+                lhs: Box::new(AddLhs::IntLit(2)),
+                rhs: Box::new(AddRhs::IntLit(3)),
+            }))),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_ref_with_add() {
+        // Test: &x + 3
+        let result = parse_with_timeout(
+            "&x + 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Add {
+            lhs: Box::new(AddLhs::Ref {
+                inner: Box::new(PowLhs::Var("x".to_string())),
+            }),
+            rhs: Box::new(AddRhs::IntLit(3)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_complex_unary() {
+        // Test: -a ^ -b should be (-a) ^ (-b)
+        let result = parse_with_timeout(
+            "-a ^ -b",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Pow {
+            lhs: Box::new(PowLhs::Neg {
+                inner: Box::new(PowLhs::Var("a".to_string())),
+            }),
+            rhs: Box::new(PowRhs::Neg {
+                inner: Box::new(PowLhs::Var("b".to_string())),
             }),
         };
         assert_eq!(result.unwrap(), expected);

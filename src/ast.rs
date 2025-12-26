@@ -82,6 +82,16 @@ pub enum Expr {
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowRhs)]
     Pow { lhs: Box<PowLhs>, rhs: Box<PowRhs> },
 
+    // Unary negation - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs
+    // Higher precedence than power (binds tighter)
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs)]
+    Neg { inner: Box<PowLhs> },
+
+    // Unary reference - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs
+    // Higher precedence than power (binds tighter)
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs)]
+    Ref { inner: Box<PowLhs> },
+
     // Variable reference - in all levels
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
     Var(String),
@@ -117,6 +127,8 @@ impl std::fmt::Display for Expr {
             Expr::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
             Expr::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
             Expr::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
+            Expr::Neg { inner } => write!(f, "(-{})", inner),
+            Expr::Ref { inner } => write!(f, "(&{})", inner),
             Expr::Var(name) => write!(f, "{}", name),
             Expr::IntLit(value) => write!(f, "{}", value),
             Expr::FloatLit(value) => write!(f, "{}", value),
@@ -139,6 +151,8 @@ impl std::fmt::Display for CmpLhs {
             CmpLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
             CmpLhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
             CmpLhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
+            CmpLhs::Neg { inner } => write!(f, "(-{})", inner),
+            CmpLhs::Ref { inner } => write!(f, "(&{})", inner),
             CmpLhs::Var(name) => write!(f, "{}", name),
             CmpLhs::IntLit(value) => write!(f, "{}", value),
             CmpLhs::FloatLit(value) => write!(f, "{}", value),
@@ -157,6 +171,8 @@ impl std::fmt::Display for CmpRhs {
             CmpRhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
             CmpRhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
             CmpRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
+            CmpRhs::Neg { inner } => write!(f, "(-{})", inner),
+            CmpRhs::Ref { inner } => write!(f, "(&{})", inner),
             CmpRhs::Var(name) => write!(f, "{}", name),
             CmpRhs::IntLit(value) => write!(f, "{}", value),
             CmpRhs::FloatLit(value) => write!(f, "{}", value),
@@ -175,6 +191,8 @@ impl std::fmt::Display for AddLhs {
             AddLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
             AddLhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
             AddLhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
+            AddLhs::Neg { inner } => write!(f, "(-{})", inner),
+            AddLhs::Ref { inner } => write!(f, "(&{})", inner),
             AddLhs::Var(name) => write!(f, "{}", name),
             AddLhs::IntLit(value) => write!(f, "{}", value),
             AddLhs::FloatLit(value) => write!(f, "{}", value),
@@ -191,6 +209,8 @@ impl std::fmt::Display for AddRhs {
             AddRhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
             AddRhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
             AddRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
+            AddRhs::Neg { inner } => write!(f, "(-{})", inner),
+            AddRhs::Ref { inner } => write!(f, "(&{})", inner),
             AddRhs::Var(name) => write!(f, "{}", name),
             AddRhs::IntLit(value) => write!(f, "{}", value),
             AddRhs::FloatLit(value) => write!(f, "{}", value),
@@ -207,6 +227,8 @@ impl std::fmt::Display for MulLhs {
             MulLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
             MulLhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
             MulLhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
+            MulLhs::Neg { inner } => write!(f, "(-{})", inner),
+            MulLhs::Ref { inner } => write!(f, "(&{})", inner),
             MulLhs::Var(name) => write!(f, "{}", name),
             MulLhs::IntLit(value) => write!(f, "{}", value),
             MulLhs::FloatLit(value) => write!(f, "{}", value),
@@ -220,6 +242,8 @@ impl std::fmt::Display for MulRhs {
         match self {
             MulRhs::Paren(inner) => write!(f, "({})", inner),
             MulRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
+            MulRhs::Neg { inner } => write!(f, "(-{})", inner),
+            MulRhs::Ref { inner } => write!(f, "(&{})", inner),
             MulRhs::Var(name) => write!(f, "{}", name),
             MulRhs::IntLit(value) => write!(f, "{}", value),
             MulRhs::FloatLit(value) => write!(f, "{}", value),
@@ -232,6 +256,8 @@ impl std::fmt::Display for PowLhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PowLhs::Paren(inner) => write!(f, "({})", inner),
+            PowLhs::Neg { inner } => write!(f, "(-{})", inner),
+            PowLhs::Ref { inner } => write!(f, "(&{})", inner),
             PowLhs::Var(name) => write!(f, "{}", name),
             PowLhs::IntLit(value) => write!(f, "{}", value),
             PowLhs::FloatLit(value) => write!(f, "{}", value),
@@ -245,6 +271,8 @@ impl std::fmt::Display for PowRhs {
         match self {
             PowRhs::Paren(inner) => write!(f, "({})", inner),
             PowRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
+            PowRhs::Neg { inner } => write!(f, "(-{})", inner),
+            PowRhs::Ref { inner } => write!(f, "(&{})", inner),
             PowRhs::Var(name) => write!(f, "{}", name),
             PowRhs::IntLit(value) => write!(f, "{}", value),
             PowRhs::FloatLit(value) => write!(f, "{}", value),
@@ -279,6 +307,8 @@ impl From<AddLhs> for CmpRhs {
             AddLhs::Div { lhs, rhs } => CmpRhs::Div { lhs, rhs },
             AddLhs::Mod { lhs, rhs } => CmpRhs::Mod { lhs, rhs },
             AddLhs::Pow { lhs, rhs } => CmpRhs::Pow { lhs, rhs },
+            AddLhs::Neg { inner } => CmpRhs::Neg { inner },
+            AddLhs::Ref { inner } => CmpRhs::Ref { inner },
             AddLhs::Var(s) => CmpRhs::Var(s),
             AddLhs::IntLit(i) => CmpRhs::IntLit(i),
             AddLhs::FloatLit(f) => CmpRhs::FloatLit(f),
@@ -298,6 +328,8 @@ impl From<AddLhs> for CmpLhs {
             AddLhs::Div { lhs, rhs } => CmpLhs::Div { lhs, rhs },
             AddLhs::Mod { lhs, rhs } => CmpLhs::Mod { lhs, rhs },
             AddLhs::Pow { lhs, rhs } => CmpLhs::Pow { lhs, rhs },
+            AddLhs::Neg { inner } => CmpLhs::Neg { inner },
+            AddLhs::Ref { inner } => CmpLhs::Ref { inner },
             AddLhs::Var(s) => CmpLhs::Var(s),
             AddLhs::IntLit(i) => CmpLhs::IntLit(i),
             AddLhs::FloatLit(f) => CmpLhs::FloatLit(f),
@@ -339,6 +371,8 @@ impl From<MulLhs> for AddRhs {
             MulLhs::Div { lhs, rhs } => AddRhs::Div { lhs, rhs },
             MulLhs::Mod { lhs, rhs } => AddRhs::Mod { lhs, rhs },
             MulLhs::Pow { lhs, rhs } => AddRhs::Pow { lhs, rhs },
+            MulLhs::Neg { inner } => AddRhs::Neg { inner },
+            MulLhs::Ref { inner } => AddRhs::Ref { inner },
             MulLhs::Var(s) => AddRhs::Var(s),
             MulLhs::IntLit(i) => AddRhs::IntLit(i),
             MulLhs::FloatLit(f) => AddRhs::FloatLit(f),
@@ -356,6 +390,8 @@ impl From<MulLhs> for AddLhs {
             MulLhs::Div { lhs, rhs } => AddLhs::Div { lhs, rhs },
             MulLhs::Mod { lhs, rhs } => AddLhs::Mod { lhs, rhs },
             MulLhs::Pow { lhs, rhs } => AddLhs::Pow { lhs, rhs },
+            MulLhs::Neg { inner } => AddLhs::Neg { inner },
+            MulLhs::Ref { inner } => AddLhs::Ref { inner },
             MulLhs::Var(s) => AddLhs::Var(s),
             MulLhs::IntLit(i) => AddLhs::IntLit(i),
             MulLhs::FloatLit(f) => AddLhs::FloatLit(f),
@@ -393,6 +429,8 @@ impl From<PowLhs> for PowRhs {
     fn from(pow: PowLhs) -> Self {
         match pow {
             PowLhs::Paren(e) => PowRhs::Paren(e),
+            PowLhs::Neg { inner } => PowRhs::Neg { inner },
+            PowLhs::Ref { inner } => PowRhs::Ref { inner },
             PowLhs::Var(s) => PowRhs::Var(s),
             PowLhs::IntLit(i) => PowRhs::IntLit(i),
             PowLhs::FloatLit(f) => PowRhs::FloatLit(f),
@@ -406,6 +444,8 @@ impl From<PowLhs> for MulRhs {
     fn from(pow: PowLhs) -> Self {
         match pow {
             PowLhs::Paren(e) => MulRhs::Paren(e),
+            PowLhs::Neg { inner } => MulRhs::Neg { inner },
+            PowLhs::Ref { inner } => MulRhs::Ref { inner },
             PowLhs::Var(s) => MulRhs::Var(s),
             PowLhs::IntLit(i) => MulRhs::IntLit(i),
             PowLhs::FloatLit(f) => MulRhs::FloatLit(f),
@@ -419,6 +459,8 @@ impl From<PowLhs> for MulLhs {
     fn from(pow: PowLhs) -> Self {
         match pow {
             PowLhs::Paren(e) => MulLhs::Paren(e),
+            PowLhs::Neg { inner } => MulLhs::Neg { inner },
+            PowLhs::Ref { inner } => MulLhs::Ref { inner },
             PowLhs::Var(s) => MulLhs::Var(s),
             PowLhs::IntLit(i) => MulLhs::IntLit(i),
             PowLhs::FloatLit(f) => MulLhs::FloatLit(f),
