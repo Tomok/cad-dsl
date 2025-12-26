@@ -3,6 +3,15 @@
 //! This module provides a parser for mathematical expressions with proper
 //! operator precedence and error reporting.
 //!
+//! # Module Structure
+//!
+//! The parser is organized into several submodules:
+//! - **atoms**: Primitive parsers for literals and variables
+//! - **arithmetic**: Arithmetic operators (power, multiplication, division, modulo, addition, subtraction)
+//! - **comparison**: Comparison operators (equality, inequality)
+//! - **logical**: Logical operators (and, or)
+//! - **error**: Error reporting with Ariadne
+//!
 //! # Error Reporting
 //!
 //! The parser uses Chumsky's `Rich<Token>` error type, which preserves:
@@ -33,6 +42,22 @@ use crate::lexer::Token;
 use chumsky::prelude::*;
 
 // ============================================================================
+// Submodules
+// ============================================================================
+
+mod arithmetic;
+mod atoms;
+mod comparison;
+mod error;
+mod logical;
+
+// ============================================================================
+// Re-exports
+// ============================================================================
+
+pub use error::report_parse_errors;
+
+// ============================================================================
 // Parser Type Definitions
 // ============================================================================
 
@@ -40,408 +65,30 @@ use chumsky::prelude::*;
 pub type ParseError<'src> = extra::Err<Rich<'src, Token<'src>>>;
 
 // ============================================================================
-// Atomic Parsers (No recursion)
+// Top-Level Expression Parser
 // ============================================================================
-
-/// Parse an integer literal token
-fn int_lit<'src>() -> impl Parser<'src, &'src [Token<'src>], i32, ParseError<'src>> + Clone {
-    select! {
-        Token::IntLiteral(t) => t.value,
-    }
-    .labelled("integer")
-}
-
-/// Parse a float literal token
-fn float_lit<'src>() -> impl Parser<'src, &'src [Token<'src>], f64, ParseError<'src>> + Clone {
-    select! {
-        Token::FloatLiteral(t) => t.value,
-    }
-    .labelled("float")
-}
-
-/// Parse a variable name (identifier token)
-fn var<'src>() -> impl Parser<'src, &'src [Token<'src>], String, ParseError<'src>> + Clone {
-    select! {
-        Token::Identifier(t) => t.name.to_string(),
-    }
-    .labelled("variable")
-}
-
-/// Parse a boolean literal token
-fn bool_lit<'src>() -> impl Parser<'src, &'src [Token<'src>], bool, ParseError<'src>> + Clone {
-    select! {
-        Token::True(_) => true,
-        Token::False(_) => false,
-    }
-    .labelled("boolean")
-}
-
-/// Parse an atomic expression (Atom enum)
-fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom, ParseError<'src>> + Clone {
-    choice((
-        // Try float first (it's more specific)
-        float_lit().map(Atom::FloatLit),
-        // Then integer
-        int_lit().map(Atom::IntLit),
-        // Then boolean
-        bool_lit().map(Atom::BoolLit),
-        // Finally variable
-        var().map(Atom::Var),
-    ))
-    .labelled("atom")
-}
-
-// ============================================================================
-// Recursive Expression Parsers
-// ============================================================================
-
-/// Parser for power base (PowLhs) - atoms, parens, and unary operators
-fn pow_lhs_parser<'src, E>(
-    expr_rec: E,
-) -> impl Parser<'src, &'src [Token<'src>], PowLhs, ParseError<'src>> + Clone
-where
-    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone + 'src,
-{
-    let lparen = select! { Token::LeftParen(_) => () };
-    let rparen = select! { Token::RightParen(_) => () };
-
-    // Recursive parser for unary operators (allows stacking like --x or &-x)
-    recursive(|unary_rec| {
-        let neg_op = select! { Token::Minus(_) => () };
-        let ref_op = select! { Token::Ampersand(_) => () };
-
-        choice((
-            // Unary negation: -<expr>
-            neg_op
-                .ignore_then(unary_rec.clone())
-                .map(|inner| PowLhs::Neg {
-                    inner: Box::new(inner),
-                }),
-            // Unary reference: &<expr>
-            ref_op.ignore_then(unary_rec).map(|inner| PowLhs::Ref {
-                inner: Box::new(inner),
-            }),
-            // Atom (base case)
-            atom().map(Into::into),
-            // Parenthesized expression
-            expr_rec
-                .delimited_by(lparen, rparen)
-                .map(|e| PowLhs::Paren(Box::new(e))),
-        ))
-    })
-}
-
-/// Parser for power right-hand side (PowRhs) - can contain Pow recursively
-fn pow_rhs_parser<'src, E>(
-    _expr_rec: E,
-    pow_lhs: impl Parser<'src, &'src [Token<'src>], PowLhs, ParseError<'src>> + Clone + 'src,
-) -> impl Parser<'src, &'src [Token<'src>], PowRhs, ParseError<'src>> + Clone
-where
-    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
-{
-    let pow_op = select! { Token::Power(_) => () };
-
-    // Right-associative: base (^ rhs)?
-    // rhs can recursively contain power operations
-    recursive(|pow_rhs_rec| {
-        let base_parser = pow_lhs.clone();
-        base_parser
-            .then(pow_op.then(pow_rhs_rec).or_not())
-            .map(|(base, rest)| {
-                match rest {
-                    None => base.into(), // No power operator, just return base as PowRhs
-                    Some((_, rhs)) => {
-                        // Build Pow node
-                        PowRhs::Pow {
-                            lhs: Box::new(base),
-                            rhs: Box::new(rhs),
-                        }
-                    }
-                }
-            })
-    })
-}
-
-/// Parser for multiplication right-hand side (MulRhs)
-fn mul_rhs_parser<'src, E>(
-    expr_rec: E,
-    pow_rhs: impl Parser<'src, &'src [Token<'src>], PowRhs, ParseError<'src>> + Clone,
-) -> impl Parser<'src, &'src [Token<'src>], MulRhs, ParseError<'src>> + Clone
-where
-    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
-{
-    let lparen = select! { Token::LeftParen(_) => () };
-    let rparen = select! { Token::RightParen(_) => () };
-
-    choice((
-        pow_rhs.map(|p| {
-            // Convert PowRhs to MulRhs
-            match p {
-                PowRhs::Pow { lhs, rhs } => MulRhs::Pow { lhs, rhs },
-                PowRhs::Paren(e) => MulRhs::Paren(e),
-                PowRhs::Neg { inner } => MulRhs::Neg { inner },
-                PowRhs::Ref { inner } => MulRhs::Ref { inner },
-                PowRhs::Var(s) => MulRhs::Var(s),
-                PowRhs::IntLit(i) => MulRhs::IntLit(i),
-                PowRhs::FloatLit(f) => MulRhs::FloatLit(f),
-                PowRhs::BoolLit(b) => MulRhs::BoolLit(b),
-            }
-        }),
-        expr_rec
-            .delimited_by(lparen, rparen)
-            .map(|e| MulRhs::Paren(Box::new(e))),
-    ))
-}
-
-/// Parser for multiplication left-hand side (MulLhs) with operators
-fn mul_lhs_parser<'src, E, R, P>(
-    expr_rec: E,
-    mul_rhs: R,
-    pow_rhs: P,
-) -> impl Parser<'src, &'src [Token<'src>], MulLhs, ParseError<'src>> + Clone
-where
-    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
-    R: Parser<'src, &'src [Token<'src>], MulRhs, ParseError<'src>> + Clone,
-    P: Parser<'src, &'src [Token<'src>], PowRhs, ParseError<'src>> + Clone,
-{
-    let lparen = select! { Token::LeftParen(_) => () };
-    let rparen = select! { Token::RightParen(_) => () };
-    let mul_op = select! { Token::Multiply(_) => '*' };
-    let div_op = select! { Token::Divide(_) => '/' };
-    let mod_op = select! { Token::Modulo(_) => '%' };
-
-    // mul_atom now uses pow_rhs which handles power operations
-    let mul_atom = choice((
-        pow_rhs.map(|p| {
-            // Convert PowRhs to MulLhs
-            match p {
-                PowRhs::Pow { lhs, rhs } => MulLhs::Pow { lhs, rhs },
-                PowRhs::Paren(e) => MulLhs::Paren(e),
-                PowRhs::Neg { inner } => MulLhs::Neg { inner },
-                PowRhs::Ref { inner } => MulLhs::Ref { inner },
-                PowRhs::Var(s) => MulLhs::Var(s),
-                PowRhs::IntLit(i) => MulLhs::IntLit(i),
-                PowRhs::FloatLit(f) => MulLhs::FloatLit(f),
-                PowRhs::BoolLit(b) => MulLhs::BoolLit(b),
-            }
-        }),
-        expr_rec
-            .delimited_by(lparen, rparen)
-            .map(|e| MulLhs::Paren(Box::new(e))),
-    ));
-
-    // Left-associative multiplication, division, and modulo
-    mul_atom.foldl(
-        choice((mul_op, div_op, mod_op)).then(mul_rhs).repeated(),
-        |lhs, (op, rhs)| {
-            if op == '*' {
-                MulLhs::Mul {
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                }
-            } else if op == '/' {
-                MulLhs::Div {
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                }
-            } else {
-                MulLhs::Mod {
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                }
-            }
-        },
-    )
-}
-
-/// Parser for addition right-hand side (AddRhs)
-fn add_rhs_parser<'src, M>(
-    mul_lhs: M,
-) -> impl Parser<'src, &'src [Token<'src>], AddRhs, ParseError<'src>> + Clone
-where
-    M: Parser<'src, &'src [Token<'src>], MulLhs, ParseError<'src>> + Clone,
-{
-    mul_lhs.map(Into::into)
-}
-
-/// Parser for addition left-hand side (AddLhs) with operators
-fn add_lhs_parser<'src, M, R>(
-    mul_lhs: M,
-    add_rhs: R,
-) -> impl Parser<'src, &'src [Token<'src>], AddLhs, ParseError<'src>> + Clone
-where
-    M: Parser<'src, &'src [Token<'src>], MulLhs, ParseError<'src>> + Clone,
-    R: Parser<'src, &'src [Token<'src>], AddRhs, ParseError<'src>> + Clone,
-{
-    let add_op = select! { Token::Plus(_) => '+' };
-    let sub_op = select! { Token::Minus(_) => '-' };
-
-    let add_atom = mul_lhs.map(Into::into);
-
-    // Left-associative addition and subtraction
-    add_atom.foldl(
-        choice((add_op, sub_op)).then(add_rhs).repeated(),
-        |lhs, (op, rhs)| {
-            if op == '+' {
-                AddLhs::Add {
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                }
-            } else {
-                AddLhs::Sub {
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                }
-            }
-        },
-    )
-}
-
-/// Parser for comparison right-hand side (CmpRhs)
-fn cmp_rhs_parser<'src, A>(
-    add_lhs: A,
-) -> impl Parser<'src, &'src [Token<'src>], CmpRhs, ParseError<'src>> + Clone
-where
-    A: Parser<'src, &'src [Token<'src>], AddLhs, ParseError<'src>> + Clone,
-{
-    add_lhs.map(Into::into)
-}
-
-/// Parser for comparison left-hand side (CmpLhs) with operators
-fn cmp_lhs_parser<'src, A, R>(
-    add_lhs: A,
-    cmp_rhs: R,
-) -> impl Parser<'src, &'src [Token<'src>], CmpLhs, ParseError<'src>> + Clone
-where
-    A: Parser<'src, &'src [Token<'src>], AddLhs, ParseError<'src>> + Clone,
-    R: Parser<'src, &'src [Token<'src>], CmpRhs, ParseError<'src>> + Clone,
-{
-    let eq_op = select! { Token::EqualsEquals(_) => "==" };
-    let neq_op = select! { Token::NotEquals(_) => "!=" };
-
-    let cmp_atom = add_lhs.map(Into::into);
-
-    // Left-associative equality and not-equal operators (higher precedence than logical)
-    cmp_atom.foldl(
-        choice((eq_op, neq_op)).then(cmp_rhs).repeated(),
-        |lhs, (op, rhs)| match op {
-            "==" => CmpLhs::Eq {
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-            },
-            "!=" => CmpLhs::NotEq {
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-            },
-            _ => unreachable!(),
-        },
-    )
-}
-
-/// Parser for logical operators (lower precedence than comparison)
-fn log_parser<'src, C>(
-    cmp_lhs: C,
-) -> impl Parser<'src, &'src [Token<'src>], CmpLhs, ParseError<'src>> + Clone
-where
-    C: Parser<'src, &'src [Token<'src>], CmpLhs, ParseError<'src>> + Clone,
-{
-    let and_op = select! { Token::And(_) => "and" };
-    let or_op = select! { Token::Or(_) => "or" };
-
-    let log_atom = cmp_lhs.clone();
-
-    // Left-associative logical operators (lower precedence than comparison)
-    log_atom.foldl(
-        choice((and_op, or_op)).then(cmp_lhs).repeated(),
-        |lhs, (op, rhs)| match op {
-            "and" => CmpLhs::And {
-                lhs: Box::new(lhs),
-                rhs: Box::new(CmpRhs::Paren(Box::new(Expr::from(rhs)))),
-            },
-            "or" => CmpLhs::Or {
-                lhs: Box::new(lhs),
-                rhs: Box::new(CmpRhs::Paren(Box::new(Expr::from(rhs)))),
-            },
-            _ => unreachable!(),
-        },
-    )
-}
 
 /// Internal expression parser that builds the complete precedence hierarchy
 fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
     recursive(|expr_rec| {
-        let pow_lhs = pow_lhs_parser(expr_rec.clone());
-        let pow_rhs = pow_rhs_parser(expr_rec.clone(), pow_lhs.clone());
-        let mul_rhs = mul_rhs_parser(expr_rec.clone(), pow_rhs.clone());
-        let mul_lhs = mul_lhs_parser(expr_rec, mul_rhs.clone(), pow_rhs);
-        let add_rhs = add_rhs_parser(mul_lhs.clone());
-        let add_lhs = add_lhs_parser(mul_lhs, add_rhs);
-        let cmp_rhs = cmp_rhs_parser(add_lhs.clone());
-        let cmp_lhs = cmp_lhs_parser(add_lhs, cmp_rhs);
-        let log_lhs = log_parser(cmp_lhs);
+        let pow_lhs = arithmetic::pow_lhs_parser(expr_rec.clone());
+        let pow_rhs = arithmetic::pow_rhs_parser(expr_rec.clone(), pow_lhs.clone());
+        let mul_rhs = arithmetic::mul_rhs_parser(expr_rec.clone(), pow_rhs.clone());
+        let mul_lhs = arithmetic::mul_lhs_parser(expr_rec, mul_rhs.clone(), pow_rhs);
+        let add_rhs = arithmetic::add_rhs_parser(mul_lhs.clone());
+        let add_lhs = arithmetic::add_lhs_parser(mul_lhs, add_rhs);
+        let cmp_rhs = comparison::cmp_rhs_parser(add_lhs.clone());
+        let cmp_lhs = comparison::cmp_lhs_parser(add_lhs, cmp_rhs);
+        let log_lhs = logical::log_parser(cmp_lhs);
 
         // Convert CmpLhs (with logical operators) to Expr
         log_lhs.map(Into::into)
     })
 }
 
+/// Parse a complete expression with end-of-input validation
 pub fn expr<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
     expr_inner().then_ignore(end())
-}
-
-// ============================================================================
-// Error Reporting with Ariadne
-// ============================================================================
-
-use ariadne::{Color, Label, Report, ReportKind, Source};
-
-/// Convert parser errors to beautiful Ariadne reports
-///
-/// This function converts Chumsky's Rich errors into Ariadne reports with
-/// proper spans and helpful error messages. All necessary information
-/// (spans, labels, expected tokens) is preserved from the parser.
-pub fn report_parse_errors<'src>(
-    filename: &str,
-    source: &'src str,
-    errors: Vec<Rich<'src, Token<'src>>>,
-) {
-    for error in errors {
-        let span = error.span();
-
-        // Calculate byte offset from token position
-        // Note: This requires the tokens to have proper span information
-        let offset = span.start;
-
-        let mut report =
-            Report::build(ReportKind::Error, filename, offset).with_message("Parse error");
-
-        // Add the main error label
-        report = report.with_label(
-            Label::new((filename, offset..offset + 1))
-                .with_message(format!("Unexpected token: {:?}", error.found()))
-                .with_color(Color::Red),
-        );
-
-        // Add expected tokens if available
-        if !error.expected().collect::<Vec<_>>().is_empty() {
-            let expected = error
-                .expected()
-                .map(|e| format!("{:?}", e))
-                .collect::<Vec<_>>()
-                .join(", ");
-            report = report.with_note(format!("Expected one of: {}", expected));
-        }
-
-        // Add help message based on error context
-        if error.found().is_none() {
-            report = report.with_help("Unexpected end of input");
-        }
-
-        report
-            .finish()
-            .eprint((filename, Source::from(source)))
-            .unwrap();
-    }
 }
 
 // ============================================================================
@@ -491,7 +138,7 @@ mod tests {
     fn test_int_lit() {
         let result = parse_with_timeout(
             "42",
-            |input| int_lit().parse(input).into_result(),
+            |input| atoms::int_lit().parse(input).into_result(),
             Duration::from_secs(1),
         );
         assert_eq!(result.unwrap(), 42);
@@ -501,7 +148,7 @@ mod tests {
     fn test_float_lit() {
         let result = parse_with_timeout(
             "3.5",
-            |input| float_lit().parse(input).into_result(),
+            |input| atoms::float_lit().parse(input).into_result(),
             Duration::from_secs(1),
         );
         assert_eq!(result.unwrap(), 3.5);
@@ -511,7 +158,7 @@ mod tests {
     fn test_var() {
         let result = parse_with_timeout(
             "foo",
-            |input| var().parse(input).into_result(),
+            |input| atoms::var().parse(input).into_result(),
             Duration::from_secs(1),
         );
         assert_eq!(result.unwrap(), "foo");
@@ -521,7 +168,7 @@ mod tests {
     fn test_atom_int() {
         let result = parse_with_timeout(
             "42",
-            |input| atom().parse(input).into_result(),
+            |input| atoms::atom().parse(input).into_result(),
             Duration::from_secs(1),
         );
         assert_eq!(result.unwrap(), Atom::IntLit(42));
@@ -531,7 +178,7 @@ mod tests {
     fn test_atom_float() {
         let result = parse_with_timeout(
             "3.5",
-            |input| atom().parse(input).into_result(),
+            |input| atoms::atom().parse(input).into_result(),
             Duration::from_secs(1),
         );
         assert_eq!(result.unwrap(), Atom::FloatLit(3.5));
@@ -541,7 +188,7 @@ mod tests {
     fn test_atom_var() {
         let result = parse_with_timeout(
             "x",
-            |input| atom().parse(input).into_result(),
+            |input| atoms::atom().parse(input).into_result(),
             Duration::from_secs(1),
         );
         assert_eq!(result.unwrap(), Atom::Var("x".to_string()));
@@ -551,7 +198,7 @@ mod tests {
     fn test_bool_lit_true() {
         let result = parse_with_timeout(
             "true",
-            |input| bool_lit().parse(input).into_result(),
+            |input| atoms::bool_lit().parse(input).into_result(),
             Duration::from_secs(1),
         );
         assert_eq!(result.unwrap(), true);
@@ -561,7 +208,7 @@ mod tests {
     fn test_bool_lit_false() {
         let result = parse_with_timeout(
             "false",
-            |input| bool_lit().parse(input).into_result(),
+            |input| atoms::bool_lit().parse(input).into_result(),
             Duration::from_secs(1),
         );
         assert_eq!(result.unwrap(), false);
@@ -571,7 +218,7 @@ mod tests {
     fn test_atom_bool_true() {
         let result = parse_with_timeout(
             "true",
-            |input| atom().parse(input).into_result(),
+            |input| atoms::atom().parse(input).into_result(),
             Duration::from_secs(1),
         );
         assert_eq!(result.unwrap(), Atom::BoolLit(true));
@@ -581,7 +228,7 @@ mod tests {
     fn test_atom_bool_false() {
         let result = parse_with_timeout(
             "false",
-            |input| atom().parse(input).into_result(),
+            |input| atoms::atom().parse(input).into_result(),
             Duration::from_secs(1),
         );
         assert_eq!(result.unwrap(), Atom::BoolLit(false));
