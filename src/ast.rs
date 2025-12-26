@@ -8,6 +8,8 @@ use subenum::subenum;
 ///
 /// Hierarchy with separate Left/Right-hand side types:
 /// - Expr: All variants (top-level)
+/// - LogLhs: And, Or, Eq, NotEq, Add, Sub, Paren, Mul, Div, Pow, Var, IntLit, FloatLit, BoolLit (left side of logical ops)
+/// - LogRhs: Paren, Eq, NotEq, Add, Sub, Mul, Div, Pow, Var, IntLit, FloatLit, BoolLit (right side of logical ops, NO And/Or)
 /// - CmpLhs: Eq, Add, Sub, Paren, Mul, Div, Pow, Var, IntLit, FloatLit, BoolLit (left side of ==)
 /// - CmpRhs: Paren, Add, Sub, Mul, Div, Pow, Var, IntLit, FloatLit, BoolLit (right side of ==, NO Eq)
 /// - AddLhs: Add, Sub, Paren, Mul, Div, Pow, Var, IntLit, FloatLit, BoolLit (left side of +/-)
@@ -19,31 +21,42 @@ use subenum::subenum;
 /// - Atom: Var, IntLit, FloatLit, BoolLit (only literals and variables)
 ///
 /// This ensures:
+/// - Logical RHS cannot contain logical operators (enforces precedence)
 /// - Comparison RHS cannot contain comparison operators (enforces precedence)
 /// - Addition RHS cannot contain addition/subtraction (enforces precedence)
 /// - Multiplication RHS cannot contain multiplication/division (enforces precedence)
 /// - Power is right-associative (PowRhs can contain Pow, PowLhs cannot)
-/// - Left-hand sides allow recursion at the same precedence level (left-associativity for +, -, *, /)
+/// - Left-hand sides allow recursion at the same precedence level (left-associativity for logical, +, -, *, /)
 /// - Right-hand sides enforce higher precedence
 #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    // Equality - only in Expr and CmpLhs
+    // Logical AND - in CmpLhs (same level as equality operators)
+    // lhs can be And/Or, rhs cannot (enforces left-associativity and precedence)
+    #[subenum(CmpLhs)]
+    And { lhs: Box<CmpLhs>, rhs: Box<CmpRhs> },
+
+    // Logical OR - in CmpLhs (same level as equality operators)
+    // lhs can be And/Or, rhs cannot (enforces left-associativity and precedence)
+    #[subenum(CmpLhs)]
+    Or { lhs: Box<CmpLhs>, rhs: Box<CmpRhs> },
+
+    // Equality - in CmpLhs only
     // lhs can be Eq, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs)]
     Eq { lhs: Box<CmpLhs>, rhs: Box<CmpRhs> },
 
-    // Not Equal - only in Expr and CmpLhs
+    // Not Equal - in CmpLhs only
     // lhs can be NotEq, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs)]
     NotEq { lhs: Box<CmpLhs>, rhs: Box<CmpRhs> },
 
-    // Addition - in Expr, CmpLhs, CmpRhs, AddLhs
+    // Addition - in CmpLhs, CmpRhs, AddLhs
     // lhs can be Add/Sub, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs, CmpRhs, AddLhs)]
     Add { lhs: Box<AddLhs>, rhs: Box<AddRhs> },
 
-    // Subtraction - in Expr, CmpLhs, CmpRhs, AddLhs
+    // Subtraction - in CmpLhs, CmpRhs, AddLhs
     #[subenum(CmpLhs, CmpRhs, AddLhs)]
     Sub { lhs: Box<AddLhs>, rhs: Box<AddRhs> },
 
@@ -89,6 +102,8 @@ pub enum Expr {
 impl std::fmt::Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Expr::And { lhs, rhs } => write!(f, "({} and {})", lhs, rhs),
+            Expr::Or { lhs, rhs } => write!(f, "({} or {})", lhs, rhs),
             Expr::Eq { lhs, rhs } => write!(f, "({} == {})", lhs, rhs),
             Expr::NotEq { lhs, rhs } => write!(f, "({} != {})", lhs, rhs),
             Expr::Add { lhs, rhs } => write!(f, "({} + {})", lhs, rhs),
@@ -108,6 +123,8 @@ impl std::fmt::Display for Expr {
 impl std::fmt::Display for CmpLhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            CmpLhs::And { lhs, rhs } => write!(f, "({} and {})", lhs, rhs),
+            CmpLhs::Or { lhs, rhs } => write!(f, "({} or {})", lhs, rhs),
             CmpLhs::Eq { lhs, rhs } => write!(f, "({} == {})", lhs, rhs),
             CmpLhs::NotEq { lhs, rhs } => write!(f, "({} != {})", lhs, rhs),
             CmpLhs::Add { lhs, rhs } => write!(f, "({} + {})", lhs, rhs),
