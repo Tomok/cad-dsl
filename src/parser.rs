@@ -188,6 +188,7 @@ where
     let rparen = select! { Token::RightParen(_) => () };
     let mul_op = select! { Token::Multiply(_) => '*' };
     let div_op = select! { Token::Divide(_) => '/' };
+    let mod_op = select! { Token::Modulo(_) => '%' };
 
     // mul_atom now uses pow_rhs which handles power operations
     let mul_atom = choice((
@@ -207,17 +208,22 @@ where
             .map(|e| MulLhs::Paren(Box::new(e))),
     ));
 
-    // Left-associative multiplication and division
+    // Left-associative multiplication, division, and modulo
     mul_atom.foldl(
-        choice((mul_op, div_op)).then(mul_rhs).repeated(),
+        choice((mul_op, div_op, mod_op)).then(mul_rhs).repeated(),
         |lhs, (op, rhs)| {
             if op == '*' {
                 MulLhs::Mul {
                     lhs: Box::new(lhs),
                     rhs: Box::new(rhs),
                 }
-            } else {
+            } else if op == '/' {
                 MulLhs::Div {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                }
+            } else {
+                MulLhs::Mod {
                     lhs: Box::new(lhs),
                     rhs: Box::new(rhs),
                 }
@@ -1002,6 +1008,178 @@ mod tests {
                     lhs: Box::new(PowLhs::Var("c".to_string())),
                     rhs: Box::new(PowRhs::Var("d".to_string())),
                 }),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    // ========================================================================
+    // Modulo Operator Tests
+    // ========================================================================
+
+    #[test]
+    fn test_expr_simple_mod() {
+        // Test: 10 % 3
+        let result = parse_with_timeout(
+            "10 % 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Mod {
+            lhs: Box::new(MulLhs::IntLit(10)),
+            rhs: Box::new(MulRhs::IntLit(3)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_mod_left_associative() {
+        // Test: 10 % 3 % 2 should be (10 % 3) % 2
+        let result = parse_with_timeout(
+            "10 % 3 % 2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Mod {
+            lhs: Box::new(MulLhs::Mod {
+                lhs: Box::new(MulLhs::IntLit(10)),
+                rhs: Box::new(MulRhs::IntLit(3)),
+            }),
+            rhs: Box::new(MulRhs::IntLit(2)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_mod_with_mul() {
+        // Test: 10 * 3 % 2 should be (10 * 3) % 2 - same precedence, left-associative
+        let result = parse_with_timeout(
+            "10 * 3 % 2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Mod {
+            lhs: Box::new(MulLhs::Mul {
+                lhs: Box::new(MulLhs::IntLit(10)),
+                rhs: Box::new(MulRhs::IntLit(3)),
+            }),
+            rhs: Box::new(MulRhs::IntLit(2)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_mod_with_div() {
+        // Test: 10 / 3 % 2 should be (10 / 3) % 2 - same precedence, left-associative
+        let result = parse_with_timeout(
+            "10 / 3 % 2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Mod {
+            lhs: Box::new(MulLhs::Div {
+                lhs: Box::new(MulLhs::IntLit(10)),
+                rhs: Box::new(MulRhs::IntLit(3)),
+            }),
+            rhs: Box::new(MulRhs::IntLit(2)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_mod_with_add() {
+        // Test: 1 + 10 % 3 should be 1 + (10 % 3) - modulo has higher precedence
+        let result = parse_with_timeout(
+            "1 + 10 % 3",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Add {
+            lhs: Box::new(AddLhs::IntLit(1)),
+            rhs: Box::new(AddRhs::Mod {
+                lhs: Box::new(MulLhs::IntLit(10)),
+                rhs: Box::new(MulRhs::IntLit(3)),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_mod_with_pow() {
+        // Test: 2 ^ 3 % 5 should be (2 ^ 3) % 5 - power has higher precedence
+        let result = parse_with_timeout(
+            "2 ^ 3 % 5",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Mod {
+            lhs: Box::new(MulLhs::Pow {
+                lhs: Box::new(PowLhs::IntLit(2)),
+                rhs: Box::new(PowRhs::IntLit(3)),
+            }),
+            rhs: Box::new(MulRhs::IntLit(5)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_mod_with_parens() {
+        // Test: 10 % (3 + 2)
+        let result = parse_with_timeout(
+            "10 % (3 + 2)",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Mod {
+            lhs: Box::new(MulLhs::IntLit(10)),
+            rhs: Box::new(MulRhs::Paren(Box::new(Expr::Add {
+                lhs: Box::new(AddLhs::IntLit(3)),
+                rhs: Box::new(AddRhs::IntLit(2)),
+            }))),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_mod_with_vars() {
+        // Test: x % y
+        let result = parse_with_timeout(
+            "x % y",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Mod {
+            lhs: Box::new(MulLhs::Var("x".to_string())),
+            rhs: Box::new(MulRhs::Var("y".to_string())),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_expr_complex_mod_precedence() {
+        // Test: 2 + 3 * 4 % 5 should be 2 + ((3 * 4) % 5)
+        let result = parse_with_timeout(
+            "2 + 3 * 4 % 5",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Expr::Add {
+            lhs: Box::new(AddLhs::IntLit(2)),
+            rhs: Box::new(AddRhs::Mod {
+                lhs: Box::new(MulLhs::Mul {
+                    lhs: Box::new(MulLhs::IntLit(3)),
+                    rhs: Box::new(MulRhs::IntLit(4)),
+                }),
+                rhs: Box::new(MulRhs::IntLit(5)),
             }),
         };
         assert_eq!(result.unwrap(), expected);
