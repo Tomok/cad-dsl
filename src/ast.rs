@@ -73,6 +73,10 @@ pub enum Expr {
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs)]
     Div { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
 
+    // Modulo - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs)]
+    Mod { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
+
     // Power - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowRhs
     // lhs cannot be Pow (enforces right-associativity), rhs can be Pow
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowRhs)]
@@ -111,6 +115,7 @@ impl std::fmt::Display for Expr {
             Expr::Paren(inner) => write!(f, "({})", inner),
             Expr::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
             Expr::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            Expr::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
             Expr::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
             Expr::Var(name) => write!(f, "{}", name),
             Expr::IntLit(value) => write!(f, "{}", value),
@@ -132,6 +137,7 @@ impl std::fmt::Display for CmpLhs {
             CmpLhs::Paren(inner) => write!(f, "({})", inner),
             CmpLhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
             CmpLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            CmpLhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
             CmpLhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
             CmpLhs::Var(name) => write!(f, "{}", name),
             CmpLhs::IntLit(value) => write!(f, "{}", value),
@@ -149,6 +155,7 @@ impl std::fmt::Display for CmpRhs {
             CmpRhs::Paren(inner) => write!(f, "({})", inner),
             CmpRhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
             CmpRhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            CmpRhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
             CmpRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
             CmpRhs::Var(name) => write!(f, "{}", name),
             CmpRhs::IntLit(value) => write!(f, "{}", value),
@@ -166,6 +173,7 @@ impl std::fmt::Display for AddLhs {
             AddLhs::Paren(inner) => write!(f, "({})", inner),
             AddLhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
             AddLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            AddLhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
             AddLhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
             AddLhs::Var(name) => write!(f, "{}", name),
             AddLhs::IntLit(value) => write!(f, "{}", value),
@@ -181,6 +189,7 @@ impl std::fmt::Display for AddRhs {
             AddRhs::Paren(inner) => write!(f, "({})", inner),
             AddRhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
             AddRhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            AddRhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
             AddRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
             AddRhs::Var(name) => write!(f, "{}", name),
             AddRhs::IntLit(value) => write!(f, "{}", value),
@@ -196,6 +205,7 @@ impl std::fmt::Display for MulLhs {
             MulLhs::Paren(inner) => write!(f, "({})", inner),
             MulLhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
             MulLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
+            MulLhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
             MulLhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
             MulLhs::Var(name) => write!(f, "{}", name),
             MulLhs::IntLit(value) => write!(f, "{}", value),
@@ -267,6 +277,7 @@ impl From<AddLhs> for CmpRhs {
             AddLhs::Paren(e) => CmpRhs::Paren(e),
             AddLhs::Mul { lhs, rhs } => CmpRhs::Mul { lhs, rhs },
             AddLhs::Div { lhs, rhs } => CmpRhs::Div { lhs, rhs },
+            AddLhs::Mod { lhs, rhs } => CmpRhs::Mod { lhs, rhs },
             AddLhs::Pow { lhs, rhs } => CmpRhs::Pow { lhs, rhs },
             AddLhs::Var(s) => CmpRhs::Var(s),
             AddLhs::IntLit(i) => CmpRhs::IntLit(i),
@@ -285,6 +296,7 @@ impl From<AddLhs> for CmpLhs {
             AddLhs::Paren(e) => CmpLhs::Paren(e),
             AddLhs::Mul { lhs, rhs } => CmpLhs::Mul { lhs, rhs },
             AddLhs::Div { lhs, rhs } => CmpLhs::Div { lhs, rhs },
+            AddLhs::Mod { lhs, rhs } => CmpLhs::Mod { lhs, rhs },
             AddLhs::Pow { lhs, rhs } => CmpLhs::Pow { lhs, rhs },
             AddLhs::Var(s) => CmpLhs::Var(s),
             AddLhs::IntLit(i) => CmpLhs::IntLit(i),
@@ -325,6 +337,7 @@ impl From<MulLhs> for AddRhs {
             MulLhs::Paren(e) => AddRhs::Paren(e),
             MulLhs::Mul { lhs, rhs } => AddRhs::Mul { lhs, rhs },
             MulLhs::Div { lhs, rhs } => AddRhs::Div { lhs, rhs },
+            MulLhs::Mod { lhs, rhs } => AddRhs::Mod { lhs, rhs },
             MulLhs::Pow { lhs, rhs } => AddRhs::Pow { lhs, rhs },
             MulLhs::Var(s) => AddRhs::Var(s),
             MulLhs::IntLit(i) => AddRhs::IntLit(i),
@@ -341,6 +354,7 @@ impl From<MulLhs> for AddLhs {
             MulLhs::Paren(e) => AddLhs::Paren(e),
             MulLhs::Mul { lhs, rhs } => AddLhs::Mul { lhs, rhs },
             MulLhs::Div { lhs, rhs } => AddLhs::Div { lhs, rhs },
+            MulLhs::Mod { lhs, rhs } => AddLhs::Mod { lhs, rhs },
             MulLhs::Pow { lhs, rhs } => AddLhs::Pow { lhs, rhs },
             MulLhs::Var(s) => AddLhs::Var(s),
             MulLhs::IntLit(i) => AddLhs::IntLit(i),
