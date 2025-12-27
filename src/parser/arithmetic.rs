@@ -180,6 +180,15 @@ where
                     args,
                     span,
                 },
+                PowRhs::FieldAccess {
+                    receiver,
+                    field,
+                    span,
+                } => MulRhs::FieldAccess {
+                    receiver,
+                    field,
+                    span,
+                },
             }
         }),
         select! { Token::LeftParen(t) => t.position }
@@ -245,6 +254,15 @@ where
                     receiver,
                     method,
                     args,
+                    span,
+                },
+                PowRhs::FieldAccess {
+                    receiver,
+                    field,
+                    span,
+                } => MulLhs::FieldAccess {
+                    receiver,
+                    field,
                     span,
                 },
             }

@@ -223,6 +223,14 @@ pub enum Expr<'src> {
         args: Vec<Expr<'src>>,
         span: Span,
     },
+
+    // Field access - in all levels (high precedence like atoms)
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
+    FieldAccess {
+        receiver: Box<Expr<'src>>,
+        field: &'src str,
+        span: Span,
+    },
 }
 
 // ============================================================================
@@ -271,6 +279,7 @@ impl<'src> HasSpan for Expr<'src> {
             Expr::BoolLit { span, .. } => *span,
             Expr::Call { span, .. } => *span,
             Expr::MethodCall { span, .. } => *span,
+            Expr::FieldAccess { span, .. } => *span,
         }
     }
 }
@@ -297,6 +306,7 @@ impl<'src> HasSpan for CmpLhs<'src> {
             CmpLhs::BoolLit { span, .. } => *span,
             CmpLhs::Call { span, .. } => *span,
             CmpLhs::MethodCall { span, .. } => *span,
+            CmpLhs::FieldAccess { span, .. } => *span,
         }
     }
 }
@@ -319,6 +329,7 @@ impl<'src> HasSpan for CmpRhs<'src> {
             CmpRhs::BoolLit { span, .. } => *span,
             CmpRhs::Call { span, .. } => *span,
             CmpRhs::MethodCall { span, .. } => *span,
+            CmpRhs::FieldAccess { span, .. } => *span,
         }
     }
 }
@@ -341,6 +352,7 @@ impl<'src> HasSpan for AddLhs<'src> {
             AddLhs::BoolLit { span, .. } => *span,
             AddLhs::Call { span, .. } => *span,
             AddLhs::MethodCall { span, .. } => *span,
+            AddLhs::FieldAccess { span, .. } => *span,
         }
     }
 }
@@ -361,6 +373,7 @@ impl<'src> HasSpan for AddRhs<'src> {
             AddRhs::BoolLit { span, .. } => *span,
             AddRhs::Call { span, .. } => *span,
             AddRhs::MethodCall { span, .. } => *span,
+            AddRhs::FieldAccess { span, .. } => *span,
         }
     }
 }
@@ -381,6 +394,7 @@ impl<'src> HasSpan for MulLhs<'src> {
             MulLhs::BoolLit { span, .. } => *span,
             MulLhs::Call { span, .. } => *span,
             MulLhs::MethodCall { span, .. } => *span,
+            MulLhs::FieldAccess { span, .. } => *span,
         }
     }
 }
@@ -398,6 +412,7 @@ impl<'src> HasSpan for MulRhs<'src> {
             MulRhs::BoolLit { span, .. } => *span,
             MulRhs::Call { span, .. } => *span,
             MulRhs::MethodCall { span, .. } => *span,
+            MulRhs::FieldAccess { span, .. } => *span,
         }
     }
 }
@@ -414,6 +429,7 @@ impl<'src> HasSpan for PowLhs<'src> {
             PowLhs::BoolLit { span, .. } => *span,
             PowLhs::Call { span, .. } => *span,
             PowLhs::MethodCall { span, .. } => *span,
+            PowLhs::FieldAccess { span, .. } => *span,
         }
     }
 }
@@ -431,6 +447,7 @@ impl<'src> HasSpan for PowRhs<'src> {
             PowRhs::BoolLit { span, .. } => *span,
             PowRhs::Call { span, .. } => *span,
             PowRhs::MethodCall { span, .. } => *span,
+            PowRhs::FieldAccess { span, .. } => *span,
         }
     }
 }
@@ -444,6 +461,7 @@ impl<'src> HasSpan for Atom<'src> {
             Atom::BoolLit { span, .. } => *span,
             Atom::Call { span, .. } => *span,
             Atom::MethodCall { span, .. } => *span,
+            Atom::FieldAccess { span, .. } => *span,
         }
     }
 }
@@ -497,6 +515,9 @@ impl<'src> std::fmt::Display for Expr<'src> {
                 }
                 write!(f, ")")
             }
+            Expr::FieldAccess {
+                receiver, field, ..
+            } => write!(f, "{}.{}", receiver, field),
         }
     }
 }
@@ -546,6 +567,9 @@ impl<'src> std::fmt::Display for CmpLhs<'src> {
                 }
                 write!(f, ")")
             }
+            CmpLhs::FieldAccess {
+                receiver, field, ..
+            } => write!(f, "{}.{}", receiver, field),
         }
     }
 }
@@ -591,6 +615,9 @@ impl<'src> std::fmt::Display for CmpRhs<'src> {
                 }
                 write!(f, ")")
             }
+            CmpRhs::FieldAccess {
+                receiver, field, ..
+            } => write!(f, "{}.{}", receiver, field),
         }
     }
 }
@@ -636,6 +663,9 @@ impl<'src> std::fmt::Display for AddLhs<'src> {
                 }
                 write!(f, ")")
             }
+            AddLhs::FieldAccess {
+                receiver, field, ..
+            } => write!(f, "{}.{}", receiver, field),
         }
     }
 }
@@ -679,6 +709,9 @@ impl<'src> std::fmt::Display for AddRhs<'src> {
                 }
                 write!(f, ")")
             }
+            AddRhs::FieldAccess {
+                receiver, field, ..
+            } => write!(f, "{}.{}", receiver, field),
         }
     }
 }
@@ -722,6 +755,9 @@ impl<'src> std::fmt::Display for MulLhs<'src> {
                 }
                 write!(f, ")")
             }
+            MulLhs::FieldAccess {
+                receiver, field, ..
+            } => write!(f, "{}.{}", receiver, field),
         }
     }
 }
@@ -762,6 +798,9 @@ impl<'src> std::fmt::Display for MulRhs<'src> {
                 }
                 write!(f, ")")
             }
+            MulRhs::FieldAccess {
+                receiver, field, ..
+            } => write!(f, "{}.{}", receiver, field),
         }
     }
 }
@@ -801,6 +840,9 @@ impl<'src> std::fmt::Display for PowLhs<'src> {
                 }
                 write!(f, ")")
             }
+            PowLhs::FieldAccess {
+                receiver, field, ..
+            } => write!(f, "{}.{}", receiver, field),
         }
     }
 }
@@ -841,6 +883,9 @@ impl<'src> std::fmt::Display for PowRhs<'src> {
                 }
                 write!(f, ")")
             }
+            PowRhs::FieldAccess {
+                receiver, field, ..
+            } => write!(f, "{}.{}", receiver, field),
         }
     }
 }
@@ -877,6 +922,9 @@ impl<'src> std::fmt::Display for Atom<'src> {
                 }
                 write!(f, ")")
             }
+            Atom::FieldAccess {
+                receiver, field, ..
+            } => write!(f, "{}.{}", receiver, field),
         }
     }
 }
@@ -914,6 +962,15 @@ impl<'src> From<AddLhs<'src>> for CmpRhs<'src> {
                 args,
                 span,
             },
+            AddLhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            } => CmpRhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            },
         }
     }
 }
@@ -947,6 +1004,15 @@ impl<'src> From<AddLhs<'src>> for CmpLhs<'src> {
                 args,
                 span,
             },
+            AddLhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            } => CmpLhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            },
         }
     }
 }
@@ -971,6 +1037,15 @@ impl<'src> From<Atom<'src>> for MulRhs<'src> {
                 args,
                 span,
             },
+            Atom::FieldAccess {
+                receiver,
+                field,
+                span,
+            } => MulRhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            },
         }
     }
 }
@@ -993,6 +1068,15 @@ impl<'src> From<Atom<'src>> for MulLhs<'src> {
                 receiver,
                 method,
                 args,
+                span,
+            },
+            Atom::FieldAccess {
+                receiver,
+                field,
+                span,
+            } => MulLhs::FieldAccess {
+                receiver,
+                field,
                 span,
             },
         }
@@ -1026,6 +1110,15 @@ impl<'src> From<MulLhs<'src>> for AddRhs<'src> {
                 args,
                 span,
             },
+            MulLhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            } => AddRhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            },
         }
     }
 }
@@ -1057,6 +1150,15 @@ impl<'src> From<MulLhs<'src>> for AddLhs<'src> {
                 args,
                 span,
             },
+            MulLhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            } => AddLhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            },
         }
     }
 }
@@ -1081,6 +1183,15 @@ impl<'src> From<Atom<'src>> for PowLhs<'src> {
                 args,
                 span,
             },
+            Atom::FieldAccess {
+                receiver,
+                field,
+                span,
+            } => PowLhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            },
         }
     }
 }
@@ -1103,6 +1214,15 @@ impl<'src> From<Atom<'src>> for PowRhs<'src> {
                 receiver,
                 method,
                 args,
+                span,
+            },
+            Atom::FieldAccess {
+                receiver,
+                field,
+                span,
+            } => PowRhs::FieldAccess {
+                receiver,
+                field,
                 span,
             },
         }
@@ -1132,6 +1252,15 @@ impl<'src> From<PowLhs<'src>> for PowRhs<'src> {
                 args,
                 span,
             },
+            PowLhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            } => PowRhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            },
         }
     }
 }
@@ -1159,6 +1288,15 @@ impl<'src> From<PowLhs<'src>> for MulRhs<'src> {
                 args,
                 span,
             },
+            PowLhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            } => MulRhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            },
         }
     }
 }
@@ -1184,6 +1322,15 @@ impl<'src> From<PowLhs<'src>> for MulLhs<'src> {
                 receiver,
                 method,
                 args,
+                span,
+            },
+            PowLhs::FieldAccess {
+                receiver,
+                field,
+                span,
+            } => MulLhs::FieldAccess {
+                receiver,
+                field,
                 span,
             },
         }
