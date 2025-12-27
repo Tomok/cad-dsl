@@ -35,24 +35,24 @@ fn combine_spans(left: Span, right: Span) -> Span {
 // Comparison Parsers
 // ============================================================================
 
-/// Parser for comparison right-hand side (CmpRhs)
+/// Parser for comparison right-hand side (CmpRhs<'src>)
 pub fn cmp_rhs_parser<'src, A>(
     add_lhs: A,
-) -> impl Parser<'src, &'src [Token<'src>], CmpRhs, ParseError<'src>> + Clone
+) -> impl Parser<'src, &'src [Token<'src>], CmpRhs<'src>, ParseError<'src>> + Clone
 where
-    A: Parser<'src, &'src [Token<'src>], AddLhs, ParseError<'src>> + Clone,
+    A: Parser<'src, &'src [Token<'src>], AddLhs<'src>, ParseError<'src>> + Clone,
 {
     add_lhs.map(Into::into)
 }
 
-/// Parser for comparison left-hand side (CmpLhs) with operators
+/// Parser for comparison left-hand side (CmpLhs<'src>) with operators
 pub fn cmp_lhs_parser<'src, A, R>(
     add_lhs: A,
     cmp_rhs: R,
-) -> impl Parser<'src, &'src [Token<'src>], CmpLhs, ParseError<'src>> + Clone
+) -> impl Parser<'src, &'src [Token<'src>], CmpLhs<'src>, ParseError<'src>> + Clone
 where
-    A: Parser<'src, &'src [Token<'src>], AddLhs, ParseError<'src>> + Clone,
-    R: Parser<'src, &'src [Token<'src>], CmpRhs, ParseError<'src>> + Clone,
+    A: Parser<'src, &'src [Token<'src>], AddLhs<'src>, ParseError<'src>> + Clone,
+    R: Parser<'src, &'src [Token<'src>], CmpRhs<'src>, ParseError<'src>> + Clone,
 {
     let eq_op = select! { Token::EqualsEquals(_) => "==" };
     let neq_op = select! { Token::NotEquals(_) => "!=" };
@@ -62,7 +62,7 @@ where
     // Left-associative equality and not-equal operators (higher precedence than logical)
     cmp_atom.foldl(
         choice((eq_op, neq_op)).then(cmp_rhs).repeated(),
-        |lhs: CmpLhs, (op, rhs): (&str, CmpRhs)| {
+        |lhs: CmpLhs<'src>, (op, rhs): (&str, CmpRhs<'src>)| {
             let lhs_span = lhs.span();
             let rhs_span = rhs.span();
             let span = combine_spans(lhs_span, rhs_span);

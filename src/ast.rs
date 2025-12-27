@@ -18,7 +18,7 @@ pub trait HasSpan {
 
 /// Type annotations for variable declarations
 /// Currently includes only types without units
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     /// Boolean type
     Bool { span: Span },
@@ -38,17 +38,17 @@ pub enum Type {
 
 /// Statements perform declarations and actions (not expressions)
 #[derive(Debug, Clone, PartialEq)]
-pub enum Stmt {
+pub enum Stmt<'src> {
     /// Variable declaration with optional type annotation and initialization
     /// Examples:
     ///   let x: i32 = 42;
     ///   let y: bool;
     ///   let z = 3.14;
     Let {
-        name: String,
+        name: &'src str,
         name_span: Span,
         type_annotation: Option<Type>,
-        init: Option<Expr>,
+        init: Option<Expr<'src>>,
         span: Span,
     },
 }
@@ -83,13 +83,13 @@ pub enum Stmt {
 /// - Right-hand sides enforce higher precedence
 #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expr {
+pub enum Expr<'src> {
     // Logical AND - in CmpLhs (same level as equality operators)
     // lhs can be And/Or, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs)]
     And {
-        lhs: Box<CmpLhs>,
-        rhs: Box<CmpRhs>,
+        lhs: Box<CmpLhs<'src>>,
+        rhs: Box<CmpRhs<'src>>,
         span: Span,
     },
 
@@ -97,8 +97,8 @@ pub enum Expr {
     // lhs can be And/Or, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs)]
     Or {
-        lhs: Box<CmpLhs>,
-        rhs: Box<CmpRhs>,
+        lhs: Box<CmpLhs<'src>>,
+        rhs: Box<CmpRhs<'src>>,
         span: Span,
     },
 
@@ -106,8 +106,8 @@ pub enum Expr {
     // lhs can be Eq, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs)]
     Eq {
-        lhs: Box<CmpLhs>,
-        rhs: Box<CmpRhs>,
+        lhs: Box<CmpLhs<'src>>,
+        rhs: Box<CmpRhs<'src>>,
         span: Span,
     },
 
@@ -115,8 +115,8 @@ pub enum Expr {
     // lhs can be NotEq, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs)]
     NotEq {
-        lhs: Box<CmpLhs>,
-        rhs: Box<CmpRhs>,
+        lhs: Box<CmpLhs<'src>>,
+        rhs: Box<CmpRhs<'src>>,
         span: Span,
     },
 
@@ -124,45 +124,45 @@ pub enum Expr {
     // lhs can be Add/Sub, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs, CmpRhs, AddLhs)]
     Add {
-        lhs: Box<AddLhs>,
-        rhs: Box<AddRhs>,
+        lhs: Box<AddLhs<'src>>,
+        rhs: Box<AddRhs<'src>>,
         span: Span,
     },
 
     // Subtraction - in CmpLhs, CmpRhs, AddLhs
     #[subenum(CmpLhs, CmpRhs, AddLhs)]
     Sub {
-        lhs: Box<AddLhs>,
-        rhs: Box<AddRhs>,
+        lhs: Box<AddLhs<'src>>,
+        rhs: Box<AddRhs<'src>>,
         span: Span,
     },
 
     // Parentheses - in all contexts except Atom (resets precedence)
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs)]
-    Paren { inner: Box<Expr>, span: Span },
+    Paren { inner: Box<Expr<'src>>, span: Span },
 
     // Multiplication - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs
     // lhs can be Mul/Div, rhs cannot (enforces left-associativity)
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs)]
     Mul {
-        lhs: Box<MulLhs>,
-        rhs: Box<MulRhs>,
+        lhs: Box<MulLhs<'src>>,
+        rhs: Box<MulRhs<'src>>,
         span: Span,
     },
 
     // Division - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs)]
     Div {
-        lhs: Box<MulLhs>,
-        rhs: Box<MulRhs>,
+        lhs: Box<MulLhs<'src>>,
+        rhs: Box<MulRhs<'src>>,
         span: Span,
     },
 
     // Modulo - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs)]
     Mod {
-        lhs: Box<MulLhs>,
-        rhs: Box<MulRhs>,
+        lhs: Box<MulLhs<'src>>,
+        rhs: Box<MulRhs<'src>>,
         span: Span,
     },
 
@@ -170,24 +170,30 @@ pub enum Expr {
     // lhs cannot be Pow (enforces right-associativity), rhs can be Pow
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowRhs)]
     Pow {
-        lhs: Box<PowLhs>,
-        rhs: Box<PowRhs>,
+        lhs: Box<PowLhs<'src>>,
+        rhs: Box<PowRhs<'src>>,
         span: Span,
     },
 
     // Unary negation - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs
     // Higher precedence than power (binds tighter)
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs)]
-    Neg { inner: Box<PowLhs>, span: Span },
+    Neg {
+        inner: Box<PowLhs<'src>>,
+        span: Span,
+    },
 
     // Unary reference - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs
     // Higher precedence than power (binds tighter)
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs)]
-    Ref { inner: Box<PowLhs>, span: Span },
+    Ref {
+        inner: Box<PowLhs<'src>>,
+        span: Span,
+    },
 
     // Variable reference - in all levels
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
-    Var { name: String, span: Span },
+    Var { name: &'src str, span: Span },
 
     // Integer literal - in all levels
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
@@ -218,7 +224,7 @@ impl HasSpan for Type {
     }
 }
 
-impl HasSpan for Stmt {
+impl<'src> HasSpan for Stmt<'src> {
     fn span(&self) -> Span {
         match self {
             Stmt::Let { span, .. } => *span,
@@ -226,7 +232,7 @@ impl HasSpan for Stmt {
     }
 }
 
-impl HasSpan for Expr {
+impl<'src> HasSpan for Expr<'src> {
     fn span(&self) -> Span {
         match self {
             Expr::And { span, .. } => *span,
@@ -250,7 +256,7 @@ impl HasSpan for Expr {
     }
 }
 
-impl HasSpan for CmpLhs {
+impl<'src> HasSpan for CmpLhs<'src> {
     fn span(&self) -> Span {
         match self {
             CmpLhs::And { span, .. } => *span,
@@ -274,7 +280,7 @@ impl HasSpan for CmpLhs {
     }
 }
 
-impl HasSpan for CmpRhs {
+impl<'src> HasSpan for CmpRhs<'src> {
     fn span(&self) -> Span {
         match self {
             CmpRhs::Add { span, .. } => *span,
@@ -294,7 +300,7 @@ impl HasSpan for CmpRhs {
     }
 }
 
-impl HasSpan for AddLhs {
+impl<'src> HasSpan for AddLhs<'src> {
     fn span(&self) -> Span {
         match self {
             AddLhs::Add { span, .. } => *span,
@@ -314,7 +320,7 @@ impl HasSpan for AddLhs {
     }
 }
 
-impl HasSpan for AddRhs {
+impl<'src> HasSpan for AddRhs<'src> {
     fn span(&self) -> Span {
         match self {
             AddRhs::Paren { span, .. } => *span,
@@ -332,7 +338,7 @@ impl HasSpan for AddRhs {
     }
 }
 
-impl HasSpan for MulLhs {
+impl<'src> HasSpan for MulLhs<'src> {
     fn span(&self) -> Span {
         match self {
             MulLhs::Paren { span, .. } => *span,
@@ -350,7 +356,7 @@ impl HasSpan for MulLhs {
     }
 }
 
-impl HasSpan for MulRhs {
+impl<'src> HasSpan for MulRhs<'src> {
     fn span(&self) -> Span {
         match self {
             MulRhs::Paren { span, .. } => *span,
@@ -365,7 +371,7 @@ impl HasSpan for MulRhs {
     }
 }
 
-impl HasSpan for PowLhs {
+impl<'src> HasSpan for PowLhs<'src> {
     fn span(&self) -> Span {
         match self {
             PowLhs::Paren { span, .. } => *span,
@@ -379,7 +385,7 @@ impl HasSpan for PowLhs {
     }
 }
 
-impl HasSpan for PowRhs {
+impl<'src> HasSpan for PowRhs<'src> {
     fn span(&self) -> Span {
         match self {
             PowRhs::Paren { span, .. } => *span,
@@ -394,7 +400,7 @@ impl HasSpan for PowRhs {
     }
 }
 
-impl HasSpan for Atom {
+impl<'src> HasSpan for Atom<'src> {
     fn span(&self) -> Span {
         match self {
             Atom::Var { span, .. } => *span,
@@ -409,7 +415,7 @@ impl HasSpan for Atom {
 // Display Implementations
 // ============================================================================
 
-impl std::fmt::Display for Expr {
+impl<'src> std::fmt::Display for Expr<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expr::And { lhs, rhs, .. } => write!(f, "({} and {})", lhs, rhs),
@@ -433,7 +439,7 @@ impl std::fmt::Display for Expr {
     }
 }
 
-impl std::fmt::Display for CmpLhs {
+impl<'src> std::fmt::Display for CmpLhs<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CmpLhs::And { lhs, rhs, .. } => write!(f, "({} and {})", lhs, rhs),
@@ -457,7 +463,7 @@ impl std::fmt::Display for CmpLhs {
     }
 }
 
-impl std::fmt::Display for CmpRhs {
+impl<'src> std::fmt::Display for CmpRhs<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CmpRhs::Add { lhs, rhs, .. } => write!(f, "({} + {})", lhs, rhs),
@@ -477,7 +483,7 @@ impl std::fmt::Display for CmpRhs {
     }
 }
 
-impl std::fmt::Display for AddLhs {
+impl<'src> std::fmt::Display for AddLhs<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AddLhs::Add { lhs, rhs, .. } => write!(f, "({} + {})", lhs, rhs),
@@ -497,7 +503,7 @@ impl std::fmt::Display for AddLhs {
     }
 }
 
-impl std::fmt::Display for AddRhs {
+impl<'src> std::fmt::Display for AddRhs<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AddRhs::Paren { inner, .. } => write!(f, "({})", inner),
@@ -515,7 +521,7 @@ impl std::fmt::Display for AddRhs {
     }
 }
 
-impl std::fmt::Display for MulLhs {
+impl<'src> std::fmt::Display for MulLhs<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MulLhs::Paren { inner, .. } => write!(f, "({})", inner),
@@ -533,7 +539,7 @@ impl std::fmt::Display for MulLhs {
     }
 }
 
-impl std::fmt::Display for MulRhs {
+impl<'src> std::fmt::Display for MulRhs<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MulRhs::Paren { inner, .. } => write!(f, "({})", inner),
@@ -548,7 +554,7 @@ impl std::fmt::Display for MulRhs {
     }
 }
 
-impl std::fmt::Display for PowLhs {
+impl<'src> std::fmt::Display for PowLhs<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PowLhs::Paren { inner, .. } => write!(f, "({})", inner),
@@ -562,7 +568,7 @@ impl std::fmt::Display for PowLhs {
     }
 }
 
-impl std::fmt::Display for PowRhs {
+impl<'src> std::fmt::Display for PowRhs<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PowRhs::Paren { inner, .. } => write!(f, "({})", inner),
@@ -577,7 +583,7 @@ impl std::fmt::Display for PowRhs {
     }
 }
 
-impl std::fmt::Display for Atom {
+impl<'src> std::fmt::Display for Atom<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Atom::Var { name, .. } => write!(f, "{}", name),
@@ -593,8 +599,8 @@ impl std::fmt::Display for Atom {
 // ============================================================================
 
 /// Convert AddLhs to CmpRhs (AddLhs is a subset of CmpRhs)
-impl From<AddLhs> for CmpRhs {
-    fn from(add: AddLhs) -> Self {
+impl<'src> From<AddLhs<'src>> for CmpRhs<'src> {
+    fn from(add: AddLhs<'src>) -> Self {
         match add {
             AddLhs::Add { lhs, rhs, span } => CmpRhs::Add { lhs, rhs, span },
             AddLhs::Sub { lhs, rhs, span } => CmpRhs::Sub { lhs, rhs, span },
@@ -614,8 +620,8 @@ impl From<AddLhs> for CmpRhs {
 }
 
 /// Convert AddLhs to CmpLhs (AddLhs is a subset of CmpLhs)
-impl From<AddLhs> for CmpLhs {
-    fn from(add: AddLhs) -> Self {
+impl<'src> From<AddLhs<'src>> for CmpLhs<'src> {
+    fn from(add: AddLhs<'src>) -> Self {
         match add {
             AddLhs::Add { lhs, rhs, span } => CmpLhs::Add { lhs, rhs, span },
             AddLhs::Sub { lhs, rhs, span } => CmpLhs::Sub { lhs, rhs, span },
@@ -635,8 +641,8 @@ impl From<AddLhs> for CmpLhs {
 }
 
 /// Convert Atom to MulRhs (Atom is a subset of MulRhs)
-impl From<Atom> for MulRhs {
-    fn from(atom: Atom) -> Self {
+impl<'src> From<Atom<'src>> for MulRhs<'src> {
+    fn from(atom: Atom<'src>) -> Self {
         match atom {
             Atom::Var { name, span } => MulRhs::Var { name, span },
             Atom::IntLit { value, span } => MulRhs::IntLit { value, span },
@@ -647,8 +653,8 @@ impl From<Atom> for MulRhs {
 }
 
 /// Convert Atom to MulLhs (Atom is a subset of MulLhs)
-impl From<Atom> for MulLhs {
-    fn from(atom: Atom) -> Self {
+impl<'src> From<Atom<'src>> for MulLhs<'src> {
+    fn from(atom: Atom<'src>) -> Self {
         match atom {
             Atom::Var { name, span } => MulLhs::Var { name, span },
             Atom::IntLit { value, span } => MulLhs::IntLit { value, span },
@@ -659,8 +665,8 @@ impl From<Atom> for MulLhs {
 }
 
 /// Convert MulLhs to AddRhs (MulLhs is a subset of AddRhs)
-impl From<MulLhs> for AddRhs {
-    fn from(mul: MulLhs) -> Self {
+impl<'src> From<MulLhs<'src>> for AddRhs<'src> {
+    fn from(mul: MulLhs<'src>) -> Self {
         match mul {
             MulLhs::Paren { inner, span } => AddRhs::Paren { inner, span },
             MulLhs::Mul { lhs, rhs, span } => AddRhs::Mul { lhs, rhs, span },
@@ -678,8 +684,8 @@ impl From<MulLhs> for AddRhs {
 }
 
 /// Convert MulLhs to AddLhs (MulLhs is a subset of AddLhs)
-impl From<MulLhs> for AddLhs {
-    fn from(mul: MulLhs) -> Self {
+impl<'src> From<MulLhs<'src>> for AddLhs<'src> {
+    fn from(mul: MulLhs<'src>) -> Self {
         match mul {
             MulLhs::Paren { inner, span } => AddLhs::Paren { inner, span },
             MulLhs::Mul { lhs, rhs, span } => AddLhs::Mul { lhs, rhs, span },
@@ -697,8 +703,8 @@ impl From<MulLhs> for AddLhs {
 }
 
 /// Convert Atom to PowLhs (Atom is a subset of PowLhs)
-impl From<Atom> for PowLhs {
-    fn from(atom: Atom) -> Self {
+impl<'src> From<Atom<'src>> for PowLhs<'src> {
+    fn from(atom: Atom<'src>) -> Self {
         match atom {
             Atom::Var { name, span } => PowLhs::Var { name, span },
             Atom::IntLit { value, span } => PowLhs::IntLit { value, span },
@@ -709,8 +715,8 @@ impl From<Atom> for PowLhs {
 }
 
 /// Convert Atom to PowRhs (Atom is a subset of PowRhs)
-impl From<Atom> for PowRhs {
-    fn from(atom: Atom) -> Self {
+impl<'src> From<Atom<'src>> for PowRhs<'src> {
+    fn from(atom: Atom<'src>) -> Self {
         match atom {
             Atom::Var { name, span } => PowRhs::Var { name, span },
             Atom::IntLit { value, span } => PowRhs::IntLit { value, span },
@@ -721,8 +727,8 @@ impl From<Atom> for PowRhs {
 }
 
 /// Convert PowLhs to PowRhs (PowLhs is a subset of PowRhs except for Pow)
-impl From<PowLhs> for PowRhs {
-    fn from(pow: PowLhs) -> Self {
+impl<'src> From<PowLhs<'src>> for PowRhs<'src> {
+    fn from(pow: PowLhs<'src>) -> Self {
         match pow {
             PowLhs::Paren { inner, span } => PowRhs::Paren { inner, span },
             PowLhs::Neg { inner, span } => PowRhs::Neg { inner, span },
@@ -736,8 +742,8 @@ impl From<PowLhs> for PowRhs {
 }
 
 /// Convert PowLhs to MulRhs (PowLhs is a subset of MulRhs)
-impl From<PowLhs> for MulRhs {
-    fn from(pow: PowLhs) -> Self {
+impl<'src> From<PowLhs<'src>> for MulRhs<'src> {
+    fn from(pow: PowLhs<'src>) -> Self {
         match pow {
             PowLhs::Paren { inner, span } => MulRhs::Paren { inner, span },
             PowLhs::Neg { inner, span } => MulRhs::Neg { inner, span },
@@ -751,8 +757,8 @@ impl From<PowLhs> for MulRhs {
 }
 
 /// Convert PowLhs to MulLhs (PowLhs is a subset of MulLhs)
-impl From<PowLhs> for MulLhs {
-    fn from(pow: PowLhs) -> Self {
+impl<'src> From<PowLhs<'src>> for MulLhs<'src> {
+    fn from(pow: PowLhs<'src>) -> Self {
         match pow {
             PowLhs::Paren { inner, span } => MulLhs::Paren { inner, span },
             PowLhs::Neg { inner, span } => MulLhs::Neg { inner, span },
@@ -786,7 +792,7 @@ mod tests {
     #[test]
     fn test_atom_to_expr_conversion() {
         let atom = Atom::Var {
-            name: "x".to_string(),
+            name: "x",
             span: dummy_span(),
         };
         let expected_span = dummy_span();
@@ -794,7 +800,7 @@ mod tests {
         assert_eq!(
             expr,
             Expr::Var {
-                name: "x".to_string(),
+                name: "x",
                 span: expected_span
             }
         );
@@ -803,7 +809,7 @@ mod tests {
     #[test]
     fn test_atom_to_mulrhs_via_expr() {
         let atom = Atom::Var {
-            name: "x".to_string(),
+            name: "x",
             span: dummy_span(),
         };
         let expected_span = dummy_span();
@@ -813,7 +819,7 @@ mod tests {
         assert_eq!(
             mulrhs.unwrap(),
             MulRhs::Var {
-                name: "x".to_string(),
+                name: "x",
                 span: expected_span
             }
         );
@@ -822,7 +828,7 @@ mod tests {
     #[test]
     fn test_mulrhs_to_addrhs_via_expr() {
         let mulrhs = MulRhs::Var {
-            name: "x".to_string(),
+            name: "x",
             span: dummy_span(),
         };
         let expected_span = dummy_span();
@@ -832,7 +838,7 @@ mod tests {
         assert_eq!(
             addrhs.unwrap(),
             AddRhs::Var {
-                name: "x".to_string(),
+                name: "x",
                 span: expected_span
             }
         );
@@ -842,11 +848,11 @@ mod tests {
     fn test_mul_structure() {
         let mul = Expr::Mul {
             lhs: Box::new(MulLhs::Var {
-                name: "a".to_string(),
+                name: "a",
                 span: dummy_span(),
             }),
             rhs: Box::new(MulRhs::Var {
-                name: "b".to_string(),
+                name: "b",
                 span: dummy_span(),
             }),
             span: dummy_span(),
@@ -861,11 +867,11 @@ mod tests {
     fn test_add_structure() {
         let add = Expr::Add {
             lhs: Box::new(AddLhs::Var {
-                name: "a".to_string(),
+                name: "a",
                 span: dummy_span(),
             }),
             rhs: Box::new(AddRhs::Var {
-                name: "b".to_string(),
+                name: "b",
                 span: dummy_span(),
             }),
             span: dummy_span(),
@@ -881,11 +887,11 @@ mod tests {
         // Multiplication in AddRhs
         let mul_in_addrhs = AddRhs::Mul {
             lhs: Box::new(MulLhs::Var {
-                name: "b".to_string(),
+                name: "b",
                 span: dummy_span(),
             }),
             rhs: Box::new(MulRhs::Var {
-                name: "c".to_string(),
+                name: "c",
                 span: dummy_span(),
             }),
             span: dummy_span(),
@@ -894,7 +900,7 @@ mod tests {
         // Addition with multiplication on right side
         let add = Expr::Add {
             lhs: Box::new(AddLhs::Var {
-                name: "a".to_string(),
+                name: "a",
                 span: dummy_span(),
             }),
             rhs: Box::new(mul_in_addrhs),
@@ -907,7 +913,7 @@ mod tests {
     #[test]
     fn test_display_simple_var() {
         let expr = Expr::Var {
-            name: "x".to_string(),
+            name: "x",
             span: dummy_span(),
         };
         assert_eq!(format!("{}", expr), "x");
@@ -917,11 +923,11 @@ mod tests {
     fn test_display_simple_add() {
         let expr = Expr::Add {
             lhs: Box::new(AddLhs::Var {
-                name: "a".to_string(),
+                name: "a",
                 span: dummy_span(),
             }),
             rhs: Box::new(AddRhs::Var {
-                name: "b".to_string(),
+                name: "b",
                 span: dummy_span(),
             }),
             span: dummy_span(),
@@ -934,16 +940,16 @@ mod tests {
         // a + b * c
         let expr = Expr::Add {
             lhs: Box::new(AddLhs::Var {
-                name: "a".to_string(),
+                name: "a",
                 span: dummy_span(),
             }),
             rhs: Box::new(AddRhs::Mul {
                 lhs: Box::new(MulLhs::Var {
-                    name: "b".to_string(),
+                    name: "b",
                     span: dummy_span(),
                 }),
                 rhs: Box::new(MulRhs::Var {
-                    name: "c".to_string(),
+                    name: "c",
                     span: dummy_span(),
                 }),
                 span: dummy_span(),

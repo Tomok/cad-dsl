@@ -48,12 +48,12 @@ fn combine_spans(left: Span, right: Span) -> Span {
 // Power Parsers (Highest precedence arithmetic operator)
 // ============================================================================
 
-/// Parser for power base (PowLhs) - atoms, parens, and unary operators
+/// Parser for power base (PowLhs<'src>) - atoms, parens, and unary operators
 pub fn pow_lhs_parser<'src, E>(
     expr_rec: E,
-) -> impl Parser<'src, &'src [Token<'src>], PowLhs, ParseError<'src>> + Clone
+) -> impl Parser<'src, &'src [Token<'src>], PowLhs<'src>, ParseError<'src>> + Clone
 where
-    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone + 'src,
+    E: Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone + 'src,
 {
     // Recursive parser for unary operators (allows stacking like --x or &-x)
     recursive(|unary_rec| {
@@ -61,7 +61,7 @@ where
             // Unary negation: -<expr>
             select! { Token::Minus(t) => t.position }
                 .then(unary_rec.clone())
-                .map(|(op_pos, inner): (_, PowLhs)| {
+                .map(|(op_pos, inner): (_, PowLhs<'src>)| {
                     let inner_span = inner.span();
                     let span = combine_span_from_pos(op_pos, inner_span);
                     PowLhs::Neg {
@@ -72,7 +72,7 @@ where
             // Unary reference: &<expr>
             select! { Token::Ampersand(t) => t.position }
                 .then(unary_rec)
-                .map(|(op_pos, inner): (_, PowLhs)| {
+                .map(|(op_pos, inner): (_, PowLhs<'src>)| {
                     let inner_span = inner.span();
                     let span = combine_span_from_pos(op_pos, inner_span);
                     PowLhs::Ref {
@@ -109,13 +109,13 @@ where
     })
 }
 
-/// Parser for power right-hand side (PowRhs) - can contain Pow recursively
+/// Parser for power right-hand side (PowRhs<'src>) - can contain Pow recursively
 pub fn pow_rhs_parser<'src, E>(
     _expr_rec: E,
-    pow_lhs: impl Parser<'src, &'src [Token<'src>], PowLhs, ParseError<'src>> + Clone + 'src,
-) -> impl Parser<'src, &'src [Token<'src>], PowRhs, ParseError<'src>> + Clone
+    pow_lhs: impl Parser<'src, &'src [Token<'src>], PowLhs<'src>, ParseError<'src>> + Clone + 'src,
+) -> impl Parser<'src, &'src [Token<'src>], PowRhs<'src>, ParseError<'src>> + Clone
 where
-    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
+    E: Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone,
 {
     let pow_op = select! { Token::Power(_) => () };
 
@@ -124,7 +124,7 @@ where
     recursive(|pow_rhs_rec| {
         let base_parser = pow_lhs.clone();
         base_parser.then(pow_op.then(pow_rhs_rec).or_not()).map(
-            |(base, rest): (PowLhs, Option<((), PowRhs)>)| {
+            |(base, rest): (PowLhs<'src>, Option<((), PowRhs<'src>)>)| {
                 match rest {
                     None => base.into(), // No power operator, just return base as PowRhs
                     Some((_, rhs)) => {
@@ -148,17 +148,17 @@ where
 // Multiplication/Division/Modulo Parsers
 // ============================================================================
 
-/// Parser for multiplication right-hand side (MulRhs)
+/// Parser for multiplication right-hand side (MulRhs<'src>)
 pub fn mul_rhs_parser<'src, E>(
     expr_rec: E,
-    pow_rhs: impl Parser<'src, &'src [Token<'src>], PowRhs, ParseError<'src>> + Clone,
-) -> impl Parser<'src, &'src [Token<'src>], MulRhs, ParseError<'src>> + Clone
+    pow_rhs: impl Parser<'src, &'src [Token<'src>], PowRhs<'src>, ParseError<'src>> + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], MulRhs<'src>, ParseError<'src>> + Clone
 where
-    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
+    E: Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone,
 {
     choice((
         pow_rhs.map(|p| {
-            // Convert PowRhs to MulRhs
+            // Convert PowRhs<'src> to MulRhs
             match p {
                 PowRhs::Pow { lhs, rhs, span } => MulRhs::Pow { lhs, rhs, span },
                 PowRhs::Paren { inner, span } => MulRhs::Paren { inner, span },
@@ -195,16 +195,16 @@ where
     ))
 }
 
-/// Parser for multiplication left-hand side (MulLhs) with operators
+/// Parser for multiplication left-hand side (MulLhs<'src>) with operators
 pub fn mul_lhs_parser<'src, E, R, P>(
     expr_rec: E,
     mul_rhs: R,
     pow_rhs: P,
-) -> impl Parser<'src, &'src [Token<'src>], MulLhs, ParseError<'src>> + Clone
+) -> impl Parser<'src, &'src [Token<'src>], MulLhs<'src>, ParseError<'src>> + Clone
 where
-    E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
-    R: Parser<'src, &'src [Token<'src>], MulRhs, ParseError<'src>> + Clone,
-    P: Parser<'src, &'src [Token<'src>], PowRhs, ParseError<'src>> + Clone,
+    E: Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone,
+    R: Parser<'src, &'src [Token<'src>], MulRhs<'src>, ParseError<'src>> + Clone,
+    P: Parser<'src, &'src [Token<'src>], PowRhs<'src>, ParseError<'src>> + Clone,
 {
     let mul_op = select! { Token::Multiply(_) => '*' };
     let div_op = select! { Token::Divide(_) => '/' };
@@ -213,7 +213,7 @@ where
     // mul_atom now uses pow_rhs which handles power operations
     let mul_atom = choice((
         pow_rhs.map(|p| {
-            // Convert PowRhs to MulLhs
+            // Convert PowRhs<'src> to MulLhs
             match p {
                 PowRhs::Pow { lhs, rhs, span } => MulLhs::Pow { lhs, rhs, span },
                 PowRhs::Paren { inner, span } => MulLhs::Paren { inner, span },
@@ -252,7 +252,7 @@ where
     // Left-associative multiplication, division, and modulo
     mul_atom.foldl(
         choice((mul_op, div_op, mod_op)).then(mul_rhs).repeated(),
-        |lhs: MulLhs, (op, rhs): (char, MulRhs)| {
+        |lhs: MulLhs<'src>, (op, rhs): (char, MulRhs<'src>)| {
             let lhs_span = lhs.span();
             let rhs_span = rhs.span();
             let span = combine_spans(lhs_span, rhs_span);
@@ -284,24 +284,24 @@ where
 // Addition/Subtraction Parsers
 // ============================================================================
 
-/// Parser for addition right-hand side (AddRhs)
+/// Parser for addition right-hand side (AddRhs<'src>)
 pub fn add_rhs_parser<'src, M>(
     mul_lhs: M,
-) -> impl Parser<'src, &'src [Token<'src>], AddRhs, ParseError<'src>> + Clone
+) -> impl Parser<'src, &'src [Token<'src>], AddRhs<'src>, ParseError<'src>> + Clone
 where
-    M: Parser<'src, &'src [Token<'src>], MulLhs, ParseError<'src>> + Clone,
+    M: Parser<'src, &'src [Token<'src>], MulLhs<'src>, ParseError<'src>> + Clone,
 {
     mul_lhs.map(Into::into)
 }
 
-/// Parser for addition left-hand side (AddLhs) with operators
+/// Parser for addition left-hand side (AddLhs<'src>) with operators
 pub fn add_lhs_parser<'src, M, R>(
     mul_lhs: M,
     add_rhs: R,
-) -> impl Parser<'src, &'src [Token<'src>], AddLhs, ParseError<'src>> + Clone
+) -> impl Parser<'src, &'src [Token<'src>], AddLhs<'src>, ParseError<'src>> + Clone
 where
-    M: Parser<'src, &'src [Token<'src>], MulLhs, ParseError<'src>> + Clone,
-    R: Parser<'src, &'src [Token<'src>], AddRhs, ParseError<'src>> + Clone,
+    M: Parser<'src, &'src [Token<'src>], MulLhs<'src>, ParseError<'src>> + Clone,
+    R: Parser<'src, &'src [Token<'src>], AddRhs<'src>, ParseError<'src>> + Clone,
 {
     let add_op = select! { Token::Plus(_) => '+' };
     let sub_op = select! { Token::Minus(_) => '-' };
@@ -311,7 +311,7 @@ where
     // Left-associative addition and subtraction
     add_atom.foldl(
         choice((add_op, sub_op)).then(add_rhs).repeated(),
-        |lhs: AddLhs, (op, rhs): (char, AddRhs)| {
+        |lhs: AddLhs<'src>, (op, rhs): (char, AddRhs<'src>)| {
             let lhs_span = lhs.span();
             let rhs_span = rhs.span();
             let span = combine_spans(lhs_span, rhs_span);
