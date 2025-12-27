@@ -81,7 +81,7 @@ where
                     }
                 }),
             // Atom (base case)
-            atom().map(Into::into),
+            atom(expr_rec.clone()).map(Into::into),
             // Parenthesized expression
             select! { Token::LeftParen(t) => t.position }
                 .then(expr_rec)
@@ -168,6 +168,7 @@ where
                 PowRhs::IntLit { value, span } => MulRhs::IntLit { value, span },
                 PowRhs::FloatLit { value, span } => MulRhs::FloatLit { value, span },
                 PowRhs::BoolLit { value, span } => MulRhs::BoolLit { value, span },
+                PowRhs::Call { name, args, span } => MulRhs::Call { name, args, span },
             }
         }),
         select! { Token::LeftParen(t) => t.position }
@@ -223,6 +224,7 @@ where
                 PowRhs::IntLit { value, span } => MulLhs::IntLit { value, span },
                 PowRhs::FloatLit { value, span } => MulLhs::FloatLit { value, span },
                 PowRhs::BoolLit { value, span } => MulLhs::BoolLit { value, span },
+                PowRhs::Call { name, args, span } => MulLhs::Call { name, args, span },
             }
         }),
         select! { Token::LeftParen(t) => t.position }

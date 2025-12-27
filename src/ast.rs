@@ -206,6 +206,14 @@ pub enum Expr<'src> {
     // Boolean literal - in all levels
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
     BoolLit { value: bool, span: Span },
+
+    // Function call - in all levels (high precedence like atoms)
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
+    Call {
+        name: &'src str,
+        args: Vec<Expr<'src>>,
+        span: Span,
+    },
 }
 
 // ============================================================================
@@ -252,6 +260,7 @@ impl<'src> HasSpan for Expr<'src> {
             Expr::IntLit { span, .. } => *span,
             Expr::FloatLit { span, .. } => *span,
             Expr::BoolLit { span, .. } => *span,
+            Expr::Call { span, .. } => *span,
         }
     }
 }
@@ -276,6 +285,7 @@ impl<'src> HasSpan for CmpLhs<'src> {
             CmpLhs::IntLit { span, .. } => *span,
             CmpLhs::FloatLit { span, .. } => *span,
             CmpLhs::BoolLit { span, .. } => *span,
+            CmpLhs::Call { span, .. } => *span,
         }
     }
 }
@@ -296,6 +306,7 @@ impl<'src> HasSpan for CmpRhs<'src> {
             CmpRhs::IntLit { span, .. } => *span,
             CmpRhs::FloatLit { span, .. } => *span,
             CmpRhs::BoolLit { span, .. } => *span,
+            CmpRhs::Call { span, .. } => *span,
         }
     }
 }
@@ -316,6 +327,7 @@ impl<'src> HasSpan for AddLhs<'src> {
             AddLhs::IntLit { span, .. } => *span,
             AddLhs::FloatLit { span, .. } => *span,
             AddLhs::BoolLit { span, .. } => *span,
+            AddLhs::Call { span, .. } => *span,
         }
     }
 }
@@ -334,6 +346,7 @@ impl<'src> HasSpan for AddRhs<'src> {
             AddRhs::IntLit { span, .. } => *span,
             AddRhs::FloatLit { span, .. } => *span,
             AddRhs::BoolLit { span, .. } => *span,
+            AddRhs::Call { span, .. } => *span,
         }
     }
 }
@@ -352,6 +365,7 @@ impl<'src> HasSpan for MulLhs<'src> {
             MulLhs::IntLit { span, .. } => *span,
             MulLhs::FloatLit { span, .. } => *span,
             MulLhs::BoolLit { span, .. } => *span,
+            MulLhs::Call { span, .. } => *span,
         }
     }
 }
@@ -367,6 +381,7 @@ impl<'src> HasSpan for MulRhs<'src> {
             MulRhs::IntLit { span, .. } => *span,
             MulRhs::FloatLit { span, .. } => *span,
             MulRhs::BoolLit { span, .. } => *span,
+            MulRhs::Call { span, .. } => *span,
         }
     }
 }
@@ -381,6 +396,7 @@ impl<'src> HasSpan for PowLhs<'src> {
             PowLhs::IntLit { span, .. } => *span,
             PowLhs::FloatLit { span, .. } => *span,
             PowLhs::BoolLit { span, .. } => *span,
+            PowLhs::Call { span, .. } => *span,
         }
     }
 }
@@ -396,6 +412,7 @@ impl<'src> HasSpan for PowRhs<'src> {
             PowRhs::IntLit { span, .. } => *span,
             PowRhs::FloatLit { span, .. } => *span,
             PowRhs::BoolLit { span, .. } => *span,
+            PowRhs::Call { span, .. } => *span,
         }
     }
 }
@@ -407,6 +424,7 @@ impl<'src> HasSpan for Atom<'src> {
             Atom::IntLit { span, .. } => *span,
             Atom::FloatLit { span, .. } => *span,
             Atom::BoolLit { span, .. } => *span,
+            Atom::Call { span, .. } => *span,
         }
     }
 }
@@ -435,6 +453,16 @@ impl<'src> std::fmt::Display for Expr<'src> {
             Expr::IntLit { value, .. } => write!(f, "{}", value),
             Expr::FloatLit { value, .. } => write!(f, "{}", value),
             Expr::BoolLit { value, .. } => write!(f, "{}", value),
+            Expr::Call { name, args, .. } => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -459,6 +487,16 @@ impl<'src> std::fmt::Display for CmpLhs<'src> {
             CmpLhs::IntLit { value, .. } => write!(f, "{}", value),
             CmpLhs::FloatLit { value, .. } => write!(f, "{}", value),
             CmpLhs::BoolLit { value, .. } => write!(f, "{}", value),
+            CmpLhs::Call { name, args, .. } => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -479,6 +517,16 @@ impl<'src> std::fmt::Display for CmpRhs<'src> {
             CmpRhs::IntLit { value, .. } => write!(f, "{}", value),
             CmpRhs::FloatLit { value, .. } => write!(f, "{}", value),
             CmpRhs::BoolLit { value, .. } => write!(f, "{}", value),
+            CmpRhs::Call { name, args, .. } => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -499,6 +547,16 @@ impl<'src> std::fmt::Display for AddLhs<'src> {
             AddLhs::IntLit { value, .. } => write!(f, "{}", value),
             AddLhs::FloatLit { value, .. } => write!(f, "{}", value),
             AddLhs::BoolLit { value, .. } => write!(f, "{}", value),
+            AddLhs::Call { name, args, .. } => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -517,6 +575,16 @@ impl<'src> std::fmt::Display for AddRhs<'src> {
             AddRhs::IntLit { value, .. } => write!(f, "{}", value),
             AddRhs::FloatLit { value, .. } => write!(f, "{}", value),
             AddRhs::BoolLit { value, .. } => write!(f, "{}", value),
+            AddRhs::Call { name, args, .. } => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -535,6 +603,16 @@ impl<'src> std::fmt::Display for MulLhs<'src> {
             MulLhs::IntLit { value, .. } => write!(f, "{}", value),
             MulLhs::FloatLit { value, .. } => write!(f, "{}", value),
             MulLhs::BoolLit { value, .. } => write!(f, "{}", value),
+            MulLhs::Call { name, args, .. } => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -550,6 +628,16 @@ impl<'src> std::fmt::Display for MulRhs<'src> {
             MulRhs::IntLit { value, .. } => write!(f, "{}", value),
             MulRhs::FloatLit { value, .. } => write!(f, "{}", value),
             MulRhs::BoolLit { value, .. } => write!(f, "{}", value),
+            MulRhs::Call { name, args, .. } => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -564,6 +652,16 @@ impl<'src> std::fmt::Display for PowLhs<'src> {
             PowLhs::IntLit { value, .. } => write!(f, "{}", value),
             PowLhs::FloatLit { value, .. } => write!(f, "{}", value),
             PowLhs::BoolLit { value, .. } => write!(f, "{}", value),
+            PowLhs::Call { name, args, .. } => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -579,6 +677,16 @@ impl<'src> std::fmt::Display for PowRhs<'src> {
             PowRhs::IntLit { value, .. } => write!(f, "{}", value),
             PowRhs::FloatLit { value, .. } => write!(f, "{}", value),
             PowRhs::BoolLit { value, .. } => write!(f, "{}", value),
+            PowRhs::Call { name, args, .. } => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -590,6 +698,16 @@ impl<'src> std::fmt::Display for Atom<'src> {
             Atom::IntLit { value, .. } => write!(f, "{}", value),
             Atom::FloatLit { value, .. } => write!(f, "{}", value),
             Atom::BoolLit { value, .. } => write!(f, "{}", value),
+            Atom::Call { name, args, .. } => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -615,6 +733,7 @@ impl<'src> From<AddLhs<'src>> for CmpRhs<'src> {
             AddLhs::IntLit { value, span } => CmpRhs::IntLit { value, span },
             AddLhs::FloatLit { value, span } => CmpRhs::FloatLit { value, span },
             AddLhs::BoolLit { value, span } => CmpRhs::BoolLit { value, span },
+            AddLhs::Call { name, args, span } => CmpRhs::Call { name, args, span },
         }
     }
 }
@@ -636,6 +755,7 @@ impl<'src> From<AddLhs<'src>> for CmpLhs<'src> {
             AddLhs::IntLit { value, span } => CmpLhs::IntLit { value, span },
             AddLhs::FloatLit { value, span } => CmpLhs::FloatLit { value, span },
             AddLhs::BoolLit { value, span } => CmpLhs::BoolLit { value, span },
+            AddLhs::Call { name, args, span } => CmpLhs::Call { name, args, span },
         }
     }
 }
@@ -648,6 +768,7 @@ impl<'src> From<Atom<'src>> for MulRhs<'src> {
             Atom::IntLit { value, span } => MulRhs::IntLit { value, span },
             Atom::FloatLit { value, span } => MulRhs::FloatLit { value, span },
             Atom::BoolLit { value, span } => MulRhs::BoolLit { value, span },
+            Atom::Call { name, args, span } => MulRhs::Call { name, args, span },
         }
     }
 }
@@ -660,6 +781,7 @@ impl<'src> From<Atom<'src>> for MulLhs<'src> {
             Atom::IntLit { value, span } => MulLhs::IntLit { value, span },
             Atom::FloatLit { value, span } => MulLhs::FloatLit { value, span },
             Atom::BoolLit { value, span } => MulLhs::BoolLit { value, span },
+            Atom::Call { name, args, span } => MulLhs::Call { name, args, span },
         }
     }
 }
@@ -679,6 +801,7 @@ impl<'src> From<MulLhs<'src>> for AddRhs<'src> {
             MulLhs::IntLit { value, span } => AddRhs::IntLit { value, span },
             MulLhs::FloatLit { value, span } => AddRhs::FloatLit { value, span },
             MulLhs::BoolLit { value, span } => AddRhs::BoolLit { value, span },
+            MulLhs::Call { name, args, span } => AddRhs::Call { name, args, span },
         }
     }
 }
@@ -698,6 +821,7 @@ impl<'src> From<MulLhs<'src>> for AddLhs<'src> {
             MulLhs::IntLit { value, span } => AddLhs::IntLit { value, span },
             MulLhs::FloatLit { value, span } => AddLhs::FloatLit { value, span },
             MulLhs::BoolLit { value, span } => AddLhs::BoolLit { value, span },
+            MulLhs::Call { name, args, span } => AddLhs::Call { name, args, span },
         }
     }
 }
@@ -710,6 +834,7 @@ impl<'src> From<Atom<'src>> for PowLhs<'src> {
             Atom::IntLit { value, span } => PowLhs::IntLit { value, span },
             Atom::FloatLit { value, span } => PowLhs::FloatLit { value, span },
             Atom::BoolLit { value, span } => PowLhs::BoolLit { value, span },
+            Atom::Call { name, args, span } => PowLhs::Call { name, args, span },
         }
     }
 }
@@ -722,6 +847,7 @@ impl<'src> From<Atom<'src>> for PowRhs<'src> {
             Atom::IntLit { value, span } => PowRhs::IntLit { value, span },
             Atom::FloatLit { value, span } => PowRhs::FloatLit { value, span },
             Atom::BoolLit { value, span } => PowRhs::BoolLit { value, span },
+            Atom::Call { name, args, span } => PowRhs::Call { name, args, span },
         }
     }
 }
@@ -737,6 +863,7 @@ impl<'src> From<PowLhs<'src>> for PowRhs<'src> {
             PowLhs::IntLit { value, span } => PowRhs::IntLit { value, span },
             PowLhs::FloatLit { value, span } => PowRhs::FloatLit { value, span },
             PowLhs::BoolLit { value, span } => PowRhs::BoolLit { value, span },
+            PowLhs::Call { name, args, span } => PowRhs::Call { name, args, span },
         }
     }
 }
@@ -752,6 +879,7 @@ impl<'src> From<PowLhs<'src>> for MulRhs<'src> {
             PowLhs::IntLit { value, span } => MulRhs::IntLit { value, span },
             PowLhs::FloatLit { value, span } => MulRhs::FloatLit { value, span },
             PowLhs::BoolLit { value, span } => MulRhs::BoolLit { value, span },
+            PowLhs::Call { name, args, span } => MulRhs::Call { name, args, span },
         }
     }
 }
@@ -767,6 +895,7 @@ impl<'src> From<PowLhs<'src>> for MulLhs<'src> {
             PowLhs::IntLit { value, span } => MulLhs::IntLit { value, span },
             PowLhs::FloatLit { value, span } => MulLhs::FloatLit { value, span },
             PowLhs::BoolLit { value, span } => MulLhs::BoolLit { value, span },
+            PowLhs::Call { name, args, span } => MulLhs::Call { name, args, span },
         }
     }
 }

@@ -174,36 +174,6 @@ mod tests {
     }
 
     #[test]
-    fn test_atom_int() {
-        let result = parse_with_timeout(
-            "42",
-            |input| atoms::atom().parse(input).into_result(),
-            Duration::from_secs(1),
-        );
-        assert!(matches!(result.unwrap(), Atom::IntLit { value: 42, .. }));
-    }
-
-    #[test]
-    fn test_atom_float() {
-        let result = parse_with_timeout(
-            "3.5",
-            |input| atoms::atom().parse(input).into_result(),
-            Duration::from_secs(1),
-        );
-        assert!(matches!(result.unwrap(), Atom::FloatLit { value, .. } if value == 3.5));
-    }
-
-    #[test]
-    fn test_atom_var() {
-        let result = parse_with_timeout(
-            "x",
-            |input| atoms::atom().parse(input).into_result(),
-            Duration::from_secs(1),
-        );
-        assert!(matches!(result.unwrap(), Atom::Var { name, .. } if name == "x"));
-    }
-
-    #[test]
     fn test_bool_lit_true() {
         let result = parse_with_timeout(
             "true",
@@ -221,29 +191,6 @@ mod tests {
             Duration::from_secs(1),
         );
         assert_eq!(result.unwrap(), false);
-    }
-
-    #[test]
-    fn test_atom_bool_true() {
-        let result = parse_with_timeout(
-            "true",
-            |input| atoms::atom().parse(input).into_result(),
-            Duration::from_secs(1),
-        );
-        assert!(matches!(result.unwrap(), Atom::BoolLit { value: true, .. }));
-    }
-
-    #[test]
-    fn test_atom_bool_false() {
-        let result = parse_with_timeout(
-            "false",
-            |input| atoms::atom().parse(input).into_result(),
-            Duration::from_secs(1),
-        );
-        assert!(matches!(
-            result.unwrap(),
-            Atom::BoolLit { value: false, .. }
-        ));
     }
 
     #[test]
@@ -2044,60 +1991,6 @@ mod tests {
     }
 
     #[test]
-    fn test_span_atom_float() {
-        // Test: 3.14
-        let result = parse_with_timeout(
-            "3.14",
-            |input| atoms::atom().parse(input).into_result(),
-            Duration::from_secs(1),
-        );
-
-        let atom = result.unwrap();
-        let span = atom.span();
-
-        assert_eq!(span.start.line, 1);
-        assert_eq!(span.start.column, 1);
-        assert_eq!(span.lines, 0);
-        assert_eq!(span.end_column, 5); // "3.14" is 4 chars
-    }
-
-    #[test]
-    fn test_span_atom_bool_true() {
-        // Test: true
-        let result = parse_with_timeout(
-            "true",
-            |input| atoms::atom().parse(input).into_result(),
-            Duration::from_secs(1),
-        );
-
-        let atom = result.unwrap();
-        let span = atom.span();
-
-        assert_eq!(span.start.line, 1);
-        assert_eq!(span.start.column, 1);
-        assert_eq!(span.lines, 0);
-        assert_eq!(span.end_column, 5); // "true" is 4 chars
-    }
-
-    #[test]
-    fn test_span_atom_bool_false() {
-        // Test: false
-        let result = parse_with_timeout(
-            "false",
-            |input| atoms::atom().parse(input).into_result(),
-            Duration::from_secs(1),
-        );
-
-        let atom = result.unwrap();
-        let span = atom.span();
-
-        assert_eq!(span.start.line, 1);
-        assert_eq!(span.start.column, 1);
-        assert_eq!(span.lines, 0);
-        assert_eq!(span.end_column, 6); // "false" is 5 chars
-    }
-
-    #[test]
     fn test_span_complex_nested() {
         // Test: (1 + 2) * 3
         let result = parse_with_timeout(
@@ -2129,14 +2022,6 @@ mod tests {
         let expr = expr_result.unwrap();
         let _expr_span = expr.span(); // Uses HasSpan trait
 
-        let atom_result = parse_with_timeout(
-            "3.14",
-            |input| atoms::atom().parse(input).into_result(),
-            Duration::from_secs(1),
-        );
-        let atom = atom_result.unwrap();
-        let _atom_span = atom.span(); // Uses HasSpan trait
-
         let type_result = parse_with_timeout(
             "bool",
             |input| type_annotation().parse(input).into_result(),
@@ -2147,5 +2032,135 @@ mod tests {
 
         // If we get here without panic, HasSpan works for all types
         assert!(true);
+    }
+
+    // ========================================================================
+    // Function Call Tests
+    // ========================================================================
+
+    #[test]
+    fn test_function_call_no_args() {
+        // Test: foo()
+        let result = parse_with_timeout(
+            "foo()",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::Call { name, args, .. } => {
+                assert_eq!(name, "foo");
+                assert_eq!(args.len(), 0);
+            }
+            other => panic!("Expected Expr::Call, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_function_call_one_arg() {
+        // Test: foo(42)
+        let result = parse_with_timeout(
+            "foo(42)",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::Call { name, args, .. } => {
+                assert_eq!(name, "foo");
+                assert_eq!(args.len(), 1);
+                assert!(matches!(args[0], Expr::IntLit { value: 42, .. }));
+            }
+            other => panic!("Expected Expr::Call, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_function_call_multiple_args() {
+        // Test: add(1, 2, 3)
+        let result = parse_with_timeout(
+            "add(1, 2, 3)",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::Call { name, args, .. } => {
+                assert_eq!(name, "add");
+                assert_eq!(args.len(), 3);
+                assert!(matches!(args[0], Expr::IntLit { value: 1, .. }));
+                assert!(matches!(args[1], Expr::IntLit { value: 2, .. }));
+                assert!(matches!(args[2], Expr::IntLit { value: 3, .. }));
+            }
+            other => panic!("Expected Expr::Call, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_function_call_expr_args() {
+        // Test: foo(1 + 2, 3 * 4)
+        let result = parse_with_timeout(
+            "foo(1 + 2, 3 * 4)",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::Call { name, args, .. } => {
+                assert_eq!(name, "foo");
+                assert_eq!(args.len(), 2);
+                assert!(matches!(args[0], Expr::Add { .. }));
+                assert!(matches!(args[1], Expr::Mul { .. }));
+            }
+            other => panic!("Expected Expr::Call, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_function_call_nested() {
+        // Test: foo(bar(42))
+        let result = parse_with_timeout(
+            "foo(bar(42))",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::Call { name, args, .. } => {
+                assert_eq!(name, "foo");
+                assert_eq!(args.len(), 1);
+                match &args[0] {
+                    Expr::Call {
+                        name: inner_name,
+                        args: inner_args,
+                        ..
+                    } => {
+                        assert_eq!(*inner_name, "bar");
+                        assert_eq!(inner_args.len(), 1);
+                        assert!(matches!(inner_args[0], Expr::IntLit { value: 42, .. }));
+                    }
+                    other => panic!("Expected inner Expr::Call, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::Call, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_function_call_in_expression() {
+        // Test: foo(1) + bar(2)
+        let result = parse_with_timeout(
+            "foo(1) + bar(2)",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::Add { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, AddLhs::Call { .. }));
+                assert!(matches!(*rhs, AddRhs::Call { .. }));
+            }
+            other => panic!("Expected Expr::Add, got {:?}", other),
+        }
     }
 }

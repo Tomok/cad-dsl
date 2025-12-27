@@ -5,21 +5,24 @@
 //! - Float literals
 //! - Boolean literals
 //! - Variable identifiers
+//! - Function calls
 //! - Atomic expressions (combination of all primitives)
 
-use crate::ast::Atom;
-use crate::lexer::Token;
+use crate::ast::{Atom, Expr};
+use crate::lexer::{Span, Token};
 use chumsky::prelude::*;
 
 use super::ParseError;
 
 // ============================================================================
-// Atomic Parsers (No recursion)
+// Atomic Parsers (with optional recursion for function calls)
 // ============================================================================
 
 /// Parse an atomic expression (Atom enum)
-pub fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom<'src>, ParseError<'src>> + Clone
-{
+/// Takes an expression parser for parsing function call arguments
+pub fn atom<'src>(
+    expr: impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], Atom<'src>, ParseError<'src>> + Clone {
     choice((
         // Try float first (it's more specific)
         select! {
@@ -31,10 +34,40 @@ pub fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom<'src>, ParseE
         },
         // Then boolean
         select! {
-            Token::True(t) => Atom::BoolLit { value: true, span: crate::lexer::Span { start: t.position, lines: 0, end_column: t.position.column + 4 } },
-            Token::False(t) => Atom::BoolLit { value: false, span: crate::lexer::Span { start: t.position, lines: 0, end_column: t.position.column + 5 } },
+            Token::True(t) => Atom::BoolLit { value: true, span: Span { start: t.position, lines: 0, end_column: t.position.column + 4 } },
+            Token::False(t) => Atom::BoolLit { value: false, span: Span { start: t.position, lines: 0, end_column: t.position.column + 5 } },
         },
-        // Finally variable
+        // Function call: identifier followed by parentheses with comma-separated arguments
+        select! {
+            Token::Identifier(t) => (t.name, t.span),
+        }
+        .then(
+            expr.clone()
+                .separated_by(select! { Token::Comma(_) => () })
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(
+                    select! { Token::LeftParen(t) => t.position },
+                    select! { Token::RightParen(t) => t.position },
+                )
+                .map_with(|args, e| {
+                    let span_range = e.span();
+                    (args, span_range)
+                }),
+        )
+        .map(|((name, name_span), (args, call_span))| {
+            // Combine name span and call span for full function call span
+            Atom::Call {
+                name,
+                args,
+                span: Span {
+                    start: name_span.start,
+                    lines: 0, // Assuming single line for now
+                    end_column: name_span.end_column + (call_span.end - call_span.start),
+                },
+            }
+        }),
+        // Finally plain variable (no function call)
         select! {
             Token::Identifier(t) => Atom::Var { name: t.name, span: t.span },
         },
