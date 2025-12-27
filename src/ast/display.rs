@@ -52,6 +52,26 @@ impl<'src> std::fmt::Display for Expr<'src> {
             Expr::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            Expr::ArrayLit { elements, .. } => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", elem)?;
+                }
+                write!(f, "]")
+            }
+            Expr::StructLit { name, fields, .. } => {
+                write!(f, "{} {{ ", name)?;
+                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", field_name, field_value)?;
+                }
+                write!(f, " }}")
+            }
         }
     }
 }
@@ -104,6 +124,26 @@ impl<'src> std::fmt::Display for CmpLhs<'src> {
             CmpLhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            CmpLhs::ArrayLit { elements, .. } => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", elem)?;
+                }
+                write!(f, "]")
+            }
+            CmpLhs::StructLit { name, fields, .. } => {
+                write!(f, "{} {{ ", name)?;
+                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", field_name, field_value)?;
+                }
+                write!(f, " }}")
+            }
         }
     }
 }
@@ -152,6 +192,26 @@ impl<'src> std::fmt::Display for CmpRhs<'src> {
             CmpRhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            CmpRhs::ArrayLit { elements, .. } => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", elem)?;
+                }
+                write!(f, "]")
+            }
+            CmpRhs::StructLit { name, fields, .. } => {
+                write!(f, "{} {{ ", name)?;
+                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", field_name, field_value)?;
+                }
+                write!(f, " }}")
+            }
         }
     }
 }
@@ -200,6 +260,26 @@ impl<'src> std::fmt::Display for AddLhs<'src> {
             AddLhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            AddLhs::ArrayLit { elements, .. } => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", elem)?;
+                }
+                write!(f, "]")
+            }
+            AddLhs::StructLit { name, fields, .. } => {
+                write!(f, "{} {{ ", name)?;
+                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", field_name, field_value)?;
+                }
+                write!(f, " }}")
+            }
         }
     }
 }
@@ -246,6 +326,26 @@ impl<'src> std::fmt::Display for AddRhs<'src> {
             AddRhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            AddRhs::ArrayLit { elements, .. } => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", elem)?;
+                }
+                write!(f, "]")
+            }
+            AddRhs::StructLit { name, fields, .. } => {
+                write!(f, "{} {{ ", name)?;
+                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", field_name, field_value)?;
+                }
+                write!(f, " }}")
+            }
         }
     }
 }
@@ -292,6 +392,26 @@ impl<'src> std::fmt::Display for MulLhs<'src> {
             MulLhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            MulLhs::ArrayLit { elements, .. } => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", elem)?;
+                }
+                write!(f, "]")
+            }
+            MulLhs::StructLit { name, fields, .. } => {
+                write!(f, "{} {{ ", name)?;
+                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", field_name, field_value)?;
+                }
+                write!(f, " }}")
+            }
         }
     }
 }
@@ -335,6 +455,26 @@ impl<'src> std::fmt::Display for MulRhs<'src> {
             MulRhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            MulRhs::ArrayLit { elements, .. } => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", elem)?;
+                }
+                write!(f, "]")
+            }
+            MulRhs::StructLit { name, fields, .. } => {
+                write!(f, "{} {{ ", name)?;
+                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", field_name, field_value)?;
+                }
+                write!(f, " }}")
+            }
         }
     }
 }
@@ -377,6 +517,26 @@ impl<'src> std::fmt::Display for PowLhs<'src> {
             PowLhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            PowLhs::ArrayLit { elements, .. } => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", elem)?;
+                }
+                write!(f, "]")
+            }
+            PowLhs::StructLit { name, fields, .. } => {
+                write!(f, "{} {{ ", name)?;
+                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", field_name, field_value)?;
+                }
+                write!(f, " }}")
+            }
         }
     }
 }
@@ -420,6 +580,26 @@ impl<'src> std::fmt::Display for PowRhs<'src> {
             PowRhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            PowRhs::ArrayLit { elements, .. } => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", elem)?;
+                }
+                write!(f, "]")
+            }
+            PowRhs::StructLit { name, fields, .. } => {
+                write!(f, "{} {{ ", name)?;
+                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", field_name, field_value)?;
+                }
+                write!(f, " }}")
+            }
         }
     }
 }
@@ -459,6 +639,26 @@ impl<'src> std::fmt::Display for Atom<'src> {
             Atom::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            Atom::ArrayLit { elements, .. } => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", elem)?;
+                }
+                write!(f, "]")
+            }
+            Atom::StructLit { name, fields, .. } => {
+                write!(f, "{} {{ ", name)?;
+                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", field_name, field_value)?;
+                }
+                write!(f, " }}")
+            }
         }
     }
 }

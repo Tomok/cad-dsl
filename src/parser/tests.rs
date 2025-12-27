@@ -2,6 +2,7 @@ use super::*;
 use crate::ast::{Stmt, Type};
 use crate::lexer;
 use crate::parser::stmt::type_annotation;
+use assert_matches::assert_matches;
 use std::time::Duration;
 
 /// Helper function to parse with timeout
@@ -2389,5 +2390,251 @@ fn test_field_access_in_expression() {
             assert!(matches!(*rhs, AddRhs::IntLit { value: 2, .. }));
         }
         other => panic!("Expected Expr::Add, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// Array Literal Tests
+// ============================================================================
+
+#[test]
+fn test_empty_array_literal() {
+    let result = parse_with_timeout(
+        "[]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::ArrayLit { elements, .. } => {
+            assert_eq!(elements.len(), 0);
+        }
+        other => panic!("Expected Expr::ArrayLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_array_literal_single_element() {
+    let result = parse_with_timeout(
+        "[42]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::ArrayLit { elements, .. } => {
+            assert_eq!(elements.len(), 1);
+            assert_matches!(elements[0], Expr::IntLit { value: 42, .. });
+        }
+        other => panic!("Expected Expr::ArrayLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_array_literal_multiple_elements() {
+    let result = parse_with_timeout(
+        "[1, 2, 3]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::ArrayLit { elements, .. } => {
+            assert_eq!(elements.len(), 3);
+            assert_matches!(elements[0], Expr::IntLit { value: 1, .. });
+            assert_matches!(elements[1], Expr::IntLit { value: 2, .. });
+            assert_matches!(elements[2], Expr::IntLit { value: 3, .. });
+        }
+        other => panic!("Expected Expr::ArrayLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_array_literal_with_expressions() {
+    let result = parse_with_timeout(
+        "[1 + 2, 3 * 4]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::ArrayLit { elements, .. } => {
+            assert_eq!(elements.len(), 2);
+            assert_matches!(elements[0], Expr::Add { .. });
+            assert_matches!(elements[1], Expr::Mul { .. });
+        }
+        other => panic!("Expected Expr::ArrayLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_array_literal_trailing_comma() {
+    let result = parse_with_timeout(
+        "[1, 2, 3,]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::ArrayLit { elements, .. } => {
+            assert_eq!(elements.len(), 3);
+        }
+        other => panic!("Expected Expr::ArrayLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_nested_array_literal() {
+    let result = parse_with_timeout(
+        "[[1, 2], [3, 4]]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::ArrayLit { elements, .. } => {
+            assert_eq!(elements.len(), 2);
+            assert_matches!(elements[0], Expr::ArrayLit { .. });
+            assert_matches!(elements[1], Expr::ArrayLit { .. });
+        }
+        other => panic!("Expected Expr::ArrayLit, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// Struct Literal Tests
+// ============================================================================
+
+#[test]
+fn test_empty_struct_literal() {
+    let result = parse_with_timeout(
+        "Point {}",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::StructLit { name, fields, .. } => {
+            assert_eq!(name, "Point");
+            assert_eq!(fields.len(), 0);
+        }
+        other => panic!("Expected Expr::StructLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_struct_literal_single_field() {
+    let result = parse_with_timeout(
+        "Point { x: 10 }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::StructLit { name, fields, .. } => {
+            assert_eq!(name, "Point");
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fields[0].0, "x");
+            assert_matches!(fields[0].1, Expr::IntLit { value: 10, .. });
+        }
+        other => panic!("Expected Expr::StructLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_struct_literal_multiple_fields() {
+    let result = parse_with_timeout(
+        "Point { x: 10, y: 20 }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::StructLit { name, fields, .. } => {
+            assert_eq!(name, "Point");
+            assert_eq!(fields.len(), 2);
+            assert_eq!(fields[0].0, "x");
+            assert_eq!(fields[1].0, "y");
+            assert_matches!(fields[0].1, Expr::IntLit { value: 10, .. });
+            assert_matches!(fields[1].1, Expr::IntLit { value: 20, .. });
+        }
+        other => panic!("Expected Expr::StructLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_struct_literal_with_expressions() {
+    let result = parse_with_timeout(
+        "Circle { center: point(0, 0), radius: 5 * 2 }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::StructLit { name, fields, .. } => {
+            assert_eq!(name, "Circle");
+            assert_eq!(fields.len(), 2);
+            assert_eq!(fields[0].0, "center");
+            assert_eq!(fields[1].0, "radius");
+            assert_matches!(fields[0].1, Expr::Call { .. });
+            assert_matches!(fields[1].1, Expr::Mul { .. });
+        }
+        other => panic!("Expected Expr::StructLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_struct_literal_trailing_comma() {
+    let result = parse_with_timeout(
+        "Point { x: 10, y: 20, }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::StructLit { name, fields, .. } => {
+            assert_eq!(name, "Point");
+            assert_eq!(fields.len(), 2);
+        }
+        other => panic!("Expected Expr::StructLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_nested_struct_literal() {
+    let result = parse_with_timeout(
+        "Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::StructLit { name, fields, .. } => {
+            assert_eq!(name, "Line");
+            assert_eq!(fields.len(), 2);
+            assert_eq!(fields[0].0, "start");
+            assert_eq!(fields[1].0, "end");
+            assert_matches!(fields[0].1, Expr::StructLit { .. });
+            assert_matches!(fields[1].1, Expr::StructLit { .. });
+        }
+        other => panic!("Expected Expr::StructLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_array_of_struct_literals() {
+    let result = parse_with_timeout(
+        "[Point { x: 0, y: 0 }, Point { x: 10, y: 10 }]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::ArrayLit { elements, .. } => {
+            assert_eq!(elements.len(), 2);
+            assert_matches!(elements[0], Expr::StructLit { .. });
+            assert_matches!(elements[1], Expr::StructLit { .. });
+        }
+        other => panic!("Expected Expr::ArrayLit, got {:?}", other),
     }
 }

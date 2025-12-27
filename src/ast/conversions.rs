@@ -42,6 +42,8 @@ impl<'src> From<AddLhs<'src>> for CmpRhs<'src> {
                 field,
                 span,
             },
+            AddLhs::ArrayLit { elements, span } => CmpRhs::ArrayLit { elements, span },
+            AddLhs::StructLit { name, fields, span } => CmpRhs::StructLit { name, fields, span },
         }
     }
 }
@@ -84,6 +86,8 @@ impl<'src> From<AddLhs<'src>> for CmpLhs<'src> {
                 field,
                 span,
             },
+            AddLhs::ArrayLit { elements, span } => CmpLhs::ArrayLit { elements, span },
+            AddLhs::StructLit { name, fields, span } => CmpLhs::StructLit { name, fields, span },
         }
     }
 }
@@ -117,6 +121,8 @@ impl<'src> From<Atom<'src>> for MulRhs<'src> {
                 field,
                 span,
             },
+            Atom::ArrayLit { elements, span } => MulRhs::ArrayLit { elements, span },
+            Atom::StructLit { name, fields, span } => MulRhs::StructLit { name, fields, span },
         }
     }
 }
@@ -150,6 +156,8 @@ impl<'src> From<Atom<'src>> for MulLhs<'src> {
                 field,
                 span,
             },
+            Atom::ArrayLit { elements, span } => MulLhs::ArrayLit { elements, span },
+            Atom::StructLit { name, fields, span } => MulLhs::StructLit { name, fields, span },
         }
     }
 }
@@ -190,6 +198,8 @@ impl<'src> From<MulLhs<'src>> for AddRhs<'src> {
                 field,
                 span,
             },
+            MulLhs::ArrayLit { elements, span } => AddRhs::ArrayLit { elements, span },
+            MulLhs::StructLit { name, fields, span } => AddRhs::StructLit { name, fields, span },
         }
     }
 }
@@ -230,6 +240,8 @@ impl<'src> From<MulLhs<'src>> for AddLhs<'src> {
                 field,
                 span,
             },
+            MulLhs::ArrayLit { elements, span } => AddLhs::ArrayLit { elements, span },
+            MulLhs::StructLit { name, fields, span } => AddLhs::StructLit { name, fields, span },
         }
     }
 }
@@ -263,6 +275,8 @@ impl<'src> From<Atom<'src>> for PowLhs<'src> {
                 field,
                 span,
             },
+            Atom::ArrayLit { elements, span } => PowLhs::ArrayLit { elements, span },
+            Atom::StructLit { name, fields, span } => PowLhs::StructLit { name, fields, span },
         }
     }
 }
@@ -296,6 +310,8 @@ impl<'src> From<Atom<'src>> for PowRhs<'src> {
                 field,
                 span,
             },
+            Atom::ArrayLit { elements, span } => PowRhs::ArrayLit { elements, span },
+            Atom::StructLit { name, fields, span } => PowRhs::StructLit { name, fields, span },
         }
     }
 }
@@ -332,6 +348,8 @@ impl<'src> From<PowLhs<'src>> for PowRhs<'src> {
                 field,
                 span,
             },
+            PowLhs::ArrayLit { elements, span } => PowRhs::ArrayLit { elements, span },
+            PowLhs::StructLit { name, fields, span } => PowRhs::StructLit { name, fields, span },
         }
     }
 }
@@ -368,6 +386,8 @@ impl<'src> From<PowLhs<'src>> for MulRhs<'src> {
                 field,
                 span,
             },
+            PowLhs::ArrayLit { elements, span } => MulRhs::ArrayLit { elements, span },
+            PowLhs::StructLit { name, fields, span } => MulRhs::StructLit { name, fields, span },
         }
     }
 }
@@ -404,6 +424,8 @@ impl<'src> From<PowLhs<'src>> for MulLhs<'src> {
                 field,
                 span,
             },
+            PowLhs::ArrayLit { elements, span } => MulLhs::ArrayLit { elements, span },
+            PowLhs::StructLit { name, fields, span } => MulLhs::StructLit { name, fields, span },
         }
     }
 }
