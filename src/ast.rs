@@ -1,6 +1,27 @@
 use subenum::subenum;
 
 // ============================================================================
+// Type Annotations
+// ============================================================================
+
+/// Type annotations for variable declarations
+/// Currently includes only types without units
+#[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)] // Will be used when Stmt is added
+pub enum Type {
+    /// Boolean type
+    Bool,
+    /// 32-bit integer type
+    I32,
+    /// 64-bit floating point type
+    F64,
+    /// Mathematical real number with exact precision
+    Real,
+    /// Algebraic number (roots of polynomials with integer coefficients)
+    Algebraic,
+}
+
+// ============================================================================
 // Expression AST with Type-Safe Operator Precedence
 // ============================================================================
 
