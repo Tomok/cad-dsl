@@ -7,11 +7,29 @@
 //! These operators have lower precedence than arithmetic operators
 //! but higher precedence than logical operators.
 
+use crate::ast::HasSpan;
 use crate::ast::*;
-use crate::lexer::Token;
+use crate::lexer::{Span, Token};
 use chumsky::prelude::*;
 
 use super::ParseError;
+
+// ============================================================================
+// Helper functions for span management
+// ============================================================================
+
+/// Combine two spans into a larger span that encompasses both
+fn combine_spans(left: Span, right: Span) -> Span {
+    Span {
+        start: left.start,
+        lines: if right.lines > 0 {
+            left.lines + right.lines
+        } else {
+            left.lines
+        },
+        end_column: right.end_column,
+    }
+}
 
 // ============================================================================
 // Comparison Parsers
@@ -44,16 +62,24 @@ where
     // Left-associative equality and not-equal operators (higher precedence than logical)
     cmp_atom.foldl(
         choice((eq_op, neq_op)).then(cmp_rhs).repeated(),
-        |lhs, (op, rhs)| match op {
-            "==" => CmpLhs::Eq {
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-            },
-            "!=" => CmpLhs::NotEq {
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-            },
-            _ => unreachable!(),
+        |lhs: CmpLhs, (op, rhs): (&str, CmpRhs)| {
+            let lhs_span = lhs.span();
+            let rhs_span = rhs.span();
+            let span = combine_spans(lhs_span, rhs_span);
+
+            match op {
+                "==" => CmpLhs::Eq {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span,
+                },
+                "!=" => CmpLhs::NotEq {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span,
+                },
+                _ => unreachable!(),
+            }
         },
     )
 }
