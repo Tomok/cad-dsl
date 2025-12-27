@@ -22,6 +22,26 @@ pub enum Type {
 }
 
 // ============================================================================
+// Statements
+// ============================================================================
+
+/// Statements perform declarations and actions (not expressions)
+#[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)] // Will be used when parser is implemented
+pub enum Stmt {
+    /// Variable declaration with optional type annotation and initialization
+    /// Examples:
+    ///   let x: i32 = 42;
+    ///   let y: bool;
+    ///   let z = 3.14;
+    Let {
+        name: String,
+        type_annotation: Option<Type>,
+        init: Option<Expr>,
+    },
+}
+
+// ============================================================================
 // Expression AST with Type-Safe Operator Precedence
 // ============================================================================
 
