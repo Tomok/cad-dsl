@@ -2347,4 +2347,158 @@ mod tests {
             other => panic!("Expected Expr::Add, got {:?}", other),
         }
     }
+
+    #[test]
+    fn test_field_access() {
+        // Test: obj.field
+        let result = parse_with_timeout(
+            "obj.field",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::FieldAccess {
+                receiver, field, ..
+            } => {
+                assert!(matches!(*receiver, Expr::Var { name, .. } if name == "obj"));
+                assert_eq!(field, "field");
+            }
+            other => panic!("Expected Expr::FieldAccess, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_field_access_chaining() {
+        // Test: obj.field1.field2
+        let result = parse_with_timeout(
+            "obj.field1.field2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::FieldAccess {
+                receiver, field, ..
+            } => {
+                assert_eq!(field, "field2");
+                match *receiver {
+                    Expr::FieldAccess {
+                        receiver: inner_receiver,
+                        field: inner_field,
+                        ..
+                    } => {
+                        assert!(matches!(*inner_receiver, Expr::Var { name, .. } if name == "obj"));
+                        assert_eq!(inner_field, "field1");
+                    }
+                    other => panic!("Expected inner Expr::FieldAccess, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::FieldAccess, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_field_access_on_function_call() {
+        // Test: foo().field
+        let result = parse_with_timeout(
+            "foo().field",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::FieldAccess {
+                receiver, field, ..
+            } => {
+                assert_eq!(field, "field");
+                assert!(matches!(*receiver, Expr::Call { name, .. } if name == "foo"));
+            }
+            other => panic!("Expected Expr::FieldAccess, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_field_access_then_method_call() {
+        // Test: obj.field.method()
+        let result = parse_with_timeout(
+            "obj.field.method()",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                assert_eq!(method, "method");
+                assert_eq!(args.len(), 0);
+                match *receiver {
+                    Expr::FieldAccess {
+                        receiver: inner_receiver,
+                        field,
+                        ..
+                    } => {
+                        assert!(matches!(*inner_receiver, Expr::Var { name, .. } if name == "obj"));
+                        assert_eq!(field, "field");
+                    }
+                    other => panic!("Expected Expr::FieldAccess, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::MethodCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_method_call_then_field_access() {
+        // Test: obj.method().field
+        let result = parse_with_timeout(
+            "obj.method().field",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::FieldAccess {
+                receiver, field, ..
+            } => {
+                assert_eq!(field, "field");
+                match *receiver {
+                    Expr::MethodCall {
+                        receiver: inner_receiver,
+                        method,
+                        args,
+                        ..
+                    } => {
+                        assert!(matches!(*inner_receiver, Expr::Var { name, .. } if name == "obj"));
+                        assert_eq!(method, "method");
+                        assert_eq!(args.len(), 0);
+                    }
+                    other => panic!("Expected Expr::MethodCall, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::FieldAccess, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_field_access_in_expression() {
+        // Test: obj.field + 2
+        let result = parse_with_timeout(
+            "obj.field + 2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::Add { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, AddLhs::FieldAccess { .. }));
+                assert!(matches!(*rhs, AddRhs::IntLit { value: 2, .. }));
+            }
+            other => panic!("Expected Expr::Add, got {:?}", other),
+        }
+    }
 }

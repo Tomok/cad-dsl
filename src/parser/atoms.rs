@@ -75,9 +75,10 @@ pub fn atom<'src>(
         },
     ));
 
-    // Then parse zero or more method calls as postfix operations
+    // Then parse zero or more method calls or field accesses as postfix operations
     // Method call: .identifier(args)
-    let method_call_suffix = select! { Token::Dot(_) => () }
+    // Field access: .identifier (without parentheses)
+    let method_or_field_suffix = select! { Token::Dot(_) => () }
         .ignore_then(select! {
             Token::Identifier(t) => (t.name, t.span),
         })
@@ -93,15 +94,16 @@ pub fn atom<'src>(
                 .map_with(|args, e| {
                     let span_range = e.span();
                     (args, span_range)
-                }),
+                })
+                .or_not(),
         );
 
-    // Combine base atom with repeated method calls
+    // Combine base atom with repeated method calls or field accesses
     base_atom
-        .then(method_call_suffix.repeated().collect::<Vec<_>>())
-        .map(|(mut atom, method_calls)| {
-            // Apply each method call in sequence
-            for ((method, _method_span), (args, call_span)) in method_calls {
+        .then(method_or_field_suffix.repeated().collect::<Vec<_>>())
+        .map(|(mut atom, suffixes)| {
+            // Apply each suffix (method call or field access) in sequence
+            for ((name, name_span), args_and_span) in suffixes {
                 let start = match &atom {
                     Atom::Var { span, .. } => span.start,
                     Atom::IntLit { span, .. } => span.start,
@@ -109,16 +111,30 @@ pub fn atom<'src>(
                     Atom::BoolLit { span, .. } => span.start,
                     Atom::Call { span, .. } => span.start,
                     Atom::MethodCall { span, .. } => span.start,
+                    Atom::FieldAccess { span, .. } => span.start,
                 };
 
-                atom = Atom::MethodCall {
-                    receiver: Box::new(atom.into()),
-                    method,
-                    args,
-                    span: Span {
-                        start,
-                        lines: 0,
-                        end_column: call_span.end,
+                atom = match args_and_span {
+                    // Method call: has arguments
+                    Some((args, call_span)) => Atom::MethodCall {
+                        receiver: Box::new(atom.into()),
+                        method: name,
+                        args,
+                        span: Span {
+                            start,
+                            lines: 0,
+                            end_column: call_span.end,
+                        },
+                    },
+                    // Field access: no arguments
+                    None => Atom::FieldAccess {
+                        receiver: Box::new(atom.into()),
+                        field: name,
+                        span: Span {
+                            start,
+                            lines: 0,
+                            end_column: name_span.end_column,
+                        },
                     },
                 };
             }
