@@ -10,7 +10,6 @@ use chumsky::prelude::*;
 // ============================================================================
 
 /// Parse type annotations (bool, i32, f64, Real, Algebraic)
-#[cfg_attr(not(test), allow(dead_code))] // Used internally by let_stmt, imported in tests
 pub fn type_annotation<'src>()
 -> impl Parser<'src, &'src [Token<'src>], Type, ParseError<'src>> + Clone {
     choice((
