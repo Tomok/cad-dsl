@@ -10,6 +10,7 @@
 //! - **arithmetic**: Arithmetic operators (power, multiplication, division, modulo, addition, subtraction)
 //! - **comparison**: Comparison operators (equality, inequality)
 //! - **logical**: Logical operators (and, or)
+//! - **stmt**: Statement parsers (let statements, type annotations)
 //! - **error**: Error reporting with Ariadne
 //!
 //! # Error Reporting
@@ -50,12 +51,14 @@ mod atoms;
 mod comparison;
 mod error;
 mod logical;
+mod stmt;
 
 // ============================================================================
 // Re-exports
 // ============================================================================
 
 pub use error::report_parse_errors;
+pub use stmt::let_stmt;
 
 // ============================================================================
 // Parser Type Definitions
@@ -69,7 +72,9 @@ pub type ParseError<'src> = extra::Err<Rich<'src, Token<'src>>>;
 // ============================================================================
 
 /// Internal expression parser that builds the complete precedence hierarchy
-fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
+/// (without end-of-input validation - use for subexpressions)
+pub fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone
+{
     recursive(|expr_rec| {
         let pow_lhs = arithmetic::pow_lhs_parser(expr_rec.clone());
         let pow_rhs = arithmetic::pow_rhs_parser(expr_rec.clone(), pow_lhs.clone());
@@ -87,6 +92,7 @@ fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError
 }
 
 /// Parse a complete expression with end-of-input validation
+#[cfg_attr(not(test), allow(dead_code))] // Used in expression tests
 pub fn expr<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
     expr_inner().then_ignore(end())
 }
@@ -98,7 +104,9 @@ pub fn expr<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::{Stmt, Type};
     use crate::lexer;
+    use crate::parser::stmt::type_annotation;
     use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
@@ -1264,5 +1272,154 @@ mod tests {
                 println!("\n=== End of Example ===\n");
             }
         }
+    }
+
+    // ========================================================================
+    // Type Annotation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_type_bool() {
+        let result = parse_with_timeout(
+            "bool",
+            |input| type_annotation().parse(input).into_result(),
+            Duration::from_secs(1),
+        );
+        assert_eq!(result.unwrap(), Type::Bool);
+    }
+
+    #[test]
+    fn test_type_i32() {
+        let result = parse_with_timeout(
+            "i32",
+            |input| type_annotation().parse(input).into_result(),
+            Duration::from_secs(1),
+        );
+        assert_eq!(result.unwrap(), Type::I32);
+    }
+
+    #[test]
+    fn test_type_f64() {
+        let result = parse_with_timeout(
+            "f64",
+            |input| type_annotation().parse(input).into_result(),
+            Duration::from_secs(1),
+        );
+        assert_eq!(result.unwrap(), Type::F64);
+    }
+
+    #[test]
+    fn test_type_real() {
+        let result = parse_with_timeout(
+            "Real",
+            |input| type_annotation().parse(input).into_result(),
+            Duration::from_secs(1),
+        );
+        assert_eq!(result.unwrap(), Type::Real);
+    }
+
+    #[test]
+    fn test_type_algebraic() {
+        let result = parse_with_timeout(
+            "Algebraic",
+            |input| type_annotation().parse(input).into_result(),
+            Duration::from_secs(1),
+        );
+        assert_eq!(result.unwrap(), Type::Algebraic);
+    }
+
+    // ========================================================================
+    // Let Statement Tests
+    // ========================================================================
+
+    #[test]
+    fn test_let_with_type_and_init() {
+        // let x: i32 = 42;
+        let result = parse_with_timeout(
+            "let x: i32 = 42;",
+            |input| let_stmt(expr_inner()).parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Stmt::Let {
+            name: "x".to_string(),
+            type_annotation: Some(Type::I32),
+            init: Some(Expr::IntLit(42)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_let_with_type_only() {
+        // let y: bool;
+        let result = parse_with_timeout(
+            "let y: bool;",
+            |input| let_stmt(expr_inner()).parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Stmt::Let {
+            name: "y".to_string(),
+            type_annotation: Some(Type::Bool),
+            init: None,
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_let_with_init_only() {
+        // let z = 3.14;
+        let result = parse_with_timeout(
+            "let z = 3.14;",
+            |input| let_stmt(expr_inner()).parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Stmt::Let {
+            name: "z".to_string(),
+            type_annotation: None,
+            init: Some(Expr::FloatLit(3.14)),
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_let_no_type_no_init() {
+        // let w;
+        let result = parse_with_timeout(
+            "let w;",
+            |input| let_stmt(expr_inner()).parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Stmt::Let {
+            name: "w".to_string(),
+            type_annotation: None,
+            init: None,
+        };
+        assert_eq!(result.unwrap(), expected);
+    }
+
+    #[test]
+    fn test_let_with_expression() {
+        // let result: i32 = 1 + 2 * 3;
+        let result = parse_with_timeout(
+            "let result: i32 = 1 + 2 * 3;",
+            |input| let_stmt(expr_inner()).parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        let expected = Stmt::Let {
+            name: "result".to_string(),
+            type_annotation: Some(Type::I32),
+            init: Some(Expr::Add {
+                lhs: Box::new(AddLhs::IntLit(1)),
+                rhs: Box::new(AddRhs::Mul {
+                    lhs: Box::new(MulLhs::IntLit(2)),
+                    rhs: Box::new(MulRhs::IntLit(3)),
+                }),
+            }),
+        };
+        assert_eq!(result.unwrap(), expected);
     }
 }

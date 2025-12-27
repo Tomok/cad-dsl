@@ -1,6 +1,45 @@
 use subenum::subenum;
 
 // ============================================================================
+// Type Annotations
+// ============================================================================
+
+/// Type annotations for variable declarations
+/// Currently includes only types without units
+#[derive(Debug, Clone, PartialEq)]
+pub enum Type {
+    /// Boolean type
+    Bool,
+    /// 32-bit integer type
+    I32,
+    /// 64-bit floating point type
+    F64,
+    /// Mathematical real number with exact precision
+    Real,
+    /// Algebraic number (roots of polynomials with integer coefficients)
+    Algebraic,
+}
+
+// ============================================================================
+// Statements
+// ============================================================================
+
+/// Statements perform declarations and actions (not expressions)
+#[derive(Debug, Clone, PartialEq)]
+pub enum Stmt {
+    /// Variable declaration with optional type annotation and initialization
+    /// Examples:
+    ///   let x: i32 = 42;
+    ///   let y: bool;
+    ///   let z = 3.14;
+    Let {
+        name: String,
+        type_annotation: Option<Type>,
+        init: Option<Expr>,
+    },
+}
+
+// ============================================================================
 // Expression AST with Type-Safe Operator Precedence
 // ============================================================================
 
