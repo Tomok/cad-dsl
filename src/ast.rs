@@ -3,6 +3,16 @@ use subenum::subenum;
 use crate::lexer::Span;
 
 // ============================================================================
+// Span Access Trait
+// ============================================================================
+
+/// Trait for AST nodes that have span information
+pub trait HasSpan {
+    /// Returns the span of this AST node
+    fn span(&self) -> Span;
+}
+
+// ============================================================================
 // Type Annotations
 // ============================================================================
 
@@ -190,6 +200,209 @@ pub enum Expr {
     // Boolean literal - in all levels
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
     BoolLit { value: bool, span: Span },
+}
+
+// ============================================================================
+// HasSpan Implementations
+// ============================================================================
+
+impl HasSpan for Type {
+    fn span(&self) -> Span {
+        match self {
+            Type::Bool { span } => *span,
+            Type::I32 { span } => *span,
+            Type::F64 { span } => *span,
+            Type::Real { span } => *span,
+            Type::Algebraic { span } => *span,
+        }
+    }
+}
+
+impl HasSpan for Stmt {
+    fn span(&self) -> Span {
+        match self {
+            Stmt::Let { span, .. } => *span,
+        }
+    }
+}
+
+impl HasSpan for Expr {
+    fn span(&self) -> Span {
+        match self {
+            Expr::And { span, .. } => *span,
+            Expr::Or { span, .. } => *span,
+            Expr::Eq { span, .. } => *span,
+            Expr::NotEq { span, .. } => *span,
+            Expr::Add { span, .. } => *span,
+            Expr::Sub { span, .. } => *span,
+            Expr::Paren { span, .. } => *span,
+            Expr::Mul { span, .. } => *span,
+            Expr::Div { span, .. } => *span,
+            Expr::Mod { span, .. } => *span,
+            Expr::Pow { span, .. } => *span,
+            Expr::Neg { span, .. } => *span,
+            Expr::Ref { span, .. } => *span,
+            Expr::Var { span, .. } => *span,
+            Expr::IntLit { span, .. } => *span,
+            Expr::FloatLit { span, .. } => *span,
+            Expr::BoolLit { span, .. } => *span,
+        }
+    }
+}
+
+impl HasSpan for CmpLhs {
+    fn span(&self) -> Span {
+        match self {
+            CmpLhs::And { span, .. } => *span,
+            CmpLhs::Or { span, .. } => *span,
+            CmpLhs::Eq { span, .. } => *span,
+            CmpLhs::NotEq { span, .. } => *span,
+            CmpLhs::Add { span, .. } => *span,
+            CmpLhs::Sub { span, .. } => *span,
+            CmpLhs::Paren { span, .. } => *span,
+            CmpLhs::Mul { span, .. } => *span,
+            CmpLhs::Div { span, .. } => *span,
+            CmpLhs::Mod { span, .. } => *span,
+            CmpLhs::Pow { span, .. } => *span,
+            CmpLhs::Neg { span, .. } => *span,
+            CmpLhs::Ref { span, .. } => *span,
+            CmpLhs::Var { span, .. } => *span,
+            CmpLhs::IntLit { span, .. } => *span,
+            CmpLhs::FloatLit { span, .. } => *span,
+            CmpLhs::BoolLit { span, .. } => *span,
+        }
+    }
+}
+
+impl HasSpan for CmpRhs {
+    fn span(&self) -> Span {
+        match self {
+            CmpRhs::Add { span, .. } => *span,
+            CmpRhs::Sub { span, .. } => *span,
+            CmpRhs::Paren { span, .. } => *span,
+            CmpRhs::Mul { span, .. } => *span,
+            CmpRhs::Div { span, .. } => *span,
+            CmpRhs::Mod { span, .. } => *span,
+            CmpRhs::Pow { span, .. } => *span,
+            CmpRhs::Neg { span, .. } => *span,
+            CmpRhs::Ref { span, .. } => *span,
+            CmpRhs::Var { span, .. } => *span,
+            CmpRhs::IntLit { span, .. } => *span,
+            CmpRhs::FloatLit { span, .. } => *span,
+            CmpRhs::BoolLit { span, .. } => *span,
+        }
+    }
+}
+
+impl HasSpan for AddLhs {
+    fn span(&self) -> Span {
+        match self {
+            AddLhs::Add { span, .. } => *span,
+            AddLhs::Sub { span, .. } => *span,
+            AddLhs::Paren { span, .. } => *span,
+            AddLhs::Mul { span, .. } => *span,
+            AddLhs::Div { span, .. } => *span,
+            AddLhs::Mod { span, .. } => *span,
+            AddLhs::Pow { span, .. } => *span,
+            AddLhs::Neg { span, .. } => *span,
+            AddLhs::Ref { span, .. } => *span,
+            AddLhs::Var { span, .. } => *span,
+            AddLhs::IntLit { span, .. } => *span,
+            AddLhs::FloatLit { span, .. } => *span,
+            AddLhs::BoolLit { span, .. } => *span,
+        }
+    }
+}
+
+impl HasSpan for AddRhs {
+    fn span(&self) -> Span {
+        match self {
+            AddRhs::Paren { span, .. } => *span,
+            AddRhs::Mul { span, .. } => *span,
+            AddRhs::Div { span, .. } => *span,
+            AddRhs::Mod { span, .. } => *span,
+            AddRhs::Pow { span, .. } => *span,
+            AddRhs::Neg { span, .. } => *span,
+            AddRhs::Ref { span, .. } => *span,
+            AddRhs::Var { span, .. } => *span,
+            AddRhs::IntLit { span, .. } => *span,
+            AddRhs::FloatLit { span, .. } => *span,
+            AddRhs::BoolLit { span, .. } => *span,
+        }
+    }
+}
+
+impl HasSpan for MulLhs {
+    fn span(&self) -> Span {
+        match self {
+            MulLhs::Paren { span, .. } => *span,
+            MulLhs::Mul { span, .. } => *span,
+            MulLhs::Div { span, .. } => *span,
+            MulLhs::Mod { span, .. } => *span,
+            MulLhs::Pow { span, .. } => *span,
+            MulLhs::Neg { span, .. } => *span,
+            MulLhs::Ref { span, .. } => *span,
+            MulLhs::Var { span, .. } => *span,
+            MulLhs::IntLit { span, .. } => *span,
+            MulLhs::FloatLit { span, .. } => *span,
+            MulLhs::BoolLit { span, .. } => *span,
+        }
+    }
+}
+
+impl HasSpan for MulRhs {
+    fn span(&self) -> Span {
+        match self {
+            MulRhs::Paren { span, .. } => *span,
+            MulRhs::Pow { span, .. } => *span,
+            MulRhs::Neg { span, .. } => *span,
+            MulRhs::Ref { span, .. } => *span,
+            MulRhs::Var { span, .. } => *span,
+            MulRhs::IntLit { span, .. } => *span,
+            MulRhs::FloatLit { span, .. } => *span,
+            MulRhs::BoolLit { span, .. } => *span,
+        }
+    }
+}
+
+impl HasSpan for PowLhs {
+    fn span(&self) -> Span {
+        match self {
+            PowLhs::Paren { span, .. } => *span,
+            PowLhs::Neg { span, .. } => *span,
+            PowLhs::Ref { span, .. } => *span,
+            PowLhs::Var { span, .. } => *span,
+            PowLhs::IntLit { span, .. } => *span,
+            PowLhs::FloatLit { span, .. } => *span,
+            PowLhs::BoolLit { span, .. } => *span,
+        }
+    }
+}
+
+impl HasSpan for PowRhs {
+    fn span(&self) -> Span {
+        match self {
+            PowRhs::Paren { span, .. } => *span,
+            PowRhs::Pow { span, .. } => *span,
+            PowRhs::Neg { span, .. } => *span,
+            PowRhs::Ref { span, .. } => *span,
+            PowRhs::Var { span, .. } => *span,
+            PowRhs::IntLit { span, .. } => *span,
+            PowRhs::FloatLit { span, .. } => *span,
+            PowRhs::BoolLit { span, .. } => *span,
+        }
+    }
+}
+
+impl HasSpan for Atom {
+    fn span(&self) -> Span {
+        match self {
+            Atom::Var { span, .. } => *span,
+            Atom::IntLit { span, .. } => *span,
+            Atom::FloatLit { span, .. } => *span,
+            Atom::BoolLit { span, .. } => *span,
+        }
+    }
 }
 
 // ============================================================================

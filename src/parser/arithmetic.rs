@@ -6,6 +6,7 @@
 //! - Addition (+), Subtraction (-) - left-associative, lowest precedence
 //! - Unary negation (-) and reference (&) - highest precedence
 
+use crate::ast::HasSpan;
 use crate::ast::*;
 use crate::lexer::{Span, Token};
 use chumsky::prelude::*;
@@ -17,33 +18,6 @@ use super::atoms::atom;
 // Helper functions for span management
 // ============================================================================
 
-/// Helper to extract span from PowLhs
-fn get_powlhs_span(node: &PowLhs) -> Span {
-    match node {
-        PowLhs::Paren { span, .. }
-        | PowLhs::Neg { span, .. }
-        | PowLhs::Ref { span, .. }
-        | PowLhs::Var { span, .. }
-        | PowLhs::IntLit { span, .. }
-        | PowLhs::FloatLit { span, .. }
-        | PowLhs::BoolLit { span, .. } => *span,
-    }
-}
-
-/// Helper to extract span from PowRhs
-fn get_powrhs_span(node: &PowRhs) -> Span {
-    match node {
-        PowRhs::Paren { span, .. }
-        | PowRhs::Pow { span, .. }
-        | PowRhs::Neg { span, .. }
-        | PowRhs::Ref { span, .. }
-        | PowRhs::Var { span, .. }
-        | PowRhs::IntLit { span, .. }
-        | PowRhs::FloatLit { span, .. }
-        | PowRhs::BoolLit { span, .. } => *span,
-    }
-}
-
 /// Combine a position (from operator token) with a span (from inner expression)
 fn combine_span_from_pos(pos: crate::lexer::LineColumn, inner: Span) -> Span {
     Span {
@@ -54,73 +28,6 @@ fn combine_span_from_pos(pos: crate::lexer::LineColumn, inner: Span) -> Span {
             inner.lines
         },
         end_column: inner.end_column,
-    }
-}
-
-/// Helper to extract span from MulLhs
-fn get_mullhs_span(node: &MulLhs) -> Span {
-    match node {
-        MulLhs::Paren { span, .. }
-        | MulLhs::Mul { span, .. }
-        | MulLhs::Div { span, .. }
-        | MulLhs::Mod { span, .. }
-        | MulLhs::Pow { span, .. }
-        | MulLhs::Neg { span, .. }
-        | MulLhs::Ref { span, .. }
-        | MulLhs::Var { span, .. }
-        | MulLhs::IntLit { span, .. }
-        | MulLhs::FloatLit { span, .. }
-        | MulLhs::BoolLit { span, .. } => *span,
-    }
-}
-
-/// Helper to extract span from MulRhs
-fn get_mulrhs_span(node: &MulRhs) -> Span {
-    match node {
-        MulRhs::Paren { span, .. }
-        | MulRhs::Pow { span, .. }
-        | MulRhs::Neg { span, .. }
-        | MulRhs::Ref { span, .. }
-        | MulRhs::Var { span, .. }
-        | MulRhs::IntLit { span, .. }
-        | MulRhs::FloatLit { span, .. }
-        | MulRhs::BoolLit { span, .. } => *span,
-    }
-}
-
-/// Helper to extract span from AddLhs
-fn get_addlhs_span(node: &AddLhs) -> Span {
-    match node {
-        AddLhs::Add { span, .. }
-        | AddLhs::Sub { span, .. }
-        | AddLhs::Paren { span, .. }
-        | AddLhs::Mul { span, .. }
-        | AddLhs::Div { span, .. }
-        | AddLhs::Mod { span, .. }
-        | AddLhs::Pow { span, .. }
-        | AddLhs::Neg { span, .. }
-        | AddLhs::Ref { span, .. }
-        | AddLhs::Var { span, .. }
-        | AddLhs::IntLit { span, .. }
-        | AddLhs::FloatLit { span, .. }
-        | AddLhs::BoolLit { span, .. } => *span,
-    }
-}
-
-/// Helper to extract span from AddRhs
-fn get_addrhs_span(node: &AddRhs) -> Span {
-    match node {
-        AddRhs::Paren { span, .. }
-        | AddRhs::Mul { span, .. }
-        | AddRhs::Div { span, .. }
-        | AddRhs::Mod { span, .. }
-        | AddRhs::Pow { span, .. }
-        | AddRhs::Neg { span, .. }
-        | AddRhs::Ref { span, .. }
-        | AddRhs::Var { span, .. }
-        | AddRhs::IntLit { span, .. }
-        | AddRhs::FloatLit { span, .. }
-        | AddRhs::BoolLit { span, .. } => *span,
     }
 }
 
@@ -154,8 +61,8 @@ where
             // Unary negation: -<expr>
             select! { Token::Minus(t) => t.position }
                 .then(unary_rec.clone())
-                .map(|(op_pos, inner)| {
-                    let inner_span = get_powlhs_span(&inner);
+                .map(|(op_pos, inner): (_, PowLhs)| {
+                    let inner_span = inner.span();
                     let span = combine_span_from_pos(op_pos, inner_span);
                     PowLhs::Neg {
                         inner: Box::new(inner),
@@ -165,8 +72,8 @@ where
             // Unary reference: &<expr>
             select! { Token::Ampersand(t) => t.position }
                 .then(unary_rec)
-                .map(|(op_pos, inner)| {
-                    let inner_span = get_powlhs_span(&inner);
+                .map(|(op_pos, inner): (_, PowLhs)| {
+                    let inner_span = inner.span();
                     let span = combine_span_from_pos(op_pos, inner_span);
                     PowLhs::Ref {
                         inner: Box::new(inner),
@@ -216,15 +123,14 @@ where
     // rhs can recursively contain power operations
     recursive(|pow_rhs_rec| {
         let base_parser = pow_lhs.clone();
-        base_parser
-            .then(pow_op.then(pow_rhs_rec).or_not())
-            .map(|(base, rest)| {
+        base_parser.then(pow_op.then(pow_rhs_rec).or_not()).map(
+            |(base, rest): (PowLhs, Option<((), PowRhs)>)| {
                 match rest {
                     None => base.into(), // No power operator, just return base as PowRhs
                     Some((_, rhs)) => {
                         // Build Pow node - combine spans from base and rhs
-                        let lhs_span = get_powlhs_span(&base);
-                        let rhs_span = get_powrhs_span(&rhs);
+                        let lhs_span = base.span();
+                        let rhs_span = rhs.span();
                         let span = combine_spans(lhs_span, rhs_span);
                         PowRhs::Pow {
                             lhs: Box::new(base),
@@ -233,7 +139,8 @@ where
                         }
                     }
                 }
-            })
+            },
+        )
     })
 }
 
@@ -345,9 +252,9 @@ where
     // Left-associative multiplication, division, and modulo
     mul_atom.foldl(
         choice((mul_op, div_op, mod_op)).then(mul_rhs).repeated(),
-        |lhs, (op, rhs)| {
-            let lhs_span = get_mullhs_span(&lhs);
-            let rhs_span = get_mulrhs_span(&rhs);
+        |lhs: MulLhs, (op, rhs): (char, MulRhs)| {
+            let lhs_span = lhs.span();
+            let rhs_span = rhs.span();
             let span = combine_spans(lhs_span, rhs_span);
 
             if op == '*' {
@@ -404,9 +311,9 @@ where
     // Left-associative addition and subtraction
     add_atom.foldl(
         choice((add_op, sub_op)).then(add_rhs).repeated(),
-        |lhs, (op, rhs)| {
-            let lhs_span = get_addlhs_span(&lhs);
-            let rhs_span = get_addrhs_span(&rhs);
+        |lhs: AddLhs, (op, rhs): (char, AddRhs)| {
+            let lhs_span = lhs.span();
+            let rhs_span = rhs.span();
             let span = combine_spans(lhs_span, rhs_span);
 
             if op == '+' {

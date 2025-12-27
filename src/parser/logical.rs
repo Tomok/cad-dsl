@@ -6,6 +6,7 @@
 //!
 //! These operators have the lowest precedence of all binary operators.
 
+use crate::ast::HasSpan;
 use crate::ast::*;
 use crate::lexer::{Span, Token};
 use chumsky::prelude::*;
@@ -15,29 +16,6 @@ use super::ParseError;
 // ============================================================================
 // Helper functions for span management
 // ============================================================================
-
-/// Helper to extract span from CmpLhs
-fn get_cmplhs_span(node: &CmpLhs) -> Span {
-    match node {
-        CmpLhs::And { span, .. }
-        | CmpLhs::Or { span, .. }
-        | CmpLhs::Eq { span, .. }
-        | CmpLhs::NotEq { span, .. }
-        | CmpLhs::Add { span, .. }
-        | CmpLhs::Sub { span, .. }
-        | CmpLhs::Paren { span, .. }
-        | CmpLhs::Mul { span, .. }
-        | CmpLhs::Div { span, .. }
-        | CmpLhs::Mod { span, .. }
-        | CmpLhs::Pow { span, .. }
-        | CmpLhs::Neg { span, .. }
-        | CmpLhs::Ref { span, .. }
-        | CmpLhs::Var { span, .. }
-        | CmpLhs::IntLit { span, .. }
-        | CmpLhs::FloatLit { span, .. }
-        | CmpLhs::BoolLit { span, .. } => *span,
-    }
-}
 
 /// Combine two spans into a larger span that encompasses both
 fn combine_spans(left: Span, right: Span) -> Span {
@@ -71,9 +49,9 @@ where
     // Left-associative logical operators (lower precedence than comparison)
     log_atom.foldl(
         choice((and_op, or_op)).then(cmp_lhs).repeated(),
-        |lhs, (op, rhs)| {
-            let lhs_span = get_cmplhs_span(&lhs);
-            let rhs_span = get_cmplhs_span(&rhs);
+        |lhs: CmpLhs, (op, rhs): (&str, CmpLhs)| {
+            let lhs_span = lhs.span();
+            let rhs_span = rhs.span();
             let span = combine_spans(lhs_span, rhs_span);
             let paren_span = rhs_span; // Use rhs span for Paren
 
