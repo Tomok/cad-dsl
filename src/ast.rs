@@ -214,6 +214,15 @@ pub enum Expr<'src> {
         args: Vec<Expr<'src>>,
         span: Span,
     },
+
+    // Method call - in all levels (high precedence like atoms)
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
+    MethodCall {
+        receiver: Box<Expr<'src>>,
+        method: &'src str,
+        args: Vec<Expr<'src>>,
+        span: Span,
+    },
 }
 
 // ============================================================================
@@ -261,6 +270,7 @@ impl<'src> HasSpan for Expr<'src> {
             Expr::FloatLit { span, .. } => *span,
             Expr::BoolLit { span, .. } => *span,
             Expr::Call { span, .. } => *span,
+            Expr::MethodCall { span, .. } => *span,
         }
     }
 }
@@ -286,6 +296,7 @@ impl<'src> HasSpan for CmpLhs<'src> {
             CmpLhs::FloatLit { span, .. } => *span,
             CmpLhs::BoolLit { span, .. } => *span,
             CmpLhs::Call { span, .. } => *span,
+            CmpLhs::MethodCall { span, .. } => *span,
         }
     }
 }
@@ -307,6 +318,7 @@ impl<'src> HasSpan for CmpRhs<'src> {
             CmpRhs::FloatLit { span, .. } => *span,
             CmpRhs::BoolLit { span, .. } => *span,
             CmpRhs::Call { span, .. } => *span,
+            CmpRhs::MethodCall { span, .. } => *span,
         }
     }
 }
@@ -328,6 +340,7 @@ impl<'src> HasSpan for AddLhs<'src> {
             AddLhs::FloatLit { span, .. } => *span,
             AddLhs::BoolLit { span, .. } => *span,
             AddLhs::Call { span, .. } => *span,
+            AddLhs::MethodCall { span, .. } => *span,
         }
     }
 }
@@ -347,6 +360,7 @@ impl<'src> HasSpan for AddRhs<'src> {
             AddRhs::FloatLit { span, .. } => *span,
             AddRhs::BoolLit { span, .. } => *span,
             AddRhs::Call { span, .. } => *span,
+            AddRhs::MethodCall { span, .. } => *span,
         }
     }
 }
@@ -366,6 +380,7 @@ impl<'src> HasSpan for MulLhs<'src> {
             MulLhs::FloatLit { span, .. } => *span,
             MulLhs::BoolLit { span, .. } => *span,
             MulLhs::Call { span, .. } => *span,
+            MulLhs::MethodCall { span, .. } => *span,
         }
     }
 }
@@ -382,6 +397,7 @@ impl<'src> HasSpan for MulRhs<'src> {
             MulRhs::FloatLit { span, .. } => *span,
             MulRhs::BoolLit { span, .. } => *span,
             MulRhs::Call { span, .. } => *span,
+            MulRhs::MethodCall { span, .. } => *span,
         }
     }
 }
@@ -397,6 +413,7 @@ impl<'src> HasSpan for PowLhs<'src> {
             PowLhs::FloatLit { span, .. } => *span,
             PowLhs::BoolLit { span, .. } => *span,
             PowLhs::Call { span, .. } => *span,
+            PowLhs::MethodCall { span, .. } => *span,
         }
     }
 }
@@ -413,6 +430,7 @@ impl<'src> HasSpan for PowRhs<'src> {
             PowRhs::FloatLit { span, .. } => *span,
             PowRhs::BoolLit { span, .. } => *span,
             PowRhs::Call { span, .. } => *span,
+            PowRhs::MethodCall { span, .. } => *span,
         }
     }
 }
@@ -425,6 +443,7 @@ impl<'src> HasSpan for Atom<'src> {
             Atom::FloatLit { span, .. } => *span,
             Atom::BoolLit { span, .. } => *span,
             Atom::Call { span, .. } => *span,
+            Atom::MethodCall { span, .. } => *span,
         }
     }
 }
@@ -455,6 +474,21 @@ impl<'src> std::fmt::Display for Expr<'src> {
             Expr::BoolLit { value, .. } => write!(f, "{}", value),
             Expr::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                write!(f, "{}.{}(", receiver, method)?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -497,6 +531,21 @@ impl<'src> std::fmt::Display for CmpLhs<'src> {
                 }
                 write!(f, ")")
             }
+            CmpLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                write!(f, "{}.{}(", receiver, method)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -519,6 +568,21 @@ impl<'src> std::fmt::Display for CmpRhs<'src> {
             CmpRhs::BoolLit { value, .. } => write!(f, "{}", value),
             CmpRhs::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
+            CmpRhs::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                write!(f, "{}.{}(", receiver, method)?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -557,6 +621,21 @@ impl<'src> std::fmt::Display for AddLhs<'src> {
                 }
                 write!(f, ")")
             }
+            AddLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                write!(f, "{}.{}(", receiver, method)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -577,6 +656,21 @@ impl<'src> std::fmt::Display for AddRhs<'src> {
             AddRhs::BoolLit { value, .. } => write!(f, "{}", value),
             AddRhs::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
+            AddRhs::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                write!(f, "{}.{}(", receiver, method)?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -613,6 +707,21 @@ impl<'src> std::fmt::Display for MulLhs<'src> {
                 }
                 write!(f, ")")
             }
+            MulLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                write!(f, "{}.{}(", receiver, method)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -638,6 +747,21 @@ impl<'src> std::fmt::Display for MulRhs<'src> {
                 }
                 write!(f, ")")
             }
+            MulRhs::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                write!(f, "{}.{}(", receiver, method)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -654,6 +778,21 @@ impl<'src> std::fmt::Display for PowLhs<'src> {
             PowLhs::BoolLit { value, .. } => write!(f, "{}", value),
             PowLhs::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
+            PowLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                write!(f, "{}.{}(", receiver, method)?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -687,6 +826,21 @@ impl<'src> std::fmt::Display for PowRhs<'src> {
                 }
                 write!(f, ")")
             }
+            PowRhs::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                write!(f, "{}.{}(", receiver, method)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -700,6 +854,21 @@ impl<'src> std::fmt::Display for Atom<'src> {
             Atom::BoolLit { value, .. } => write!(f, "{}", value),
             Atom::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
+            Atom::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                write!(f, "{}.{}(", receiver, method)?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -734,6 +903,17 @@ impl<'src> From<AddLhs<'src>> for CmpRhs<'src> {
             AddLhs::FloatLit { value, span } => CmpRhs::FloatLit { value, span },
             AddLhs::BoolLit { value, span } => CmpRhs::BoolLit { value, span },
             AddLhs::Call { name, args, span } => CmpRhs::Call { name, args, span },
+            AddLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => CmpRhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            },
         }
     }
 }
@@ -756,6 +936,17 @@ impl<'src> From<AddLhs<'src>> for CmpLhs<'src> {
             AddLhs::FloatLit { value, span } => CmpLhs::FloatLit { value, span },
             AddLhs::BoolLit { value, span } => CmpLhs::BoolLit { value, span },
             AddLhs::Call { name, args, span } => CmpLhs::Call { name, args, span },
+            AddLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => CmpLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            },
         }
     }
 }
@@ -769,6 +960,17 @@ impl<'src> From<Atom<'src>> for MulRhs<'src> {
             Atom::FloatLit { value, span } => MulRhs::FloatLit { value, span },
             Atom::BoolLit { value, span } => MulRhs::BoolLit { value, span },
             Atom::Call { name, args, span } => MulRhs::Call { name, args, span },
+            Atom::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => MulRhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            },
         }
     }
 }
@@ -782,6 +984,17 @@ impl<'src> From<Atom<'src>> for MulLhs<'src> {
             Atom::FloatLit { value, span } => MulLhs::FloatLit { value, span },
             Atom::BoolLit { value, span } => MulLhs::BoolLit { value, span },
             Atom::Call { name, args, span } => MulLhs::Call { name, args, span },
+            Atom::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => MulLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            },
         }
     }
 }
@@ -802,6 +1015,17 @@ impl<'src> From<MulLhs<'src>> for AddRhs<'src> {
             MulLhs::FloatLit { value, span } => AddRhs::FloatLit { value, span },
             MulLhs::BoolLit { value, span } => AddRhs::BoolLit { value, span },
             MulLhs::Call { name, args, span } => AddRhs::Call { name, args, span },
+            MulLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => AddRhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            },
         }
     }
 }
@@ -822,6 +1046,17 @@ impl<'src> From<MulLhs<'src>> for AddLhs<'src> {
             MulLhs::FloatLit { value, span } => AddLhs::FloatLit { value, span },
             MulLhs::BoolLit { value, span } => AddLhs::BoolLit { value, span },
             MulLhs::Call { name, args, span } => AddLhs::Call { name, args, span },
+            MulLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => AddLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            },
         }
     }
 }
@@ -835,6 +1070,17 @@ impl<'src> From<Atom<'src>> for PowLhs<'src> {
             Atom::FloatLit { value, span } => PowLhs::FloatLit { value, span },
             Atom::BoolLit { value, span } => PowLhs::BoolLit { value, span },
             Atom::Call { name, args, span } => PowLhs::Call { name, args, span },
+            Atom::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => PowLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            },
         }
     }
 }
@@ -848,6 +1094,17 @@ impl<'src> From<Atom<'src>> for PowRhs<'src> {
             Atom::FloatLit { value, span } => PowRhs::FloatLit { value, span },
             Atom::BoolLit { value, span } => PowRhs::BoolLit { value, span },
             Atom::Call { name, args, span } => PowRhs::Call { name, args, span },
+            Atom::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => PowRhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            },
         }
     }
 }
@@ -864,6 +1121,17 @@ impl<'src> From<PowLhs<'src>> for PowRhs<'src> {
             PowLhs::FloatLit { value, span } => PowRhs::FloatLit { value, span },
             PowLhs::BoolLit { value, span } => PowRhs::BoolLit { value, span },
             PowLhs::Call { name, args, span } => PowRhs::Call { name, args, span },
+            PowLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => PowRhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            },
         }
     }
 }
@@ -880,6 +1148,17 @@ impl<'src> From<PowLhs<'src>> for MulRhs<'src> {
             PowLhs::FloatLit { value, span } => MulRhs::FloatLit { value, span },
             PowLhs::BoolLit { value, span } => MulRhs::BoolLit { value, span },
             PowLhs::Call { name, args, span } => MulRhs::Call { name, args, span },
+            PowLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => MulRhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            },
         }
     }
 }
@@ -896,6 +1175,17 @@ impl<'src> From<PowLhs<'src>> for MulLhs<'src> {
             PowLhs::FloatLit { value, span } => MulLhs::FloatLit { value, span },
             PowLhs::BoolLit { value, span } => MulLhs::BoolLit { value, span },
             PowLhs::Call { name, args, span } => MulLhs::Call { name, args, span },
+            PowLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            } => MulLhs::MethodCall {
+                receiver,
+                method,
+                args,
+                span,
+            },
         }
     }
 }

@@ -6,6 +6,7 @@
 //! - Boolean literals
 //! - Variable identifiers
 //! - Function calls
+//! - Method calls
 //! - Atomic expressions (combination of all primitives)
 
 use crate::ast::{Atom, Expr};
@@ -23,7 +24,8 @@ use super::ParseError;
 pub fn atom<'src>(
     expr: impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone,
 ) -> impl Parser<'src, &'src [Token<'src>], Atom<'src>, ParseError<'src>> + Clone {
-    choice((
+    // First, parse a base atom (literal, variable, or function call)
+    let base_atom = choice((
         // Try float first (it's more specific)
         select! {
             Token::FloatLiteral(t) => Atom::FloatLit { value: t.value, span: t.span },
@@ -71,8 +73,58 @@ pub fn atom<'src>(
         select! {
             Token::Identifier(t) => Atom::Var { name: t.name, span: t.span },
         },
-    ))
-    .labelled("atom")
+    ));
+
+    // Then parse zero or more method calls as postfix operations
+    // Method call: .identifier(args)
+    let method_call_suffix = select! { Token::Dot(_) => () }
+        .ignore_then(select! {
+            Token::Identifier(t) => (t.name, t.span),
+        })
+        .then(
+            expr.clone()
+                .separated_by(select! { Token::Comma(_) => () })
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(
+                    select! { Token::LeftParen(_) => () },
+                    select! { Token::RightParen(t) => t.position },
+                )
+                .map_with(|args, e| {
+                    let span_range = e.span();
+                    (args, span_range)
+                }),
+        );
+
+    // Combine base atom with repeated method calls
+    base_atom
+        .then(method_call_suffix.repeated().collect::<Vec<_>>())
+        .map(|(mut atom, method_calls)| {
+            // Apply each method call in sequence
+            for ((method, _method_span), (args, call_span)) in method_calls {
+                let start = match &atom {
+                    Atom::Var { span, .. } => span.start,
+                    Atom::IntLit { span, .. } => span.start,
+                    Atom::FloatLit { span, .. } => span.start,
+                    Atom::BoolLit { span, .. } => span.start,
+                    Atom::Call { span, .. } => span.start,
+                    Atom::MethodCall { span, .. } => span.start,
+                };
+
+                atom = Atom::MethodCall {
+                    receiver: Box::new(atom.into()),
+                    method,
+                    args,
+                    span: Span {
+                        start,
+                        lines: 0,
+                        end_column: call_span.end,
+                    },
+                };
+            }
+            atom
+        })
+        .labelled("atom")
 }
 
 // ============================================================================
