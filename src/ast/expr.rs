@@ -180,6 +180,21 @@ pub enum Expr<'src> {
         field: &'src str,
         span: Span,
     },
+
+    // Array literal - in all levels (high precedence like atoms)
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
+    ArrayLit {
+        elements: Vec<Expr<'src>>,
+        span: Span,
+    },
+
+    // Struct literal - in all levels (high precedence like atoms)
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
+    StructLit {
+        name: &'src str,
+        fields: Vec<(&'src str, Expr<'src>)>,
+        span: Span,
+    },
 }
 
 // ============================================================================
@@ -209,6 +224,8 @@ impl<'src> HasSpan for Expr<'src> {
             Expr::Call { span, .. } => *span,
             Expr::MethodCall { span, .. } => *span,
             Expr::FieldAccess { span, .. } => *span,
+            Expr::ArrayLit { span, .. } => *span,
+            Expr::StructLit { span, .. } => *span,
         }
     }
 }
@@ -236,6 +253,8 @@ impl<'src> HasSpan for CmpLhs<'src> {
             CmpLhs::Call { span, .. } => *span,
             CmpLhs::MethodCall { span, .. } => *span,
             CmpLhs::FieldAccess { span, .. } => *span,
+            CmpLhs::ArrayLit { span, .. } => *span,
+            CmpLhs::StructLit { span, .. } => *span,
         }
     }
 }
@@ -259,6 +278,8 @@ impl<'src> HasSpan for CmpRhs<'src> {
             CmpRhs::Call { span, .. } => *span,
             CmpRhs::MethodCall { span, .. } => *span,
             CmpRhs::FieldAccess { span, .. } => *span,
+            CmpRhs::ArrayLit { span, .. } => *span,
+            CmpRhs::StructLit { span, .. } => *span,
         }
     }
 }
@@ -282,6 +303,8 @@ impl<'src> HasSpan for AddLhs<'src> {
             AddLhs::Call { span, .. } => *span,
             AddLhs::MethodCall { span, .. } => *span,
             AddLhs::FieldAccess { span, .. } => *span,
+            AddLhs::ArrayLit { span, .. } => *span,
+            AddLhs::StructLit { span, .. } => *span,
         }
     }
 }
@@ -303,6 +326,8 @@ impl<'src> HasSpan for AddRhs<'src> {
             AddRhs::Call { span, .. } => *span,
             AddRhs::MethodCall { span, .. } => *span,
             AddRhs::FieldAccess { span, .. } => *span,
+            AddRhs::ArrayLit { span, .. } => *span,
+            AddRhs::StructLit { span, .. } => *span,
         }
     }
 }
@@ -324,6 +349,8 @@ impl<'src> HasSpan for MulLhs<'src> {
             MulLhs::Call { span, .. } => *span,
             MulLhs::MethodCall { span, .. } => *span,
             MulLhs::FieldAccess { span, .. } => *span,
+            MulLhs::ArrayLit { span, .. } => *span,
+            MulLhs::StructLit { span, .. } => *span,
         }
     }
 }
@@ -342,6 +369,8 @@ impl<'src> HasSpan for MulRhs<'src> {
             MulRhs::Call { span, .. } => *span,
             MulRhs::MethodCall { span, .. } => *span,
             MulRhs::FieldAccess { span, .. } => *span,
+            MulRhs::ArrayLit { span, .. } => *span,
+            MulRhs::StructLit { span, .. } => *span,
         }
     }
 }
@@ -359,6 +388,8 @@ impl<'src> HasSpan for PowLhs<'src> {
             PowLhs::Call { span, .. } => *span,
             PowLhs::MethodCall { span, .. } => *span,
             PowLhs::FieldAccess { span, .. } => *span,
+            PowLhs::ArrayLit { span, .. } => *span,
+            PowLhs::StructLit { span, .. } => *span,
         }
     }
 }
@@ -377,6 +408,8 @@ impl<'src> HasSpan for PowRhs<'src> {
             PowRhs::Call { span, .. } => *span,
             PowRhs::MethodCall { span, .. } => *span,
             PowRhs::FieldAccess { span, .. } => *span,
+            PowRhs::ArrayLit { span, .. } => *span,
+            PowRhs::StructLit { span, .. } => *span,
         }
     }
 }
@@ -391,6 +424,8 @@ impl<'src> HasSpan for Atom<'src> {
             Atom::Call { span, .. } => *span,
             Atom::MethodCall { span, .. } => *span,
             Atom::FieldAccess { span, .. } => *span,
+            Atom::ArrayLit { span, .. } => *span,
+            Atom::StructLit { span, .. } => *span,
         }
     }
 }

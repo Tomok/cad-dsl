@@ -39,6 +39,57 @@ pub fn atom<'src>(
             Token::True(t) => Atom::BoolLit { value: true, span: Span { start: t.position, lines: 0, end_column: t.position.column + 4 } },
             Token::False(t) => Atom::BoolLit { value: false, span: Span { start: t.position, lines: 0, end_column: t.position.column + 5 } },
         },
+        // Array literal: [elem1, elem2, ...]
+        expr.clone()
+            .separated_by(select! { Token::Comma(_) => () })
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(
+                select! { Token::LeftBracket(_) => () },
+                select! { Token::RightBracket(_) => () },
+            )
+            .map_with(|elements, e| {
+                let span_range = e.span();
+                Atom::ArrayLit {
+                    elements,
+                    span: Span {
+                        start: crate::lexer::LineColumn {
+                            line: 1,
+                            column: span_range.start + 1,
+                        },
+                        lines: 0,
+                        end_column: span_range.end + 1,
+                    },
+                }
+            }),
+        // Struct literal: StructName { field1: value1, field2: value2, ... }
+        select! {
+            Token::Identifier(t) => (t.name, t.span),
+        }
+        .then(
+            select! { Token::Identifier(t) => t.name }
+                .then_ignore(select! { Token::Colon(_) => () })
+                .then(expr.clone())
+                .separated_by(select! { Token::Comma(_) => () })
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(
+                    select! { Token::LeftBrace(_) => () },
+                    select! { Token::RightBrace(_) => () },
+                ),
+        )
+        .map_with(|((name, name_span), fields), e| {
+            let span_range = e.span();
+            Atom::StructLit {
+                name,
+                fields,
+                span: Span {
+                    start: name_span.start,
+                    lines: 0,
+                    end_column: span_range.end + 1,
+                },
+            }
+        }),
         // Function call: identifier followed by parentheses with comma-separated arguments
         select! {
             Token::Identifier(t) => (t.name, t.span),
@@ -112,6 +163,8 @@ pub fn atom<'src>(
                     Atom::Call { span, .. } => span.start,
                     Atom::MethodCall { span, .. } => span.start,
                     Atom::FieldAccess { span, .. } => span.start,
+                    Atom::ArrayLit { span, .. } => span.start,
+                    Atom::StructLit { span, .. } => span.start,
                 };
 
                 atom = match args_and_span {
