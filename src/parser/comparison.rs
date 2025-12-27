@@ -8,10 +8,73 @@
 //! but higher precedence than logical operators.
 
 use crate::ast::*;
-use crate::lexer::Token;
+use crate::lexer::{Span, Token};
 use chumsky::prelude::*;
 
 use super::ParseError;
+
+// ============================================================================
+// Helper functions for span management
+// ============================================================================
+
+/// Helper to extract span from CmpLhs
+fn get_cmplhs_span(node: &CmpLhs) -> Span {
+    match node {
+        CmpLhs::And { span, .. }
+        | CmpLhs::Or { span, .. }
+        | CmpLhs::Eq { span, .. }
+        | CmpLhs::NotEq { span, .. }
+        | CmpLhs::Add { span, .. }
+        | CmpLhs::Sub { span, .. }
+        | CmpLhs::Paren { span, .. }
+        | CmpLhs::Mul { span, .. }
+        | CmpLhs::Div { span, .. }
+        | CmpLhs::Mod { span, .. }
+        | CmpLhs::Pow { span, .. }
+        | CmpLhs::Neg { span, .. }
+        | CmpLhs::Ref { span, .. }
+        | CmpLhs::Var { span, .. }
+        | CmpLhs::IntLit { span, .. }
+        | CmpLhs::FloatLit { span, .. }
+        | CmpLhs::BoolLit { span, .. } => *span,
+    }
+}
+
+/// Helper to extract span from CmpRhs
+fn get_cmprhs_span(node: &CmpRhs) -> Span {
+    match node {
+        CmpRhs::Add { span, .. }
+        | CmpRhs::Sub { span, .. }
+        | CmpRhs::Paren { span, .. }
+        | CmpRhs::Mul { span, .. }
+        | CmpRhs::Div { span, .. }
+        | CmpRhs::Mod { span, .. }
+        | CmpRhs::Pow { span, .. }
+        | CmpRhs::Neg { span, .. }
+        | CmpRhs::Ref { span, .. }
+        | CmpRhs::Var { span, .. }
+        | CmpRhs::IntLit { span, .. }
+        | CmpRhs::FloatLit { span, .. }
+        | CmpRhs::BoolLit { span, .. } => *span,
+    }
+}
+
+/// Combine two spans into a larger span that encompasses both
+fn combine_spans(left: Span, right: Span) -> Span {
+    Span {
+        start: left.start,
+        lines: if right.lines > 0 {
+            left.lines + right.lines
+        } else {
+            left.lines
+        },
+        end_column: if right.lines > 0 {
+            right.end_column
+        } else {
+            right.end_column
+        },
+    }
+}
 
 // ============================================================================
 // Comparison Parsers
@@ -44,16 +107,24 @@ where
     // Left-associative equality and not-equal operators (higher precedence than logical)
     cmp_atom.foldl(
         choice((eq_op, neq_op)).then(cmp_rhs).repeated(),
-        |lhs, (op, rhs)| match op {
-            "==" => CmpLhs::Eq {
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-            },
-            "!=" => CmpLhs::NotEq {
-                lhs: Box::new(lhs),
-                rhs: Box::new(rhs),
-            },
-            _ => unreachable!(),
+        |lhs, (op, rhs)| {
+            let lhs_span = get_cmplhs_span(&lhs);
+            let rhs_span = get_cmprhs_span(&rhs);
+            let span = combine_spans(lhs_span, rhs_span);
+
+            match op {
+                "==" => CmpLhs::Eq {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span,
+                },
+                "!=" => CmpLhs::NotEq {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span,
+                },
+                _ => unreachable!(),
+            }
         },
     )
 }

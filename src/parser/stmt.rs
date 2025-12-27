@@ -13,11 +13,11 @@ use chumsky::prelude::*;
 pub fn type_annotation<'src>()
 -> impl Parser<'src, &'src [Token<'src>], Type, ParseError<'src>> + Clone {
     choice((
-        select! { Token::BoolType(_) => Type::Bool },
-        select! { Token::I32Type(_) => Type::I32 },
-        select! { Token::F64Type(_) => Type::F64 },
-        select! { Token::RealType(_) => Type::Real },
-        select! { Token::AlgebraicType(_) => Type::Algebraic },
+        select! { Token::BoolType(_) => () }.map_with_span(|_, span| Type::Bool { span }),
+        select! { Token::I32Type(_) => () }.map_with_span(|_, span| Type::I32 { span }),
+        select! { Token::F64Type(_) => () }.map_with_span(|_, span| Type::F64 { span }),
+        select! { Token::RealType(_) => () }.map_with_span(|_, span| Type::Real { span }),
+        select! { Token::AlgebraicType(_) => () }.map_with_span(|_, span| Type::Algebraic { span }),
     ))
     .labelled("type annotation")
 }
@@ -44,7 +44,7 @@ pub fn let_stmt<'src>(
     let_kw
         .ignore_then(
             select! {
-                Token::Identifier(t) => t.name.to_string(),
+                Token::Identifier(t) => (t.name.to_string(), t.span),
             }
             .labelled("variable name"),
         )
@@ -57,10 +57,14 @@ pub fn let_stmt<'src>(
             equals.ignore_then(expr_parser).or_not(),
         )
         .then_ignore(semicolon)
-        .map(|((name, type_annotation), init)| Stmt::Let {
-            name,
-            type_annotation,
-            init,
-        })
+        .map_with_span(
+            |(((name, name_span), type_annotation), init), span| Stmt::Let {
+                name,
+                name_span,
+                type_annotation,
+                init,
+                span,
+            },
+        )
         .labelled("let statement")
 }

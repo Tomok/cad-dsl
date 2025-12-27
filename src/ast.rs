@@ -1,5 +1,7 @@
 use subenum::subenum;
 
+use crate::lexer::Span;
+
 // ============================================================================
 // Type Annotations
 // ============================================================================
@@ -9,15 +11,15 @@ use subenum::subenum;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     /// Boolean type
-    Bool,
+    Bool { span: Span },
     /// 32-bit integer type
-    I32,
+    I32 { span: Span },
     /// 64-bit floating point type
-    F64,
+    F64 { span: Span },
     /// Mathematical real number with exact precision
-    Real,
+    Real { span: Span },
     /// Algebraic number (roots of polynomials with integer coefficients)
-    Algebraic,
+    Algebraic { span: Span },
 }
 
 // ============================================================================
@@ -34,8 +36,10 @@ pub enum Stmt {
     ///   let z = 3.14;
     Let {
         name: String,
+        name_span: Span,
         type_annotation: Option<Type>,
         init: Option<Expr>,
+        span: Span,
     },
 }
 
@@ -73,79 +77,119 @@ pub enum Expr {
     // Logical AND - in CmpLhs (same level as equality operators)
     // lhs can be And/Or, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs)]
-    And { lhs: Box<CmpLhs>, rhs: Box<CmpRhs> },
+    And {
+        lhs: Box<CmpLhs>,
+        rhs: Box<CmpRhs>,
+        span: Span,
+    },
 
     // Logical OR - in CmpLhs (same level as equality operators)
     // lhs can be And/Or, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs)]
-    Or { lhs: Box<CmpLhs>, rhs: Box<CmpRhs> },
+    Or {
+        lhs: Box<CmpLhs>,
+        rhs: Box<CmpRhs>,
+        span: Span,
+    },
 
     // Equality - in CmpLhs only
     // lhs can be Eq, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs)]
-    Eq { lhs: Box<CmpLhs>, rhs: Box<CmpRhs> },
+    Eq {
+        lhs: Box<CmpLhs>,
+        rhs: Box<CmpRhs>,
+        span: Span,
+    },
 
     // Not Equal - in CmpLhs only
     // lhs can be NotEq, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs)]
-    NotEq { lhs: Box<CmpLhs>, rhs: Box<CmpRhs> },
+    NotEq {
+        lhs: Box<CmpLhs>,
+        rhs: Box<CmpRhs>,
+        span: Span,
+    },
 
     // Addition - in CmpLhs, CmpRhs, AddLhs
     // lhs can be Add/Sub, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs, CmpRhs, AddLhs)]
-    Add { lhs: Box<AddLhs>, rhs: Box<AddRhs> },
+    Add {
+        lhs: Box<AddLhs>,
+        rhs: Box<AddRhs>,
+        span: Span,
+    },
 
     // Subtraction - in CmpLhs, CmpRhs, AddLhs
     #[subenum(CmpLhs, CmpRhs, AddLhs)]
-    Sub { lhs: Box<AddLhs>, rhs: Box<AddRhs> },
+    Sub {
+        lhs: Box<AddLhs>,
+        rhs: Box<AddRhs>,
+        span: Span,
+    },
 
     // Parentheses - in all contexts except Atom (resets precedence)
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs)]
-    Paren(Box<Expr>),
+    Paren { inner: Box<Expr>, span: Span },
 
     // Multiplication - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs
     // lhs can be Mul/Div, rhs cannot (enforces left-associativity)
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs)]
-    Mul { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
+    Mul {
+        lhs: Box<MulLhs>,
+        rhs: Box<MulRhs>,
+        span: Span,
+    },
 
     // Division - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs)]
-    Div { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
+    Div {
+        lhs: Box<MulLhs>,
+        rhs: Box<MulRhs>,
+        span: Span,
+    },
 
     // Modulo - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs)]
-    Mod { lhs: Box<MulLhs>, rhs: Box<MulRhs> },
+    Mod {
+        lhs: Box<MulLhs>,
+        rhs: Box<MulRhs>,
+        span: Span,
+    },
 
     // Power - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowRhs
     // lhs cannot be Pow (enforces right-associativity), rhs can be Pow
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowRhs)]
-    Pow { lhs: Box<PowLhs>, rhs: Box<PowRhs> },
+    Pow {
+        lhs: Box<PowLhs>,
+        rhs: Box<PowRhs>,
+        span: Span,
+    },
 
     // Unary negation - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs
     // Higher precedence than power (binds tighter)
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs)]
-    Neg { inner: Box<PowLhs> },
+    Neg { inner: Box<PowLhs>, span: Span },
 
     // Unary reference - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs
     // Higher precedence than power (binds tighter)
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs)]
-    Ref { inner: Box<PowLhs> },
+    Ref { inner: Box<PowLhs>, span: Span },
 
     // Variable reference - in all levels
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
-    Var(String),
+    Var { name: String, span: Span },
 
     // Integer literal - in all levels
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
-    IntLit(i32),
+    IntLit { value: i32, span: Span },
 
     // Float literal - in all levels
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
-    FloatLit(f64),
+    FloatLit { value: f64, span: Span },
 
     // Boolean literal - in all levels
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
-    BoolLit(bool),
+    BoolLit { value: bool, span: Span },
 }
 
 // ============================================================================
@@ -155,23 +199,23 @@ pub enum Expr {
 impl std::fmt::Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expr::And { lhs, rhs } => write!(f, "({} and {})", lhs, rhs),
-            Expr::Or { lhs, rhs } => write!(f, "({} or {})", lhs, rhs),
-            Expr::Eq { lhs, rhs } => write!(f, "({} == {})", lhs, rhs),
-            Expr::NotEq { lhs, rhs } => write!(f, "({} != {})", lhs, rhs),
-            Expr::Add { lhs, rhs } => write!(f, "({} + {})", lhs, rhs),
-            Expr::Sub { lhs, rhs } => write!(f, "({} - {})", lhs, rhs),
-            Expr::Paren(inner) => write!(f, "({})", inner),
-            Expr::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
-            Expr::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
-            Expr::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
-            Expr::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
-            Expr::Neg { inner } => write!(f, "(-{})", inner),
-            Expr::Ref { inner } => write!(f, "(&{})", inner),
-            Expr::Var(name) => write!(f, "{}", name),
-            Expr::IntLit(value) => write!(f, "{}", value),
-            Expr::FloatLit(value) => write!(f, "{}", value),
-            Expr::BoolLit(value) => write!(f, "{}", value),
+            Expr::And { lhs, rhs, .. } => write!(f, "({} and {})", lhs, rhs),
+            Expr::Or { lhs, rhs, .. } => write!(f, "({} or {})", lhs, rhs),
+            Expr::Eq { lhs, rhs, .. } => write!(f, "({} == {})", lhs, rhs),
+            Expr::NotEq { lhs, rhs, .. } => write!(f, "({} != {})", lhs, rhs),
+            Expr::Add { lhs, rhs, .. } => write!(f, "({} + {})", lhs, rhs),
+            Expr::Sub { lhs, rhs, .. } => write!(f, "({} - {})", lhs, rhs),
+            Expr::Paren { inner, .. } => write!(f, "({})", inner),
+            Expr::Mul { lhs, rhs, .. } => write!(f, "({} * {})", lhs, rhs),
+            Expr::Div { lhs, rhs, .. } => write!(f, "({} / {})", lhs, rhs),
+            Expr::Mod { lhs, rhs, .. } => write!(f, "({} % {})", lhs, rhs),
+            Expr::Pow { lhs, rhs, .. } => write!(f, "({} ^ {})", lhs, rhs),
+            Expr::Neg { inner, .. } => write!(f, "(-{})", inner),
+            Expr::Ref { inner, .. } => write!(f, "(&{})", inner),
+            Expr::Var { name, .. } => write!(f, "{}", name),
+            Expr::IntLit { value, .. } => write!(f, "{}", value),
+            Expr::FloatLit { value, .. } => write!(f, "{}", value),
+            Expr::BoolLit { value, .. } => write!(f, "{}", value),
         }
     }
 }
@@ -179,23 +223,23 @@ impl std::fmt::Display for Expr {
 impl std::fmt::Display for CmpLhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CmpLhs::And { lhs, rhs } => write!(f, "({} and {})", lhs, rhs),
-            CmpLhs::Or { lhs, rhs } => write!(f, "({} or {})", lhs, rhs),
-            CmpLhs::Eq { lhs, rhs } => write!(f, "({} == {})", lhs, rhs),
-            CmpLhs::NotEq { lhs, rhs } => write!(f, "({} != {})", lhs, rhs),
-            CmpLhs::Add { lhs, rhs } => write!(f, "({} + {})", lhs, rhs),
-            CmpLhs::Sub { lhs, rhs } => write!(f, "({} - {})", lhs, rhs),
-            CmpLhs::Paren(inner) => write!(f, "({})", inner),
-            CmpLhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
-            CmpLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
-            CmpLhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
-            CmpLhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
-            CmpLhs::Neg { inner } => write!(f, "(-{})", inner),
-            CmpLhs::Ref { inner } => write!(f, "(&{})", inner),
-            CmpLhs::Var(name) => write!(f, "{}", name),
-            CmpLhs::IntLit(value) => write!(f, "{}", value),
-            CmpLhs::FloatLit(value) => write!(f, "{}", value),
-            CmpLhs::BoolLit(value) => write!(f, "{}", value),
+            CmpLhs::And { lhs, rhs, .. } => write!(f, "({} and {})", lhs, rhs),
+            CmpLhs::Or { lhs, rhs, .. } => write!(f, "({} or {})", lhs, rhs),
+            CmpLhs::Eq { lhs, rhs, .. } => write!(f, "({} == {})", lhs, rhs),
+            CmpLhs::NotEq { lhs, rhs, .. } => write!(f, "({} != {})", lhs, rhs),
+            CmpLhs::Add { lhs, rhs, .. } => write!(f, "({} + {})", lhs, rhs),
+            CmpLhs::Sub { lhs, rhs, .. } => write!(f, "({} - {})", lhs, rhs),
+            CmpLhs::Paren { inner, .. } => write!(f, "({})", inner),
+            CmpLhs::Mul { lhs, rhs, .. } => write!(f, "({} * {})", lhs, rhs),
+            CmpLhs::Div { lhs, rhs, .. } => write!(f, "({} / {})", lhs, rhs),
+            CmpLhs::Mod { lhs, rhs, .. } => write!(f, "({} % {})", lhs, rhs),
+            CmpLhs::Pow { lhs, rhs, .. } => write!(f, "({} ^ {})", lhs, rhs),
+            CmpLhs::Neg { inner, .. } => write!(f, "(-{})", inner),
+            CmpLhs::Ref { inner, .. } => write!(f, "(&{})", inner),
+            CmpLhs::Var { name, .. } => write!(f, "{}", name),
+            CmpLhs::IntLit { value, .. } => write!(f, "{}", value),
+            CmpLhs::FloatLit { value, .. } => write!(f, "{}", value),
+            CmpLhs::BoolLit { value, .. } => write!(f, "{}", value),
         }
     }
 }
@@ -203,19 +247,19 @@ impl std::fmt::Display for CmpLhs {
 impl std::fmt::Display for CmpRhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CmpRhs::Add { lhs, rhs } => write!(f, "({} + {})", lhs, rhs),
-            CmpRhs::Sub { lhs, rhs } => write!(f, "({} - {})", lhs, rhs),
-            CmpRhs::Paren(inner) => write!(f, "({})", inner),
-            CmpRhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
-            CmpRhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
-            CmpRhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
-            CmpRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
-            CmpRhs::Neg { inner } => write!(f, "(-{})", inner),
-            CmpRhs::Ref { inner } => write!(f, "(&{})", inner),
-            CmpRhs::Var(name) => write!(f, "{}", name),
-            CmpRhs::IntLit(value) => write!(f, "{}", value),
-            CmpRhs::FloatLit(value) => write!(f, "{}", value),
-            CmpRhs::BoolLit(value) => write!(f, "{}", value),
+            CmpRhs::Add { lhs, rhs, .. } => write!(f, "({} + {})", lhs, rhs),
+            CmpRhs::Sub { lhs, rhs, .. } => write!(f, "({} - {})", lhs, rhs),
+            CmpRhs::Paren { inner, .. } => write!(f, "({})", inner),
+            CmpRhs::Mul { lhs, rhs, .. } => write!(f, "({} * {})", lhs, rhs),
+            CmpRhs::Div { lhs, rhs, .. } => write!(f, "({} / {})", lhs, rhs),
+            CmpRhs::Mod { lhs, rhs, .. } => write!(f, "({} % {})", lhs, rhs),
+            CmpRhs::Pow { lhs, rhs, .. } => write!(f, "({} ^ {})", lhs, rhs),
+            CmpRhs::Neg { inner, .. } => write!(f, "(-{})", inner),
+            CmpRhs::Ref { inner, .. } => write!(f, "(&{})", inner),
+            CmpRhs::Var { name, .. } => write!(f, "{}", name),
+            CmpRhs::IntLit { value, .. } => write!(f, "{}", value),
+            CmpRhs::FloatLit { value, .. } => write!(f, "{}", value),
+            CmpRhs::BoolLit { value, .. } => write!(f, "{}", value),
         }
     }
 }
@@ -223,19 +267,19 @@ impl std::fmt::Display for CmpRhs {
 impl std::fmt::Display for AddLhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AddLhs::Add { lhs, rhs } => write!(f, "({} + {})", lhs, rhs),
-            AddLhs::Sub { lhs, rhs } => write!(f, "({} - {})", lhs, rhs),
-            AddLhs::Paren(inner) => write!(f, "({})", inner),
-            AddLhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
-            AddLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
-            AddLhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
-            AddLhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
-            AddLhs::Neg { inner } => write!(f, "(-{})", inner),
-            AddLhs::Ref { inner } => write!(f, "(&{})", inner),
-            AddLhs::Var(name) => write!(f, "{}", name),
-            AddLhs::IntLit(value) => write!(f, "{}", value),
-            AddLhs::FloatLit(value) => write!(f, "{}", value),
-            AddLhs::BoolLit(value) => write!(f, "{}", value),
+            AddLhs::Add { lhs, rhs, .. } => write!(f, "({} + {})", lhs, rhs),
+            AddLhs::Sub { lhs, rhs, .. } => write!(f, "({} - {})", lhs, rhs),
+            AddLhs::Paren { inner, .. } => write!(f, "({})", inner),
+            AddLhs::Mul { lhs, rhs, .. } => write!(f, "({} * {})", lhs, rhs),
+            AddLhs::Div { lhs, rhs, .. } => write!(f, "({} / {})", lhs, rhs),
+            AddLhs::Mod { lhs, rhs, .. } => write!(f, "({} % {})", lhs, rhs),
+            AddLhs::Pow { lhs, rhs, .. } => write!(f, "({} ^ {})", lhs, rhs),
+            AddLhs::Neg { inner, .. } => write!(f, "(-{})", inner),
+            AddLhs::Ref { inner, .. } => write!(f, "(&{})", inner),
+            AddLhs::Var { name, .. } => write!(f, "{}", name),
+            AddLhs::IntLit { value, .. } => write!(f, "{}", value),
+            AddLhs::FloatLit { value, .. } => write!(f, "{}", value),
+            AddLhs::BoolLit { value, .. } => write!(f, "{}", value),
         }
     }
 }
@@ -243,17 +287,17 @@ impl std::fmt::Display for AddLhs {
 impl std::fmt::Display for AddRhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AddRhs::Paren(inner) => write!(f, "({})", inner),
-            AddRhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
-            AddRhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
-            AddRhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
-            AddRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
-            AddRhs::Neg { inner } => write!(f, "(-{})", inner),
-            AddRhs::Ref { inner } => write!(f, "(&{})", inner),
-            AddRhs::Var(name) => write!(f, "{}", name),
-            AddRhs::IntLit(value) => write!(f, "{}", value),
-            AddRhs::FloatLit(value) => write!(f, "{}", value),
-            AddRhs::BoolLit(value) => write!(f, "{}", value),
+            AddRhs::Paren { inner, .. } => write!(f, "({})", inner),
+            AddRhs::Mul { lhs, rhs, .. } => write!(f, "({} * {})", lhs, rhs),
+            AddRhs::Div { lhs, rhs, .. } => write!(f, "({} / {})", lhs, rhs),
+            AddRhs::Mod { lhs, rhs, .. } => write!(f, "({} % {})", lhs, rhs),
+            AddRhs::Pow { lhs, rhs, .. } => write!(f, "({} ^ {})", lhs, rhs),
+            AddRhs::Neg { inner, .. } => write!(f, "(-{})", inner),
+            AddRhs::Ref { inner, .. } => write!(f, "(&{})", inner),
+            AddRhs::Var { name, .. } => write!(f, "{}", name),
+            AddRhs::IntLit { value, .. } => write!(f, "{}", value),
+            AddRhs::FloatLit { value, .. } => write!(f, "{}", value),
+            AddRhs::BoolLit { value, .. } => write!(f, "{}", value),
         }
     }
 }
@@ -261,17 +305,17 @@ impl std::fmt::Display for AddRhs {
 impl std::fmt::Display for MulLhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MulLhs::Paren(inner) => write!(f, "({})", inner),
-            MulLhs::Mul { lhs, rhs } => write!(f, "({} * {})", lhs, rhs),
-            MulLhs::Div { lhs, rhs } => write!(f, "({} / {})", lhs, rhs),
-            MulLhs::Mod { lhs, rhs } => write!(f, "({} % {})", lhs, rhs),
-            MulLhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
-            MulLhs::Neg { inner } => write!(f, "(-{})", inner),
-            MulLhs::Ref { inner } => write!(f, "(&{})", inner),
-            MulLhs::Var(name) => write!(f, "{}", name),
-            MulLhs::IntLit(value) => write!(f, "{}", value),
-            MulLhs::FloatLit(value) => write!(f, "{}", value),
-            MulLhs::BoolLit(value) => write!(f, "{}", value),
+            MulLhs::Paren { inner, .. } => write!(f, "({})", inner),
+            MulLhs::Mul { lhs, rhs, .. } => write!(f, "({} * {})", lhs, rhs),
+            MulLhs::Div { lhs, rhs, .. } => write!(f, "({} / {})", lhs, rhs),
+            MulLhs::Mod { lhs, rhs, .. } => write!(f, "({} % {})", lhs, rhs),
+            MulLhs::Pow { lhs, rhs, .. } => write!(f, "({} ^ {})", lhs, rhs),
+            MulLhs::Neg { inner, .. } => write!(f, "(-{})", inner),
+            MulLhs::Ref { inner, .. } => write!(f, "(&{})", inner),
+            MulLhs::Var { name, .. } => write!(f, "{}", name),
+            MulLhs::IntLit { value, .. } => write!(f, "{}", value),
+            MulLhs::FloatLit { value, .. } => write!(f, "{}", value),
+            MulLhs::BoolLit { value, .. } => write!(f, "{}", value),
         }
     }
 }
@@ -279,14 +323,14 @@ impl std::fmt::Display for MulLhs {
 impl std::fmt::Display for MulRhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MulRhs::Paren(inner) => write!(f, "({})", inner),
-            MulRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
-            MulRhs::Neg { inner } => write!(f, "(-{})", inner),
-            MulRhs::Ref { inner } => write!(f, "(&{})", inner),
-            MulRhs::Var(name) => write!(f, "{}", name),
-            MulRhs::IntLit(value) => write!(f, "{}", value),
-            MulRhs::FloatLit(value) => write!(f, "{}", value),
-            MulRhs::BoolLit(value) => write!(f, "{}", value),
+            MulRhs::Paren { inner, .. } => write!(f, "({})", inner),
+            MulRhs::Pow { lhs, rhs, .. } => write!(f, "({} ^ {})", lhs, rhs),
+            MulRhs::Neg { inner, .. } => write!(f, "(-{})", inner),
+            MulRhs::Ref { inner, .. } => write!(f, "(&{})", inner),
+            MulRhs::Var { name, .. } => write!(f, "{}", name),
+            MulRhs::IntLit { value, .. } => write!(f, "{}", value),
+            MulRhs::FloatLit { value, .. } => write!(f, "{}", value),
+            MulRhs::BoolLit { value, .. } => write!(f, "{}", value),
         }
     }
 }
@@ -294,13 +338,13 @@ impl std::fmt::Display for MulRhs {
 impl std::fmt::Display for PowLhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PowLhs::Paren(inner) => write!(f, "({})", inner),
-            PowLhs::Neg { inner } => write!(f, "(-{})", inner),
-            PowLhs::Ref { inner } => write!(f, "(&{})", inner),
-            PowLhs::Var(name) => write!(f, "{}", name),
-            PowLhs::IntLit(value) => write!(f, "{}", value),
-            PowLhs::FloatLit(value) => write!(f, "{}", value),
-            PowLhs::BoolLit(value) => write!(f, "{}", value),
+            PowLhs::Paren { inner, .. } => write!(f, "({})", inner),
+            PowLhs::Neg { inner, .. } => write!(f, "(-{})", inner),
+            PowLhs::Ref { inner, .. } => write!(f, "(&{})", inner),
+            PowLhs::Var { name, .. } => write!(f, "{}", name),
+            PowLhs::IntLit { value, .. } => write!(f, "{}", value),
+            PowLhs::FloatLit { value, .. } => write!(f, "{}", value),
+            PowLhs::BoolLit { value, .. } => write!(f, "{}", value),
         }
     }
 }
@@ -308,14 +352,14 @@ impl std::fmt::Display for PowLhs {
 impl std::fmt::Display for PowRhs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PowRhs::Paren(inner) => write!(f, "({})", inner),
-            PowRhs::Pow { lhs, rhs } => write!(f, "({} ^ {})", lhs, rhs),
-            PowRhs::Neg { inner } => write!(f, "(-{})", inner),
-            PowRhs::Ref { inner } => write!(f, "(&{})", inner),
-            PowRhs::Var(name) => write!(f, "{}", name),
-            PowRhs::IntLit(value) => write!(f, "{}", value),
-            PowRhs::FloatLit(value) => write!(f, "{}", value),
-            PowRhs::BoolLit(value) => write!(f, "{}", value),
+            PowRhs::Paren { inner, .. } => write!(f, "({})", inner),
+            PowRhs::Pow { lhs, rhs, .. } => write!(f, "({} ^ {})", lhs, rhs),
+            PowRhs::Neg { inner, .. } => write!(f, "(-{})", inner),
+            PowRhs::Ref { inner, .. } => write!(f, "(&{})", inner),
+            PowRhs::Var { name, .. } => write!(f, "{}", name),
+            PowRhs::IntLit { value, .. } => write!(f, "{}", value),
+            PowRhs::FloatLit { value, .. } => write!(f, "{}", value),
+            PowRhs::BoolLit { value, .. } => write!(f, "{}", value),
         }
     }
 }
@@ -323,10 +367,10 @@ impl std::fmt::Display for PowRhs {
 impl std::fmt::Display for Atom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Atom::Var(name) => write!(f, "{}", name),
-            Atom::IntLit(value) => write!(f, "{}", value),
-            Atom::FloatLit(value) => write!(f, "{}", value),
-            Atom::BoolLit(value) => write!(f, "{}", value),
+            Atom::Var { name, .. } => write!(f, "{}", name),
+            Atom::IntLit { value, .. } => write!(f, "{}", value),
+            Atom::FloatLit { value, .. } => write!(f, "{}", value),
+            Atom::BoolLit { value, .. } => write!(f, "{}", value),
         }
     }
 }
@@ -339,19 +383,19 @@ impl std::fmt::Display for Atom {
 impl From<AddLhs> for CmpRhs {
     fn from(add: AddLhs) -> Self {
         match add {
-            AddLhs::Add { lhs, rhs } => CmpRhs::Add { lhs, rhs },
-            AddLhs::Sub { lhs, rhs } => CmpRhs::Sub { lhs, rhs },
-            AddLhs::Paren(e) => CmpRhs::Paren(e),
-            AddLhs::Mul { lhs, rhs } => CmpRhs::Mul { lhs, rhs },
-            AddLhs::Div { lhs, rhs } => CmpRhs::Div { lhs, rhs },
-            AddLhs::Mod { lhs, rhs } => CmpRhs::Mod { lhs, rhs },
-            AddLhs::Pow { lhs, rhs } => CmpRhs::Pow { lhs, rhs },
-            AddLhs::Neg { inner } => CmpRhs::Neg { inner },
-            AddLhs::Ref { inner } => CmpRhs::Ref { inner },
-            AddLhs::Var(s) => CmpRhs::Var(s),
-            AddLhs::IntLit(i) => CmpRhs::IntLit(i),
-            AddLhs::FloatLit(f) => CmpRhs::FloatLit(f),
-            AddLhs::BoolLit(b) => CmpRhs::BoolLit(b),
+            AddLhs::Add { lhs, rhs, span } => CmpRhs::Add { lhs, rhs, span },
+            AddLhs::Sub { lhs, rhs, span } => CmpRhs::Sub { lhs, rhs, span },
+            AddLhs::Paren { inner, span } => CmpRhs::Paren { inner, span },
+            AddLhs::Mul { lhs, rhs, span } => CmpRhs::Mul { lhs, rhs, span },
+            AddLhs::Div { lhs, rhs, span } => CmpRhs::Div { lhs, rhs, span },
+            AddLhs::Mod { lhs, rhs, span } => CmpRhs::Mod { lhs, rhs, span },
+            AddLhs::Pow { lhs, rhs, span } => CmpRhs::Pow { lhs, rhs, span },
+            AddLhs::Neg { inner, span } => CmpRhs::Neg { inner, span },
+            AddLhs::Ref { inner, span } => CmpRhs::Ref { inner, span },
+            AddLhs::Var { name, span } => CmpRhs::Var { name, span },
+            AddLhs::IntLit { value, span } => CmpRhs::IntLit { value, span },
+            AddLhs::FloatLit { value, span } => CmpRhs::FloatLit { value, span },
+            AddLhs::BoolLit { value, span } => CmpRhs::BoolLit { value, span },
         }
     }
 }
@@ -360,19 +404,19 @@ impl From<AddLhs> for CmpRhs {
 impl From<AddLhs> for CmpLhs {
     fn from(add: AddLhs) -> Self {
         match add {
-            AddLhs::Add { lhs, rhs } => CmpLhs::Add { lhs, rhs },
-            AddLhs::Sub { lhs, rhs } => CmpLhs::Sub { lhs, rhs },
-            AddLhs::Paren(e) => CmpLhs::Paren(e),
-            AddLhs::Mul { lhs, rhs } => CmpLhs::Mul { lhs, rhs },
-            AddLhs::Div { lhs, rhs } => CmpLhs::Div { lhs, rhs },
-            AddLhs::Mod { lhs, rhs } => CmpLhs::Mod { lhs, rhs },
-            AddLhs::Pow { lhs, rhs } => CmpLhs::Pow { lhs, rhs },
-            AddLhs::Neg { inner } => CmpLhs::Neg { inner },
-            AddLhs::Ref { inner } => CmpLhs::Ref { inner },
-            AddLhs::Var(s) => CmpLhs::Var(s),
-            AddLhs::IntLit(i) => CmpLhs::IntLit(i),
-            AddLhs::FloatLit(f) => CmpLhs::FloatLit(f),
-            AddLhs::BoolLit(b) => CmpLhs::BoolLit(b),
+            AddLhs::Add { lhs, rhs, span } => CmpLhs::Add { lhs, rhs, span },
+            AddLhs::Sub { lhs, rhs, span } => CmpLhs::Sub { lhs, rhs, span },
+            AddLhs::Paren { inner, span } => CmpLhs::Paren { inner, span },
+            AddLhs::Mul { lhs, rhs, span } => CmpLhs::Mul { lhs, rhs, span },
+            AddLhs::Div { lhs, rhs, span } => CmpLhs::Div { lhs, rhs, span },
+            AddLhs::Mod { lhs, rhs, span } => CmpLhs::Mod { lhs, rhs, span },
+            AddLhs::Pow { lhs, rhs, span } => CmpLhs::Pow { lhs, rhs, span },
+            AddLhs::Neg { inner, span } => CmpLhs::Neg { inner, span },
+            AddLhs::Ref { inner, span } => CmpLhs::Ref { inner, span },
+            AddLhs::Var { name, span } => CmpLhs::Var { name, span },
+            AddLhs::IntLit { value, span } => CmpLhs::IntLit { value, span },
+            AddLhs::FloatLit { value, span } => CmpLhs::FloatLit { value, span },
+            AddLhs::BoolLit { value, span } => CmpLhs::BoolLit { value, span },
         }
     }
 }
@@ -381,10 +425,10 @@ impl From<AddLhs> for CmpLhs {
 impl From<Atom> for MulRhs {
     fn from(atom: Atom) -> Self {
         match atom {
-            Atom::Var(s) => MulRhs::Var(s),
-            Atom::IntLit(i) => MulRhs::IntLit(i),
-            Atom::FloatLit(f) => MulRhs::FloatLit(f),
-            Atom::BoolLit(b) => MulRhs::BoolLit(b),
+            Atom::Var { name, span } => MulRhs::Var { name, span },
+            Atom::IntLit { value, span } => MulRhs::IntLit { value, span },
+            Atom::FloatLit { value, span } => MulRhs::FloatLit { value, span },
+            Atom::BoolLit { value, span } => MulRhs::BoolLit { value, span },
         }
     }
 }
@@ -393,10 +437,10 @@ impl From<Atom> for MulRhs {
 impl From<Atom> for MulLhs {
     fn from(atom: Atom) -> Self {
         match atom {
-            Atom::Var(s) => MulLhs::Var(s),
-            Atom::IntLit(i) => MulLhs::IntLit(i),
-            Atom::FloatLit(f) => MulLhs::FloatLit(f),
-            Atom::BoolLit(b) => MulLhs::BoolLit(b),
+            Atom::Var { name, span } => MulLhs::Var { name, span },
+            Atom::IntLit { value, span } => MulLhs::IntLit { value, span },
+            Atom::FloatLit { value, span } => MulLhs::FloatLit { value, span },
+            Atom::BoolLit { value, span } => MulLhs::BoolLit { value, span },
         }
     }
 }
@@ -405,17 +449,17 @@ impl From<Atom> for MulLhs {
 impl From<MulLhs> for AddRhs {
     fn from(mul: MulLhs) -> Self {
         match mul {
-            MulLhs::Paren(e) => AddRhs::Paren(e),
-            MulLhs::Mul { lhs, rhs } => AddRhs::Mul { lhs, rhs },
-            MulLhs::Div { lhs, rhs } => AddRhs::Div { lhs, rhs },
-            MulLhs::Mod { lhs, rhs } => AddRhs::Mod { lhs, rhs },
-            MulLhs::Pow { lhs, rhs } => AddRhs::Pow { lhs, rhs },
-            MulLhs::Neg { inner } => AddRhs::Neg { inner },
-            MulLhs::Ref { inner } => AddRhs::Ref { inner },
-            MulLhs::Var(s) => AddRhs::Var(s),
-            MulLhs::IntLit(i) => AddRhs::IntLit(i),
-            MulLhs::FloatLit(f) => AddRhs::FloatLit(f),
-            MulLhs::BoolLit(b) => AddRhs::BoolLit(b),
+            MulLhs::Paren { inner, span } => AddRhs::Paren { inner, span },
+            MulLhs::Mul { lhs, rhs, span } => AddRhs::Mul { lhs, rhs, span },
+            MulLhs::Div { lhs, rhs, span } => AddRhs::Div { lhs, rhs, span },
+            MulLhs::Mod { lhs, rhs, span } => AddRhs::Mod { lhs, rhs, span },
+            MulLhs::Pow { lhs, rhs, span } => AddRhs::Pow { lhs, rhs, span },
+            MulLhs::Neg { inner, span } => AddRhs::Neg { inner, span },
+            MulLhs::Ref { inner, span } => AddRhs::Ref { inner, span },
+            MulLhs::Var { name, span } => AddRhs::Var { name, span },
+            MulLhs::IntLit { value, span } => AddRhs::IntLit { value, span },
+            MulLhs::FloatLit { value, span } => AddRhs::FloatLit { value, span },
+            MulLhs::BoolLit { value, span } => AddRhs::BoolLit { value, span },
         }
     }
 }
@@ -424,17 +468,17 @@ impl From<MulLhs> for AddRhs {
 impl From<MulLhs> for AddLhs {
     fn from(mul: MulLhs) -> Self {
         match mul {
-            MulLhs::Paren(e) => AddLhs::Paren(e),
-            MulLhs::Mul { lhs, rhs } => AddLhs::Mul { lhs, rhs },
-            MulLhs::Div { lhs, rhs } => AddLhs::Div { lhs, rhs },
-            MulLhs::Mod { lhs, rhs } => AddLhs::Mod { lhs, rhs },
-            MulLhs::Pow { lhs, rhs } => AddLhs::Pow { lhs, rhs },
-            MulLhs::Neg { inner } => AddLhs::Neg { inner },
-            MulLhs::Ref { inner } => AddLhs::Ref { inner },
-            MulLhs::Var(s) => AddLhs::Var(s),
-            MulLhs::IntLit(i) => AddLhs::IntLit(i),
-            MulLhs::FloatLit(f) => AddLhs::FloatLit(f),
-            MulLhs::BoolLit(b) => AddLhs::BoolLit(b),
+            MulLhs::Paren { inner, span } => AddLhs::Paren { inner, span },
+            MulLhs::Mul { lhs, rhs, span } => AddLhs::Mul { lhs, rhs, span },
+            MulLhs::Div { lhs, rhs, span } => AddLhs::Div { lhs, rhs, span },
+            MulLhs::Mod { lhs, rhs, span } => AddLhs::Mod { lhs, rhs, span },
+            MulLhs::Pow { lhs, rhs, span } => AddLhs::Pow { lhs, rhs, span },
+            MulLhs::Neg { inner, span } => AddLhs::Neg { inner, span },
+            MulLhs::Ref { inner, span } => AddLhs::Ref { inner, span },
+            MulLhs::Var { name, span } => AddLhs::Var { name, span },
+            MulLhs::IntLit { value, span } => AddLhs::IntLit { value, span },
+            MulLhs::FloatLit { value, span } => AddLhs::FloatLit { value, span },
+            MulLhs::BoolLit { value, span } => AddLhs::BoolLit { value, span },
         }
     }
 }
@@ -443,10 +487,10 @@ impl From<MulLhs> for AddLhs {
 impl From<Atom> for PowLhs {
     fn from(atom: Atom) -> Self {
         match atom {
-            Atom::Var(s) => PowLhs::Var(s),
-            Atom::IntLit(i) => PowLhs::IntLit(i),
-            Atom::FloatLit(f) => PowLhs::FloatLit(f),
-            Atom::BoolLit(b) => PowLhs::BoolLit(b),
+            Atom::Var { name, span } => PowLhs::Var { name, span },
+            Atom::IntLit { value, span } => PowLhs::IntLit { value, span },
+            Atom::FloatLit { value, span } => PowLhs::FloatLit { value, span },
+            Atom::BoolLit { value, span } => PowLhs::BoolLit { value, span },
         }
     }
 }
@@ -455,10 +499,10 @@ impl From<Atom> for PowLhs {
 impl From<Atom> for PowRhs {
     fn from(atom: Atom) -> Self {
         match atom {
-            Atom::Var(s) => PowRhs::Var(s),
-            Atom::IntLit(i) => PowRhs::IntLit(i),
-            Atom::FloatLit(f) => PowRhs::FloatLit(f),
-            Atom::BoolLit(b) => PowRhs::BoolLit(b),
+            Atom::Var { name, span } => PowRhs::Var { name, span },
+            Atom::IntLit { value, span } => PowRhs::IntLit { value, span },
+            Atom::FloatLit { value, span } => PowRhs::FloatLit { value, span },
+            Atom::BoolLit { value, span } => PowRhs::BoolLit { value, span },
         }
     }
 }
@@ -467,13 +511,13 @@ impl From<Atom> for PowRhs {
 impl From<PowLhs> for PowRhs {
     fn from(pow: PowLhs) -> Self {
         match pow {
-            PowLhs::Paren(e) => PowRhs::Paren(e),
-            PowLhs::Neg { inner } => PowRhs::Neg { inner },
-            PowLhs::Ref { inner } => PowRhs::Ref { inner },
-            PowLhs::Var(s) => PowRhs::Var(s),
-            PowLhs::IntLit(i) => PowRhs::IntLit(i),
-            PowLhs::FloatLit(f) => PowRhs::FloatLit(f),
-            PowLhs::BoolLit(b) => PowRhs::BoolLit(b),
+            PowLhs::Paren { inner, span } => PowRhs::Paren { inner, span },
+            PowLhs::Neg { inner, span } => PowRhs::Neg { inner, span },
+            PowLhs::Ref { inner, span } => PowRhs::Ref { inner, span },
+            PowLhs::Var { name, span } => PowRhs::Var { name, span },
+            PowLhs::IntLit { value, span } => PowRhs::IntLit { value, span },
+            PowLhs::FloatLit { value, span } => PowRhs::FloatLit { value, span },
+            PowLhs::BoolLit { value, span } => PowRhs::BoolLit { value, span },
         }
     }
 }
@@ -482,13 +526,13 @@ impl From<PowLhs> for PowRhs {
 impl From<PowLhs> for MulRhs {
     fn from(pow: PowLhs) -> Self {
         match pow {
-            PowLhs::Paren(e) => MulRhs::Paren(e),
-            PowLhs::Neg { inner } => MulRhs::Neg { inner },
-            PowLhs::Ref { inner } => MulRhs::Ref { inner },
-            PowLhs::Var(s) => MulRhs::Var(s),
-            PowLhs::IntLit(i) => MulRhs::IntLit(i),
-            PowLhs::FloatLit(f) => MulRhs::FloatLit(f),
-            PowLhs::BoolLit(b) => MulRhs::BoolLit(b),
+            PowLhs::Paren { inner, span } => MulRhs::Paren { inner, span },
+            PowLhs::Neg { inner, span } => MulRhs::Neg { inner, span },
+            PowLhs::Ref { inner, span } => MulRhs::Ref { inner, span },
+            PowLhs::Var { name, span } => MulRhs::Var { name, span },
+            PowLhs::IntLit { value, span } => MulRhs::IntLit { value, span },
+            PowLhs::FloatLit { value, span } => MulRhs::FloatLit { value, span },
+            PowLhs::BoolLit { value, span } => MulRhs::BoolLit { value, span },
         }
     }
 }
@@ -497,13 +541,13 @@ impl From<PowLhs> for MulRhs {
 impl From<PowLhs> for MulLhs {
     fn from(pow: PowLhs) -> Self {
         match pow {
-            PowLhs::Paren(e) => MulLhs::Paren(e),
-            PowLhs::Neg { inner } => MulLhs::Neg { inner },
-            PowLhs::Ref { inner } => MulLhs::Ref { inner },
-            PowLhs::Var(s) => MulLhs::Var(s),
-            PowLhs::IntLit(i) => MulLhs::IntLit(i),
-            PowLhs::FloatLit(f) => MulLhs::FloatLit(f),
-            PowLhs::BoolLit(b) => MulLhs::BoolLit(b),
+            PowLhs::Paren { inner, span } => MulLhs::Paren { inner, span },
+            PowLhs::Neg { inner, span } => MulLhs::Neg { inner, span },
+            PowLhs::Ref { inner, span } => MulLhs::Ref { inner, span },
+            PowLhs::Var { name, span } => MulLhs::Var { name, span },
+            PowLhs::IntLit { value, span } => MulLhs::IntLit { value, span },
+            PowLhs::FloatLit { value, span } => MulLhs::FloatLit { value, span },
+            PowLhs::BoolLit { value, span } => MulLhs::BoolLit { value, span },
         }
     }
 }
@@ -515,37 +559,84 @@ impl From<PowLhs> for MulLhs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lexer::LineColumn;
+
+    // Helper function to create a dummy span for testing
+    fn dummy_span() -> Span {
+        Span {
+            start: LineColumn { line: 1, column: 1 },
+            lines: 0,
+            end_column: 2,
+        }
+    }
 
     #[test]
     fn test_atom_to_expr_conversion() {
-        let atom = Atom::Var("x".to_string());
+        let atom = Atom::Var {
+            name: "x".to_string(),
+            span: dummy_span(),
+        };
+        let expected_span = dummy_span();
         let expr: Expr = atom.into();
-        assert_eq!(expr, Expr::Var("x".to_string()));
+        assert_eq!(
+            expr,
+            Expr::Var {
+                name: "x".to_string(),
+                span: expected_span
+            }
+        );
     }
 
     #[test]
     fn test_atom_to_mulrhs_via_expr() {
-        let atom = Atom::Var("x".to_string());
+        let atom = Atom::Var {
+            name: "x".to_string(),
+            span: dummy_span(),
+        };
+        let expected_span = dummy_span();
         let expr: Expr = atom.into();
         let mulrhs: Result<MulRhs, _> = expr.try_into();
         assert!(mulrhs.is_ok());
-        assert_eq!(mulrhs.unwrap(), MulRhs::Var("x".to_string()));
+        assert_eq!(
+            mulrhs.unwrap(),
+            MulRhs::Var {
+                name: "x".to_string(),
+                span: expected_span
+            }
+        );
     }
 
     #[test]
     fn test_mulrhs_to_addrhs_via_expr() {
-        let mulrhs = MulRhs::Var("x".to_string());
+        let mulrhs = MulRhs::Var {
+            name: "x".to_string(),
+            span: dummy_span(),
+        };
+        let expected_span = dummy_span();
         let expr: Expr = mulrhs.into();
         let addrhs: Result<AddRhs, _> = expr.try_into();
         assert!(addrhs.is_ok());
-        assert_eq!(addrhs.unwrap(), AddRhs::Var("x".to_string()));
+        assert_eq!(
+            addrhs.unwrap(),
+            AddRhs::Var {
+                name: "x".to_string(),
+                span: expected_span
+            }
+        );
     }
 
     #[test]
     fn test_mul_structure() {
         let mul = Expr::Mul {
-            lhs: Box::new(MulLhs::Var("a".to_string())),
-            rhs: Box::new(MulRhs::Var("b".to_string())),
+            lhs: Box::new(MulLhs::Var {
+                name: "a".to_string(),
+                span: dummy_span(),
+            }),
+            rhs: Box::new(MulRhs::Var {
+                name: "b".to_string(),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
         };
         match mul {
             Expr::Mul { .. } => {}
@@ -556,8 +647,15 @@ mod tests {
     #[test]
     fn test_add_structure() {
         let add = Expr::Add {
-            lhs: Box::new(AddLhs::Var("a".to_string())),
-            rhs: Box::new(AddRhs::Var("b".to_string())),
+            lhs: Box::new(AddLhs::Var {
+                name: "a".to_string(),
+                span: dummy_span(),
+            }),
+            rhs: Box::new(AddRhs::Var {
+                name: "b".to_string(),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
         };
         match add {
             Expr::Add { .. } => {}
@@ -569,14 +667,25 @@ mod tests {
     fn test_precedence_in_types() {
         // Multiplication in AddRhs
         let mul_in_addrhs = AddRhs::Mul {
-            lhs: Box::new(MulLhs::Var("b".to_string())),
-            rhs: Box::new(MulRhs::Var("c".to_string())),
+            lhs: Box::new(MulLhs::Var {
+                name: "b".to_string(),
+                span: dummy_span(),
+            }),
+            rhs: Box::new(MulRhs::Var {
+                name: "c".to_string(),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
         };
 
         // Addition with multiplication on right side
         let add = Expr::Add {
-            lhs: Box::new(AddLhs::Var("a".to_string())),
+            lhs: Box::new(AddLhs::Var {
+                name: "a".to_string(),
+                span: dummy_span(),
+            }),
             rhs: Box::new(mul_in_addrhs),
+            span: dummy_span(),
         };
 
         assert!(matches!(add, Expr::Add { .. }));
@@ -584,15 +693,25 @@ mod tests {
 
     #[test]
     fn test_display_simple_var() {
-        let expr = Expr::Var("x".to_string());
+        let expr = Expr::Var {
+            name: "x".to_string(),
+            span: dummy_span(),
+        };
         assert_eq!(format!("{}", expr), "x");
     }
 
     #[test]
     fn test_display_simple_add() {
         let expr = Expr::Add {
-            lhs: Box::new(AddLhs::Var("a".to_string())),
-            rhs: Box::new(AddRhs::Var("b".to_string())),
+            lhs: Box::new(AddLhs::Var {
+                name: "a".to_string(),
+                span: dummy_span(),
+            }),
+            rhs: Box::new(AddRhs::Var {
+                name: "b".to_string(),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
         };
         assert_eq!(format!("{}", expr), "(a + b)");
     }
@@ -601,11 +720,22 @@ mod tests {
     fn test_display_precedence() {
         // a + b * c
         let expr = Expr::Add {
-            lhs: Box::new(AddLhs::Var("a".to_string())),
-            rhs: Box::new(AddRhs::Mul {
-                lhs: Box::new(MulLhs::Var("b".to_string())),
-                rhs: Box::new(MulRhs::Var("c".to_string())),
+            lhs: Box::new(AddLhs::Var {
+                name: "a".to_string(),
+                span: dummy_span(),
             }),
+            rhs: Box::new(AddRhs::Mul {
+                lhs: Box::new(MulLhs::Var {
+                    name: "b".to_string(),
+                    span: dummy_span(),
+                }),
+                rhs: Box::new(MulRhs::Var {
+                    name: "c".to_string(),
+                    span: dummy_span(),
+                }),
+                span: dummy_span(),
+            }),
+            span: dummy_span(),
         };
         assert_eq!(format!("{}", expr), "(a + (b * c))");
     }

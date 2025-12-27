@@ -54,13 +54,13 @@ pub fn bool_lit<'src>() -> impl Parser<'src, &'src [Token<'src>], bool, ParseErr
 pub fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom, ParseError<'src>> + Clone {
     choice((
         // Try float first (it's more specific)
-        float_lit().map(Atom::FloatLit),
+        float_lit().map_with_span(|value, span| Atom::FloatLit { value, span }),
         // Then integer
-        int_lit().map(Atom::IntLit),
+        int_lit().map_with_span(|value, span| Atom::IntLit { value, span }),
         // Then boolean
-        bool_lit().map(Atom::BoolLit),
+        bool_lit().map_with_span(|value, span| Atom::BoolLit { value, span }),
         // Finally variable
-        var().map(Atom::Var),
+        var().map_with_span(|name, span| Atom::Var { name, span }),
     ))
     .labelled("atom")
 }
