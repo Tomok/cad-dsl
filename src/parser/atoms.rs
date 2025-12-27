@@ -18,7 +18,7 @@ use super::ParseError;
 // ============================================================================
 
 /// Parse an atomic expression (Atom enum)
-pub fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom, ParseError<'src>> + Clone {
+pub fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom<'src>, ParseError<'src>> + Clone {
     choice((
         // Try float first (it's more specific)
         select! {
@@ -35,7 +35,7 @@ pub fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom, ParseError<'
         },
         // Finally variable
         select! {
-            Token::Identifier(t) => Atom::Var { name: t.name.to_string(), span: t.span },
+            Token::Identifier(t) => Atom::Var { name: t.name, span: t.span },
         },
     ))
     .labelled("atom")
@@ -63,11 +63,11 @@ pub fn float_lit<'src>() -> impl Parser<'src, &'src [Token<'src>], f64, ParseErr
     .labelled("float literal")
 }
 
-/// Parse a variable identifier (extracts just the String)
+/// Parse a variable identifier (extracts just the &str)
 #[cfg(test)]
-pub fn var<'src>() -> impl Parser<'src, &'src [Token<'src>], String, ParseError<'src>> + Clone {
+pub fn var<'src>() -> impl Parser<'src, &'src [Token<'src>], &'src str, ParseError<'src>> + Clone {
     select! {
-        Token::Identifier(t) => t.name.to_string(),
+        Token::Identifier(t) => t.name,
     }
     .labelled("variable")
 }

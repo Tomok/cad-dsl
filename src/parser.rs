@@ -73,7 +73,7 @@ pub type ParseError<'src> = extra::Err<Rich<'src, Token<'src>>>;
 
 /// Internal expression parser that builds the complete precedence hierarchy
 /// (without end-of-input validation - use for subexpressions)
-pub fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone
+pub fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone
 {
     recursive(|expr_rec| {
         let pow_lhs = arithmetic::pow_lhs_parser(expr_rec.clone());
@@ -86,14 +86,14 @@ pub fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseE
         let cmp_lhs = comparison::cmp_lhs_parser(add_lhs, cmp_rhs);
         let log_lhs = logical::log_parser(cmp_lhs);
 
-        // Convert CmpLhs (with logical operators) to Expr
+        // Convert CmpLhs<'src> (with logical operators) to Expr
         log_lhs.map(Into::into)
     })
 }
 
 /// Parse a complete expression with end-of-input validation
 #[cfg_attr(not(test), allow(dead_code))] // Used in expression tests
-pub fn expr<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
+pub fn expr<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone {
     expr_inner().then_ignore(end())
 }
 
@@ -846,16 +846,16 @@ mod tests {
                         rhs: ref b_rhs,
                         ..
                     } => {
-                        assert!(matches!(**b_lhs, PowLhs::Var { ref name, .. } if name == "b"));
+                        assert!(matches!(**b_lhs, PowLhs::Var { name, .. } if name == "b"));
                         match **b_rhs {
                             PowRhs::Pow {
                                 ref lhs, ref rhs, ..
                             } => {
                                 assert!(
-                                    matches!(**lhs, PowLhs::Var { ref name, .. } if name == "c")
+                                    matches!(**lhs, PowLhs::Var { name, .. } if name == "c")
                                 );
                                 assert!(
-                                    matches!(**rhs, PowRhs::Var { ref name, .. } if name == "d")
+                                    matches!(**rhs, PowRhs::Var { name, .. } if name == "d")
                                 );
                             }
                             ref other => panic!("Expected PowRhs::Pow, got {:?}", other),
@@ -1183,7 +1183,7 @@ mod tests {
         match result.unwrap() {
             Expr::Neg { inner, .. } => match *inner {
                 PowLhs::Ref { ref inner, .. } => {
-                    assert!(matches!(**inner, PowLhs::Var { ref name, .. } if name == "x"));
+                    assert!(matches!(**inner, PowLhs::Var { name, .. } if name == "x"));
                 }
                 ref other => panic!("Expected PowLhs::Ref, got {:?}", other),
             },
@@ -1203,7 +1203,7 @@ mod tests {
         match result.unwrap() {
             Expr::Ref { inner, .. } => match *inner {
                 PowLhs::Neg { ref inner, .. } => {
-                    assert!(matches!(**inner, PowLhs::Var { ref name, .. } if name == "x"));
+                    assert!(matches!(**inner, PowLhs::Var { name, .. } if name == "x"));
                 }
                 ref other => panic!("Expected PowLhs::Neg, got {:?}", other),
             },
@@ -1319,7 +1319,7 @@ mod tests {
             Expr::Add { lhs, rhs, .. } => {
                 match *lhs {
                     AddLhs::Ref { ref inner, .. } => {
-                        assert!(matches!(**inner, PowLhs::Var { ref name, .. } if name == "x"));
+                        assert!(matches!(**inner, PowLhs::Var { name, .. } if name == "x"));
                     }
                     ref other => panic!("Expected AddLhs::Ref, got {:?}", other),
                 }
@@ -1342,13 +1342,13 @@ mod tests {
             Expr::Pow { lhs, rhs, .. } => {
                 match *lhs {
                     PowLhs::Neg { ref inner, .. } => {
-                        assert!(matches!(**inner, PowLhs::Var { ref name, .. } if name == "a"));
+                        assert!(matches!(**inner, PowLhs::Var { name, .. } if name == "a"));
                     }
                     ref other => panic!("Expected PowLhs::Neg, got {:?}", other),
                 }
                 match *rhs {
                     PowRhs::Neg { ref inner, .. } => {
-                        assert!(matches!(**inner, PowLhs::Var { ref name, .. } if name == "b"));
+                        assert!(matches!(**inner, PowLhs::Var { name, .. } if name == "b"));
                     }
                     ref other => panic!("Expected PowRhs::Neg, got {:?}", other),
                 }
@@ -1521,11 +1521,11 @@ mod tests {
                         rhs: ref or_rhs,
                         ..
                     } => {
-                        assert!(matches!(**or_lhs, CmpLhs::Var { ref name, .. } if name == "a"));
+                        assert!(matches!(**or_lhs, CmpLhs::Var { name, .. } if name == "a"));
                         match **or_rhs {
                             CmpRhs::Paren { ref inner, .. } => {
                                 assert!(
-                                    matches!(**inner, Expr::Var { ref name, .. } if name == "b")
+                                    matches!(**inner, Expr::Var { name, .. } if name == "b")
                                 );
                             }
                             ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
@@ -1535,7 +1535,7 @@ mod tests {
                 }
                 match *rhs {
                     CmpRhs::Paren { ref inner, .. } => {
-                        assert!(matches!(**inner, Expr::Var { ref name, .. } if name == "c"));
+                        assert!(matches!(**inner, Expr::Var { name, .. } if name == "c"));
                     }
                     ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
                 }
@@ -1561,7 +1561,7 @@ mod tests {
                         rhs: ref eq_rhs,
                         ..
                     } => {
-                        assert!(matches!(**eq_lhs, CmpLhs::Var { ref name, .. } if name == "x"));
+                        assert!(matches!(**eq_lhs, CmpLhs::Var { name, .. } if name == "x"));
                         assert!(matches!(**eq_rhs, CmpRhs::IntLit { value: 1, .. }));
                     }
                     ref other => panic!("Expected CmpLhs::Eq, got {:?}", other),
@@ -1571,7 +1571,7 @@ mod tests {
                         Expr::Eq {
                             ref lhs, ref rhs, ..
                         } => {
-                            assert!(matches!(**lhs, CmpLhs::Var { ref name, .. } if name == "y"));
+                            assert!(matches!(**lhs, CmpLhs::Var { name, .. } if name == "y"));
                             assert!(matches!(**rhs, CmpRhs::IntLit { value: 2, .. }));
                         }
                         ref other => panic!("Expected Expr::Eq, got {:?}", other),
@@ -1600,11 +1600,11 @@ mod tests {
                         rhs: ref and_rhs,
                         ..
                     } => {
-                        assert!(matches!(**and_lhs, CmpLhs::Var { ref name, .. } if name == "a"));
+                        assert!(matches!(**and_lhs, CmpLhs::Var { name, .. } if name == "a"));
                         match **and_rhs {
                             CmpRhs::Paren { ref inner, .. } => {
                                 assert!(
-                                    matches!(**inner, Expr::Var { ref name, .. } if name == "b")
+                                    matches!(**inner, Expr::Var { name, .. } if name == "b")
                                 );
                             }
                             ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
@@ -1614,7 +1614,7 @@ mod tests {
                 }
                 match *rhs {
                     CmpRhs::Paren { ref inner, .. } => {
-                        assert!(matches!(**inner, Expr::Var { ref name, .. } if name == "c"));
+                        assert!(matches!(**inner, Expr::Var { name, .. } if name == "c"));
                     }
                     ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
                 }

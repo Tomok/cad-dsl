@@ -37,9 +37,9 @@ fn combine_spans(left: Span, right: Span) -> Span {
 /// Parser for logical operators (lower precedence than comparison)
 pub fn log_parser<'src, C>(
     cmp_lhs: C,
-) -> impl Parser<'src, &'src [Token<'src>], CmpLhs, ParseError<'src>> + Clone
+) -> impl Parser<'src, &'src [Token<'src>], CmpLhs<'src>, ParseError<'src>> + Clone
 where
-    C: Parser<'src, &'src [Token<'src>], CmpLhs, ParseError<'src>> + Clone,
+    C: Parser<'src, &'src [Token<'src>], CmpLhs<'src>, ParseError<'src>> + Clone,
 {
     let and_op = select! { Token::And(_) => "and" };
     let or_op = select! { Token::Or(_) => "or" };
@@ -49,7 +49,7 @@ where
     // Left-associative logical operators (lower precedence than comparison)
     log_atom.foldl(
         choice((and_op, or_op)).then(cmp_lhs).repeated(),
-        |lhs: CmpLhs, (op, rhs): (&str, CmpLhs)| {
+        |lhs: CmpLhs<'src>, (op, rhs): (&str, CmpLhs<'src>)| {
             let lhs_span = lhs.span();
             let rhs_span = rhs.span();
             let span = combine_spans(lhs_span, rhs_span);

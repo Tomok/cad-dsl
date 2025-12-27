@@ -56,8 +56,9 @@ pub fn type_annotation<'src>()
 ///   let <name> = <expr>;
 ///   let <name>;
 pub fn let_stmt<'src>(
-    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr, ParseError<'src>> + Clone,
-) -> impl Parser<'src, &'src [Token<'src>], Stmt, ParseError<'src>> + Clone {
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+        + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
     use crate::lexer::Span;
 
     let colon = select! { Token::Colon(_) => () };
@@ -68,7 +69,7 @@ pub fn let_stmt<'src>(
     }
     .then(
         select! {
-            Token::Identifier(t) => (t.name.to_string(), t.span),
+            Token::Identifier(t) => (t.name, t.span),
         }
         .labelled("variable name"),
     )
