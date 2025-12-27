@@ -57,7 +57,7 @@ pub fn type_annotation<'src>()
 ///   let <name>;
 pub fn let_stmt<'src>(
     expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
-        + Clone,
+    + Clone,
 ) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
     use crate::lexer::Span;
 

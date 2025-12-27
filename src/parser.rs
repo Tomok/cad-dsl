@@ -73,8 +73,8 @@ pub type ParseError<'src> = extra::Err<Rich<'src, Token<'src>>>;
 
 /// Internal expression parser that builds the complete precedence hierarchy
 /// (without end-of-input validation - use for subexpressions)
-pub fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone
-{
+pub fn expr_inner<'src>()
+-> impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone {
     recursive(|expr_rec| {
         let pow_lhs = arithmetic::pow_lhs_parser(expr_rec.clone());
         let pow_rhs = arithmetic::pow_rhs_parser(expr_rec.clone(), pow_lhs.clone());
@@ -93,7 +93,8 @@ pub fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr<'src>, 
 
 /// Parse a complete expression with end-of-input validation
 #[cfg_attr(not(test), allow(dead_code))] // Used in expression tests
-pub fn expr<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone {
+pub fn expr<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone
+{
     expr_inner().then_ignore(end())
 }
 
@@ -851,12 +852,8 @@ mod tests {
                             PowRhs::Pow {
                                 ref lhs, ref rhs, ..
                             } => {
-                                assert!(
-                                    matches!(**lhs, PowLhs::Var { name, .. } if name == "c")
-                                );
-                                assert!(
-                                    matches!(**rhs, PowRhs::Var { name, .. } if name == "d")
-                                );
+                                assert!(matches!(**lhs, PowLhs::Var { name, .. } if name == "c"));
+                                assert!(matches!(**rhs, PowRhs::Var { name, .. } if name == "d"));
                             }
                             ref other => panic!("Expected PowRhs::Pow, got {:?}", other),
                         }
@@ -1524,9 +1521,7 @@ mod tests {
                         assert!(matches!(**or_lhs, CmpLhs::Var { name, .. } if name == "a"));
                         match **or_rhs {
                             CmpRhs::Paren { ref inner, .. } => {
-                                assert!(
-                                    matches!(**inner, Expr::Var { name, .. } if name == "b")
-                                );
+                                assert!(matches!(**inner, Expr::Var { name, .. } if name == "b"));
                             }
                             ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
                         }
@@ -1603,9 +1598,7 @@ mod tests {
                         assert!(matches!(**and_lhs, CmpLhs::Var { name, .. } if name == "a"));
                         match **and_rhs {
                             CmpRhs::Paren { ref inner, .. } => {
-                                assert!(
-                                    matches!(**inner, Expr::Var { name, .. } if name == "b")
-                                );
+                                assert!(matches!(**inner, Expr::Var { name, .. } if name == "b"));
                             }
                             ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
                         }
@@ -1725,7 +1718,6 @@ mod tests {
                 assert!(matches!(type_annotation, Some(Type::I32 { .. })));
                 assert!(matches!(init, Some(Expr::IntLit { value: 42, .. })));
             }
-            other => panic!("Expected Stmt::Let, got {:?}", other),
         }
     }
 
@@ -1749,7 +1741,6 @@ mod tests {
                 assert!(matches!(type_annotation, Some(Type::Bool { .. })));
                 assert!(init.is_none());
             }
-            other => panic!("Expected Stmt::Let, got {:?}", other),
         }
     }
 
@@ -1773,7 +1764,6 @@ mod tests {
                 assert!(type_annotation.is_none());
                 assert!(matches!(init, Some(Expr::FloatLit { value, .. }) if value == 3.14));
             }
-            other => panic!("Expected Stmt::Let, got {:?}", other),
         }
     }
 
@@ -1797,7 +1787,6 @@ mod tests {
                 assert!(type_annotation.is_none());
                 assert!(init.is_none());
             }
-            other => panic!("Expected Stmt::Let, got {:?}", other),
         }
     }
 
@@ -1837,7 +1826,6 @@ mod tests {
                     other => panic!("Expected Some(Expr::Add), got {:?}", other),
                 }
             }
-            other => panic!("Expected Stmt::Let, got {:?}", other),
         }
     }
 

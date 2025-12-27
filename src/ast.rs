@@ -139,10 +139,7 @@ pub enum Expr<'src> {
 
     // Parentheses - in all contexts except Atom (resets precedence)
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs)]
-    Paren {
-        inner: Box<Expr<'src>>,
-        span: Span,
-    },
+    Paren { inner: Box<Expr<'src>>, span: Span },
 
     // Multiplication - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs
     // lhs can be Mul/Div, rhs cannot (enforces left-associativity)

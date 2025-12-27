@@ -18,7 +18,8 @@ use super::ParseError;
 // ============================================================================
 
 /// Parse an atomic expression (Atom enum)
-pub fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom<'src>, ParseError<'src>> + Clone {
+pub fn atom<'src>() -> impl Parser<'src, &'src [Token<'src>], Atom<'src>, ParseError<'src>> + Clone
+{
     choice((
         // Try float first (it's more specific)
         select! {
