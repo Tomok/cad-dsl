@@ -6,9 +6,9 @@ You are an expert at creating high-quality commits with proper quality checks.
 
 Create a git commit with the following quality guarantees:
 
-1. **All tests must pass** - Run `nix shell -c cargo test`
-2. **No clippy warnings** - Run `nix shell -c cargo clippy -- -D warnings`
-3. **Code must be formatted** - Run `nix shell -c cargo fmt`
+1. **All tests must pass** - Run `cargo test`
+2. **No clippy warnings** - Run `cargo clippy -- -D warnings`
+3. **Code must be formatted** - Run `cargo fmt`
 
 ## Quality Check Loop
 
@@ -25,12 +25,12 @@ Follow these steps in order:
 
 ### 1. Format Code
 ```bash
-nix shell -c cargo fmt
+cargo fmt
 ```
 
 ### 2. Run Clippy
 ```bash
-nix shell -c cargo clippy -- -D warnings
+cargo clippy -- -D warnings
 ```
 
 If clippy reports warnings:
@@ -41,7 +41,7 @@ If clippy reports warnings:
 
 ### 3. Run Tests
 ```bash
-nix shell -c cargo test
+cargo test
 ```
 
 If tests fail:
