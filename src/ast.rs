@@ -7,7 +7,7 @@ use subenum::subenum;
 /// Type annotations for variable declarations
 /// Currently includes only types without units
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)] // Will be used when Stmt is added
+#[cfg_attr(not(test), allow(dead_code))] // Currently only used in tests
 pub enum Type {
     /// Boolean type
     Bool,
@@ -27,7 +27,7 @@ pub enum Type {
 
 /// Statements perform declarations and actions (not expressions)
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)] // Will be used when parser is implemented
+#[cfg_attr(not(test), allow(dead_code))] // Currently only used in tests
 pub enum Stmt {
     /// Variable declaration with optional type annotation and initialization
     /// Examples:

@@ -58,8 +58,10 @@ mod stmt;
 // ============================================================================
 
 pub use error::report_parse_errors;
-// Re-export statement parsers for use in tests and future main parser
-#[allow(unused_imports)] // Used in tests
+
+// Statement parsers are currently only used in tests
+// They will be used in the main parser when we add a program-level parser
+#[cfg(test)]
 pub use stmt::{let_stmt, type_annotation};
 
 // ============================================================================
