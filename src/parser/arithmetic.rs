@@ -169,6 +169,17 @@ where
                 PowRhs::FloatLit { value, span } => MulRhs::FloatLit { value, span },
                 PowRhs::BoolLit { value, span } => MulRhs::BoolLit { value, span },
                 PowRhs::Call { name, args, span } => MulRhs::Call { name, args, span },
+                PowRhs::MethodCall {
+                    receiver,
+                    method,
+                    args,
+                    span,
+                } => MulRhs::MethodCall {
+                    receiver,
+                    method,
+                    args,
+                    span,
+                },
             }
         }),
         select! { Token::LeftParen(t) => t.position }
@@ -225,6 +236,17 @@ where
                 PowRhs::FloatLit { value, span } => MulLhs::FloatLit { value, span },
                 PowRhs::BoolLit { value, span } => MulLhs::BoolLit { value, span },
                 PowRhs::Call { name, args, span } => MulLhs::Call { name, args, span },
+                PowRhs::MethodCall {
+                    receiver,
+                    method,
+                    args,
+                    span,
+                } => MulLhs::MethodCall {
+                    receiver,
+                    method,
+                    args,
+                    span,
+                },
             }
         }),
         select! { Token::LeftParen(t) => t.position }

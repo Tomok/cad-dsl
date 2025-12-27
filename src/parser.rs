@@ -2163,4 +2163,188 @@ mod tests {
             other => panic!("Expected Expr::Add, got {:?}", other),
         }
     }
+
+    // ========================================================================
+    // Method Call Tests
+    // ========================================================================
+
+    #[test]
+    fn test_method_call_no_args() {
+        // Test: obj.method()
+        let result = parse_with_timeout(
+            "obj.method()",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                assert!(matches!(*receiver, Expr::Var { name, .. } if name == "obj"));
+                assert_eq!(method, "method");
+                assert_eq!(args.len(), 0);
+            }
+            other => panic!("Expected Expr::MethodCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_method_call_one_arg() {
+        // Test: obj.method(42)
+        let result = parse_with_timeout(
+            "obj.method(42)",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                assert!(matches!(*receiver, Expr::Var { name, .. } if name == "obj"));
+                assert_eq!(method, "method");
+                assert_eq!(args.len(), 1);
+                assert!(matches!(args[0], Expr::IntLit { value: 42, .. }));
+            }
+            other => panic!("Expected Expr::MethodCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_method_call_multiple_args() {
+        // Test: obj.method(1, 2, 3)
+        let result = parse_with_timeout(
+            "obj.method(1, 2, 3)",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                assert!(matches!(*receiver, Expr::Var { name, .. } if name == "obj"));
+                assert_eq!(method, "method");
+                assert_eq!(args.len(), 3);
+                assert!(matches!(args[0], Expr::IntLit { value: 1, .. }));
+                assert!(matches!(args[1], Expr::IntLit { value: 2, .. }));
+                assert!(matches!(args[2], Expr::IntLit { value: 3, .. }));
+            }
+            other => panic!("Expected Expr::MethodCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_method_call_chaining() {
+        // Test: obj.method1().method2()
+        let result = parse_with_timeout(
+            "obj.method1().method2()",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                assert_eq!(method, "method2");
+                assert_eq!(args.len(), 0);
+                match *receiver {
+                    Expr::MethodCall {
+                        receiver: inner_receiver,
+                        method: inner_method,
+                        args: inner_args,
+                        ..
+                    } => {
+                        assert!(matches!(*inner_receiver, Expr::Var { name, .. } if name == "obj"));
+                        assert_eq!(inner_method, "method1");
+                        assert_eq!(inner_args.len(), 0);
+                    }
+                    other => panic!("Expected inner Expr::MethodCall, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::MethodCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_method_call_on_function_call() {
+        // Test: foo().bar()
+        let result = parse_with_timeout(
+            "foo().bar()",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                assert_eq!(method, "bar");
+                assert_eq!(args.len(), 0);
+                assert!(matches!(*receiver, Expr::Call { name, .. } if name == "foo"));
+            }
+            other => panic!("Expected Expr::MethodCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_method_call_with_expr_args() {
+        // Test: obj.method(1 + 2, 3 * 4)
+        let result = parse_with_timeout(
+            "obj.method(1 + 2, 3 * 4)",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::MethodCall {
+                receiver,
+                method,
+                args,
+                ..
+            } => {
+                assert!(matches!(*receiver, Expr::Var { name, .. } if name == "obj"));
+                assert_eq!(method, "method");
+                assert_eq!(args.len(), 2);
+                assert!(matches!(args[0], Expr::Add { .. }));
+                assert!(matches!(args[1], Expr::Mul { .. }));
+            }
+            other => panic!("Expected Expr::MethodCall, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_method_call_in_expression() {
+        // Test: obj.method(1) + 2
+        let result = parse_with_timeout(
+            "obj.method(1) + 2",
+            |input| expr().parse(input).into_result(),
+            Duration::from_secs(2),
+        );
+
+        match result.unwrap() {
+            Expr::Add { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, AddLhs::MethodCall { .. }));
+                assert!(matches!(*rhs, AddRhs::IntLit { value: 2, .. }));
+            }
+            other => panic!("Expected Expr::Add, got {:?}", other),
+        }
+    }
 }
