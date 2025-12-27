@@ -2,6 +2,7 @@ use super::*;
 use crate::ast::{Stmt, Type};
 use crate::lexer;
 use crate::parser::stmt::type_annotation;
+use assert_matches::assert_matches;
 use std::time::Duration;
 
 /// Helper function to parse with timeout
@@ -2423,7 +2424,7 @@ fn test_array_literal_single_element() {
     match result.unwrap() {
         Expr::ArrayLit { elements, .. } => {
             assert_eq!(elements.len(), 1);
-            assert!(matches!(elements[0], Expr::IntLit { value: 42, .. }));
+            assert_matches!(elements[0], Expr::IntLit { value: 42, .. });
         }
         other => panic!("Expected Expr::ArrayLit, got {:?}", other),
     }
@@ -2440,9 +2441,9 @@ fn test_array_literal_multiple_elements() {
     match result.unwrap() {
         Expr::ArrayLit { elements, .. } => {
             assert_eq!(elements.len(), 3);
-            assert!(matches!(elements[0], Expr::IntLit { value: 1, .. }));
-            assert!(matches!(elements[1], Expr::IntLit { value: 2, .. }));
-            assert!(matches!(elements[2], Expr::IntLit { value: 3, .. }));
+            assert_matches!(elements[0], Expr::IntLit { value: 1, .. });
+            assert_matches!(elements[1], Expr::IntLit { value: 2, .. });
+            assert_matches!(elements[2], Expr::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::ArrayLit, got {:?}", other),
     }
@@ -2459,8 +2460,8 @@ fn test_array_literal_with_expressions() {
     match result.unwrap() {
         Expr::ArrayLit { elements, .. } => {
             assert_eq!(elements.len(), 2);
-            assert!(matches!(elements[0], Expr::Add { .. }));
-            assert!(matches!(elements[1], Expr::Mul { .. }));
+            assert_matches!(elements[0], Expr::Add { .. });
+            assert_matches!(elements[1], Expr::Mul { .. });
         }
         other => panic!("Expected Expr::ArrayLit, got {:?}", other),
     }
@@ -2493,8 +2494,8 @@ fn test_nested_array_literal() {
     match result.unwrap() {
         Expr::ArrayLit { elements, .. } => {
             assert_eq!(elements.len(), 2);
-            assert!(matches!(elements[0], Expr::ArrayLit { .. }));
-            assert!(matches!(elements[1], Expr::ArrayLit { .. }));
+            assert_matches!(elements[0], Expr::ArrayLit { .. });
+            assert_matches!(elements[1], Expr::ArrayLit { .. });
         }
         other => panic!("Expected Expr::ArrayLit, got {:?}", other),
     }
@@ -2534,7 +2535,7 @@ fn test_struct_literal_single_field() {
             assert_eq!(name, "Point");
             assert_eq!(fields.len(), 1);
             assert_eq!(fields[0].0, "x");
-            assert!(matches!(fields[0].1, Expr::IntLit { value: 10, .. }));
+            assert_matches!(fields[0].1, Expr::IntLit { value: 10, .. });
         }
         other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
@@ -2554,8 +2555,8 @@ fn test_struct_literal_multiple_fields() {
             assert_eq!(fields.len(), 2);
             assert_eq!(fields[0].0, "x");
             assert_eq!(fields[1].0, "y");
-            assert!(matches!(fields[0].1, Expr::IntLit { value: 10, .. }));
-            assert!(matches!(fields[1].1, Expr::IntLit { value: 20, .. }));
+            assert_matches!(fields[0].1, Expr::IntLit { value: 10, .. });
+            assert_matches!(fields[1].1, Expr::IntLit { value: 20, .. });
         }
         other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
@@ -2575,8 +2576,8 @@ fn test_struct_literal_with_expressions() {
             assert_eq!(fields.len(), 2);
             assert_eq!(fields[0].0, "center");
             assert_eq!(fields[1].0, "radius");
-            assert!(matches!(fields[0].1, Expr::Call { .. }));
-            assert!(matches!(fields[1].1, Expr::Mul { .. }));
+            assert_matches!(fields[0].1, Expr::Call { .. });
+            assert_matches!(fields[1].1, Expr::Mul { .. });
         }
         other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
@@ -2613,8 +2614,8 @@ fn test_nested_struct_literal() {
             assert_eq!(fields.len(), 2);
             assert_eq!(fields[0].0, "start");
             assert_eq!(fields[1].0, "end");
-            assert!(matches!(fields[0].1, Expr::StructLit { .. }));
-            assert!(matches!(fields[1].1, Expr::StructLit { .. }));
+            assert_matches!(fields[0].1, Expr::StructLit { .. });
+            assert_matches!(fields[1].1, Expr::StructLit { .. });
         }
         other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
@@ -2631,8 +2632,8 @@ fn test_array_of_struct_literals() {
     match result.unwrap() {
         Expr::ArrayLit { elements, .. } => {
             assert_eq!(elements.len(), 2);
-            assert!(matches!(elements[0], Expr::StructLit { .. }));
-            assert!(matches!(elements[1], Expr::StructLit { .. }));
+            assert_matches!(elements[0], Expr::StructLit { .. });
+            assert_matches!(elements[1], Expr::StructLit { .. });
         }
         other => panic!("Expected Expr::ArrayLit, got {:?}", other),
     }
