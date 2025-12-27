@@ -10,7 +10,7 @@ use chumsky::prelude::*;
 // ============================================================================
 
 /// Parse type annotations (bool, i32, f64, Real, Algebraic)
-#[cfg_attr(not(test), allow(dead_code))] // Currently only used in tests
+#[cfg_attr(not(test), allow(dead_code))] // Used internally by let_stmt, imported in tests
 pub fn type_annotation<'src>()
 -> impl Parser<'src, &'src [Token<'src>], Type, ParseError<'src>> + Clone {
     choice((
@@ -34,7 +34,6 @@ pub fn type_annotation<'src>()
 ///   let <name>: <type>;
 ///   let <name> = <expr>;
 ///   let <name>;
-#[cfg_attr(not(test), allow(dead_code))] // Currently only used in tests
 pub fn let_stmt<'src>(
     expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr, ParseError<'src>> + Clone,
 ) -> impl Parser<'src, &'src [Token<'src>], Stmt, ParseError<'src>> + Clone {

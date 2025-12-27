@@ -58,11 +58,7 @@ mod stmt;
 // ============================================================================
 
 pub use error::report_parse_errors;
-
-// Statement parsers are currently only used in tests
-// They will be used in the main parser when we add a program-level parser
-#[cfg(test)]
-pub use stmt::{let_stmt, type_annotation};
+pub use stmt::let_stmt;
 
 // ============================================================================
 // Parser Type Definitions
@@ -96,6 +92,7 @@ pub fn expr_inner<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseE
 }
 
 /// Parse a complete expression with end-of-input validation
+#[cfg_attr(not(test), allow(dead_code))] // Used in expression tests
 pub fn expr<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone {
     expr_inner().then_ignore(end())
 }
@@ -107,7 +104,9 @@ pub fn expr<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr, ParseError<'
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::{Stmt, Type};
     use crate::lexer;
+    use crate::parser::stmt::type_annotation;
     use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;

@@ -54,11 +54,14 @@ fn main() {
                 }
             };
 
-            // Then parse
-            match parser::expr().parse(&tokens).into_result() {
-                Ok(ast) => {
+            // Then parse as a let statement
+            match parser::let_stmt(parser::expr_inner())
+                .parse(&tokens)
+                .into_result()
+            {
+                Ok(stmt) => {
                     println!("Successfully parsed!");
-                    println!("AST: {}", ast);
+                    println!("Statement: {:?}", stmt);
                 }
                 Err(errors) => {
                     eprintln!("Parse errors:");
