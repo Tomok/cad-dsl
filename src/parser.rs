@@ -179,7 +179,7 @@ mod tests {
             |input| atoms::atom().parse(input).into_result(),
             Duration::from_secs(1),
         );
-        assert_eq!(result.unwrap(), Atom::IntLit(42));
+        assert!(matches!(result.unwrap(), Atom::IntLit { value: 42, .. }));
     }
 
     #[test]
@@ -189,7 +189,7 @@ mod tests {
             |input| atoms::atom().parse(input).into_result(),
             Duration::from_secs(1),
         );
-        assert_eq!(result.unwrap(), Atom::FloatLit(3.5));
+        assert!(matches!(result.unwrap(), Atom::FloatLit { value, .. } if value == 3.5));
     }
 
     #[test]
@@ -199,7 +199,7 @@ mod tests {
             |input| atoms::atom().parse(input).into_result(),
             Duration::from_secs(1),
         );
-        assert_eq!(result.unwrap(), Atom::Var("x".to_string()));
+        assert!(matches!(result.unwrap(), Atom::Var { name, .. } if name == "x"));
     }
 
     #[test]
@@ -229,7 +229,7 @@ mod tests {
             |input| atoms::atom().parse(input).into_result(),
             Duration::from_secs(1),
         );
-        assert_eq!(result.unwrap(), Atom::BoolLit(true));
+        assert!(matches!(result.unwrap(), Atom::BoolLit { value: true, .. }));
     }
 
     #[test]
@@ -239,7 +239,10 @@ mod tests {
             |input| atoms::atom().parse(input).into_result(),
             Duration::from_secs(1),
         );
-        assert_eq!(result.unwrap(), Atom::BoolLit(false));
+        assert!(matches!(
+            result.unwrap(),
+            Atom::BoolLit { value: false, .. }
+        ));
     }
 
     #[test]
@@ -249,7 +252,7 @@ mod tests {
             |input| expr().parse(input).into_result(),
             Duration::from_secs(2),
         );
-        assert_eq!(result.unwrap(), Expr::BoolLit(true));
+        assert!(matches!(result.unwrap(), Expr::BoolLit { value: true, .. }));
     }
 
     #[test]
@@ -259,7 +262,10 @@ mod tests {
             |input| expr().parse(input).into_result(),
             Duration::from_secs(2),
         );
-        assert_eq!(result.unwrap(), Expr::BoolLit(false));
+        assert!(matches!(
+            result.unwrap(),
+            Expr::BoolLit { value: false, .. }
+        ));
     }
 
     #[test]
@@ -269,7 +275,7 @@ mod tests {
             |input| expr().parse(input).into_result(),
             Duration::from_secs(2),
         );
-        assert_eq!(result.unwrap(), Expr::Var("x".to_string()));
+        assert!(matches!(result.unwrap(), Expr::Var { name, .. } if name == "x"));
     }
 
     #[test]
@@ -279,7 +285,7 @@ mod tests {
             |input| expr().parse(input).into_result(),
             Duration::from_secs(2),
         );
-        assert_eq!(result.unwrap(), Expr::IntLit(42));
+        assert!(matches!(result.unwrap(), Expr::IntLit { value: 42, .. }));
     }
 
     #[test]
@@ -290,11 +296,13 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Add {
-            lhs: Box::new(AddLhs::IntLit(1)),
-            rhs: Box::new(AddRhs::IntLit(2)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Add { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, AddLhs::IntLit { value: 1, .. }));
+                assert!(matches!(*rhs, AddRhs::IntLit { value: 2, .. }));
+            }
+            other => panic!("Expected Expr::Add, got {:?}", other),
+        }
     }
 
     #[test]
@@ -305,11 +313,13 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Mul {
-            lhs: Box::new(MulLhs::IntLit(3)),
-            rhs: Box::new(MulRhs::IntLit(4)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Mul { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, MulLhs::IntLit { value: 3, .. }));
+                assert!(matches!(*rhs, MulRhs::IntLit { value: 4, .. }));
+            }
+            other => panic!("Expected Expr::Mul, got {:?}", other),
+        }
     }
 
     #[test]
@@ -321,14 +331,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Add {
-            lhs: Box::new(AddLhs::IntLit(1)),
-            rhs: Box::new(AddRhs::Mul {
-                lhs: Box::new(MulLhs::IntLit(2)),
-                rhs: Box::new(MulRhs::IntLit(3)),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Add { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, AddLhs::IntLit { value: 1, .. }));
+                match *rhs {
+                    AddRhs::Mul {
+                        lhs: ref mul_lhs,
+                        rhs: ref mul_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**mul_lhs, MulLhs::IntLit { value: 2, .. }));
+                        assert!(matches!(**mul_rhs, MulRhs::IntLit { value: 3, .. }));
+                    }
+                    ref other => panic!("Expected AddRhs::Mul, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::Add, got {:?}", other),
+        }
     }
 
     #[test]
@@ -340,14 +359,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Add {
-            lhs: Box::new(AddLhs::Add {
-                lhs: Box::new(AddLhs::IntLit(1)),
-                rhs: Box::new(AddRhs::IntLit(2)),
-            }),
-            rhs: Box::new(AddRhs::IntLit(3)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Add { lhs, rhs, .. } => {
+                match *lhs {
+                    AddLhs::Add {
+                        lhs: ref inner_lhs,
+                        rhs: ref inner_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**inner_lhs, AddLhs::IntLit { value: 1, .. }));
+                        assert!(matches!(**inner_rhs, AddRhs::IntLit { value: 2, .. }));
+                    }
+                    ref other => panic!("Expected AddLhs::Add, got {:?}", other),
+                }
+                assert!(matches!(*rhs, AddRhs::IntLit { value: 3, .. }));
+            }
+            other => panic!("Expected Expr::Add, got {:?}", other),
+        }
     }
 
     #[test]
@@ -359,14 +387,24 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Mul {
-            lhs: Box::new(MulLhs::Paren(Box::new(Expr::Add {
-                lhs: Box::new(AddLhs::IntLit(1)),
-                rhs: Box::new(AddRhs::IntLit(2)),
-            }))),
-            rhs: Box::new(MulRhs::IntLit(3)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Mul { lhs, rhs, .. } => {
+                match *lhs {
+                    MulLhs::Paren { ref inner, .. } => match **inner {
+                        Expr::Add {
+                            ref lhs, ref rhs, ..
+                        } => {
+                            assert!(matches!(**lhs, AddLhs::IntLit { value: 1, .. }));
+                            assert!(matches!(**rhs, AddRhs::IntLit { value: 2, .. }));
+                        }
+                        ref other => panic!("Expected Expr::Add, got {:?}", other),
+                    },
+                    ref other => panic!("Expected MulLhs::Paren, got {:?}", other),
+                }
+                assert!(matches!(*rhs, MulRhs::IntLit { value: 3, .. }));
+            }
+            other => panic!("Expected Expr::Mul, got {:?}", other),
+        }
     }
 
     #[test]
@@ -378,11 +416,13 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Eq {
-            lhs: Box::new(CmpLhs::IntLit(1)),
-            rhs: Box::new(CmpRhs::IntLit(2)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Eq { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, CmpLhs::IntLit { value: 1, .. }));
+                assert!(matches!(*rhs, CmpRhs::IntLit { value: 2, .. }));
+            }
+            other => panic!("Expected Expr::Eq, got {:?}", other),
+        }
     }
 
     #[test]
@@ -394,17 +434,33 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Eq {
-            lhs: Box::new(CmpLhs::Add {
-                lhs: Box::new(AddLhs::IntLit(1)),
-                rhs: Box::new(AddRhs::IntLit(2)),
-            }),
-            rhs: Box::new(CmpRhs::Add {
-                lhs: Box::new(AddLhs::IntLit(3)),
-                rhs: Box::new(AddRhs::IntLit(4)),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Eq { lhs, rhs, .. } => {
+                match *lhs {
+                    CmpLhs::Add {
+                        lhs: ref add_lhs,
+                        rhs: ref add_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**add_lhs, AddLhs::IntLit { value: 1, .. }));
+                        assert!(matches!(**add_rhs, AddRhs::IntLit { value: 2, .. }));
+                    }
+                    ref other => panic!("Expected CmpLhs::Add, got {:?}", other),
+                }
+                match *rhs {
+                    CmpRhs::Add {
+                        lhs: ref add_lhs,
+                        rhs: ref add_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**add_lhs, AddLhs::IntLit { value: 3, .. }));
+                        assert!(matches!(**add_rhs, AddRhs::IntLit { value: 4, .. }));
+                    }
+                    ref other => panic!("Expected CmpRhs::Add, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::Eq, got {:?}", other),
+        }
     }
 
     #[test]
@@ -416,14 +472,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Eq {
-            lhs: Box::new(CmpLhs::Eq {
-                lhs: Box::new(CmpLhs::IntLit(1)),
-                rhs: Box::new(CmpRhs::IntLit(2)),
-            }),
-            rhs: Box::new(CmpRhs::IntLit(3)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Eq { lhs, rhs, .. } => {
+                match *lhs {
+                    CmpLhs::Eq {
+                        lhs: ref inner_lhs,
+                        rhs: ref inner_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**inner_lhs, CmpLhs::IntLit { value: 1, .. }));
+                        assert!(matches!(**inner_rhs, CmpRhs::IntLit { value: 2, .. }));
+                    }
+                    ref other => panic!("Expected CmpLhs::Eq, got {:?}", other),
+                }
+                assert!(matches!(*rhs, CmpRhs::IntLit { value: 3, .. }));
+            }
+            other => panic!("Expected Expr::Eq, got {:?}", other),
+        }
     }
 
     #[test]
@@ -435,11 +500,13 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Eq {
-            lhs: Box::new(CmpLhs::BoolLit(true)),
-            rhs: Box::new(CmpRhs::BoolLit(false)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Eq { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, CmpLhs::BoolLit { value: true, .. }));
+                assert!(matches!(*rhs, CmpRhs::BoolLit { value: false, .. }));
+            }
+            other => panic!("Expected Expr::Eq, got {:?}", other),
+        }
     }
 
     #[test]
@@ -451,11 +518,13 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::NotEq {
-            lhs: Box::new(CmpLhs::IntLit(1)),
-            rhs: Box::new(CmpRhs::IntLit(2)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::NotEq { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, CmpLhs::IntLit { value: 1, .. }));
+                assert!(matches!(*rhs, CmpRhs::IntLit { value: 2, .. }));
+            }
+            other => panic!("Expected Expr::NotEq, got {:?}", other),
+        }
     }
 
     #[test]
@@ -467,17 +536,33 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::NotEq {
-            lhs: Box::new(CmpLhs::Add {
-                lhs: Box::new(AddLhs::IntLit(1)),
-                rhs: Box::new(AddRhs::IntLit(2)),
-            }),
-            rhs: Box::new(CmpRhs::Add {
-                lhs: Box::new(AddLhs::IntLit(3)),
-                rhs: Box::new(AddRhs::IntLit(4)),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::NotEq { lhs, rhs, .. } => {
+                match *lhs {
+                    CmpLhs::Add {
+                        lhs: ref add_lhs,
+                        rhs: ref add_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**add_lhs, AddLhs::IntLit { value: 1, .. }));
+                        assert!(matches!(**add_rhs, AddRhs::IntLit { value: 2, .. }));
+                    }
+                    ref other => panic!("Expected CmpLhs::Add, got {:?}", other),
+                }
+                match *rhs {
+                    CmpRhs::Add {
+                        lhs: ref add_lhs,
+                        rhs: ref add_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**add_lhs, AddLhs::IntLit { value: 3, .. }));
+                        assert!(matches!(**add_rhs, AddRhs::IntLit { value: 4, .. }));
+                    }
+                    ref other => panic!("Expected CmpRhs::Add, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::NotEq, got {:?}", other),
+        }
     }
 
     #[test]
@@ -489,14 +574,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::NotEq {
-            lhs: Box::new(CmpLhs::NotEq {
-                lhs: Box::new(CmpLhs::IntLit(1)),
-                rhs: Box::new(CmpRhs::IntLit(2)),
-            }),
-            rhs: Box::new(CmpRhs::IntLit(3)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::NotEq { lhs, rhs, .. } => {
+                match *lhs {
+                    CmpLhs::NotEq {
+                        lhs: ref inner_lhs,
+                        rhs: ref inner_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**inner_lhs, CmpLhs::IntLit { value: 1, .. }));
+                        assert!(matches!(**inner_rhs, CmpRhs::IntLit { value: 2, .. }));
+                    }
+                    ref other => panic!("Expected CmpLhs::NotEq, got {:?}", other),
+                }
+                assert!(matches!(*rhs, CmpRhs::IntLit { value: 3, .. }));
+            }
+            other => panic!("Expected Expr::NotEq, got {:?}", other),
+        }
     }
 
     #[test]
@@ -508,11 +602,13 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::NotEq {
-            lhs: Box::new(CmpLhs::BoolLit(true)),
-            rhs: Box::new(CmpRhs::BoolLit(false)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::NotEq { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, CmpLhs::BoolLit { value: true, .. }));
+                assert!(matches!(*rhs, CmpRhs::BoolLit { value: false, .. }));
+            }
+            other => panic!("Expected Expr::NotEq, got {:?}", other),
+        }
     }
 
     #[test]
@@ -524,14 +620,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::NotEq {
-            lhs: Box::new(CmpLhs::Eq {
-                lhs: Box::new(CmpLhs::IntLit(1)),
-                rhs: Box::new(CmpRhs::IntLit(2)),
-            }),
-            rhs: Box::new(CmpRhs::IntLit(3)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::NotEq { lhs, rhs, .. } => {
+                match *lhs {
+                    CmpLhs::Eq {
+                        lhs: ref inner_lhs,
+                        rhs: ref inner_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**inner_lhs, CmpLhs::IntLit { value: 1, .. }));
+                        assert!(matches!(**inner_rhs, CmpRhs::IntLit { value: 2, .. }));
+                    }
+                    ref other => panic!("Expected CmpLhs::Eq, got {:?}", other),
+                }
+                assert!(matches!(*rhs, CmpRhs::IntLit { value: 3, .. }));
+            }
+            other => panic!("Expected Expr::NotEq, got {:?}", other),
+        }
     }
 
     // ========================================================================
@@ -547,11 +652,13 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Pow {
-            lhs: Box::new(PowLhs::IntLit(2)),
-            rhs: Box::new(PowRhs::IntLit(3)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Pow { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, PowLhs::IntLit { value: 2, .. }));
+                assert!(matches!(*rhs, PowRhs::IntLit { value: 3, .. }));
+            }
+            other => panic!("Expected Expr::Pow, got {:?}", other),
+        }
     }
 
     #[test]
@@ -563,14 +670,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Pow {
-            lhs: Box::new(PowLhs::IntLit(2)),
-            rhs: Box::new(PowRhs::Pow {
-                lhs: Box::new(PowLhs::IntLit(3)),
-                rhs: Box::new(PowRhs::IntLit(4)),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Pow { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, PowLhs::IntLit { value: 2, .. }));
+                match *rhs {
+                    PowRhs::Pow {
+                        lhs: ref inner_lhs,
+                        rhs: ref inner_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**inner_lhs, PowLhs::IntLit { value: 3, .. }));
+                        assert!(matches!(**inner_rhs, PowRhs::IntLit { value: 4, .. }));
+                    }
+                    ref other => panic!("Expected PowRhs::Pow, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::Pow, got {:?}", other),
+        }
     }
 
     #[test]
@@ -582,14 +698,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Mul {
-            lhs: Box::new(MulLhs::IntLit(2)),
-            rhs: Box::new(MulRhs::Pow {
-                lhs: Box::new(PowLhs::IntLit(3)),
-                rhs: Box::new(PowRhs::IntLit(4)),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Mul { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, MulLhs::IntLit { value: 2, .. }));
+                match *rhs {
+                    MulRhs::Pow {
+                        lhs: ref pow_lhs,
+                        rhs: ref pow_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**pow_lhs, PowLhs::IntLit { value: 3, .. }));
+                        assert!(matches!(**pow_rhs, PowRhs::IntLit { value: 4, .. }));
+                    }
+                    ref other => panic!("Expected MulRhs::Pow, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::Mul, got {:?}", other),
+        }
     }
 
     #[test]
@@ -601,14 +726,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Add {
-            lhs: Box::new(AddLhs::IntLit(1)),
-            rhs: Box::new(AddRhs::Pow {
-                lhs: Box::new(PowLhs::IntLit(2)),
-                rhs: Box::new(PowRhs::IntLit(3)),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Add { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, AddLhs::IntLit { value: 1, .. }));
+                match *rhs {
+                    AddRhs::Pow {
+                        lhs: ref pow_lhs,
+                        rhs: ref pow_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**pow_lhs, PowLhs::IntLit { value: 2, .. }));
+                        assert!(matches!(**pow_rhs, PowRhs::IntLit { value: 3, .. }));
+                    }
+                    ref other => panic!("Expected AddRhs::Pow, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::Add, got {:?}", other),
+        }
     }
 
     #[test]
@@ -620,14 +754,24 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Pow {
-            lhs: Box::new(PowLhs::Paren(Box::new(Expr::Pow {
-                lhs: Box::new(PowLhs::IntLit(2)),
-                rhs: Box::new(PowRhs::IntLit(3)),
-            }))),
-            rhs: Box::new(PowRhs::IntLit(4)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Pow { lhs, rhs, .. } => {
+                match *lhs {
+                    PowLhs::Paren { ref inner, .. } => match **inner {
+                        Expr::Pow {
+                            ref lhs, ref rhs, ..
+                        } => {
+                            assert!(matches!(**lhs, PowLhs::IntLit { value: 2, .. }));
+                            assert!(matches!(**rhs, PowRhs::IntLit { value: 3, .. }));
+                        }
+                        ref other => panic!("Expected Expr::Pow, got {:?}", other),
+                    },
+                    ref other => panic!("Expected PowLhs::Paren, got {:?}", other),
+                }
+                assert!(matches!(*rhs, PowRhs::IntLit { value: 4, .. }));
+            }
+            other => panic!("Expected Expr::Pow, got {:?}", other),
+        }
     }
 
     #[test]
@@ -639,11 +783,13 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Pow {
-            lhs: Box::new(PowLhs::Var("x".to_string())),
-            rhs: Box::new(PowRhs::Var("y".to_string())),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Pow { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, PowLhs::Var { name, .. } if name == "x"));
+                assert!(matches!(*rhs, PowRhs::Var { name, .. } if name == "y"));
+            }
+            other => panic!("Expected Expr::Pow, got {:?}", other),
+        }
     }
 
     #[test]
@@ -655,17 +801,31 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Add {
-            lhs: Box::new(AddLhs::IntLit(2)),
-            rhs: Box::new(AddRhs::Mul {
-                lhs: Box::new(MulLhs::IntLit(3)),
-                rhs: Box::new(MulRhs::Pow {
-                    lhs: Box::new(PowLhs::IntLit(4)),
-                    rhs: Box::new(PowRhs::IntLit(5)),
-                }),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Add { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, AddLhs::IntLit { value: 2, .. }));
+                match *rhs {
+                    AddRhs::Mul {
+                        lhs: ref mul_lhs,
+                        rhs: ref mul_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**mul_lhs, MulLhs::IntLit { value: 3, .. }));
+                        match **mul_rhs {
+                            MulRhs::Pow {
+                                ref lhs, ref rhs, ..
+                            } => {
+                                assert!(matches!(**lhs, PowLhs::IntLit { value: 4, .. }));
+                                assert!(matches!(**rhs, PowRhs::IntLit { value: 5, .. }));
+                            }
+                            ref other => panic!("Expected MulRhs::Pow, got {:?}", other),
+                        }
+                    }
+                    ref other => panic!("Expected AddRhs::Mul, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::Add, got {:?}", other),
+        }
     }
 
     #[test]
@@ -677,17 +837,35 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Pow {
-            lhs: Box::new(PowLhs::Var("a".to_string())),
-            rhs: Box::new(PowRhs::Pow {
-                lhs: Box::new(PowLhs::Var("b".to_string())),
-                rhs: Box::new(PowRhs::Pow {
-                    lhs: Box::new(PowLhs::Var("c".to_string())),
-                    rhs: Box::new(PowRhs::Var("d".to_string())),
-                }),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Pow { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, PowLhs::Var { name, .. } if name == "a"));
+                match *rhs {
+                    PowRhs::Pow {
+                        lhs: ref b_lhs,
+                        rhs: ref b_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**b_lhs, PowLhs::Var { ref name, .. } if name == "b"));
+                        match **b_rhs {
+                            PowRhs::Pow {
+                                ref lhs, ref rhs, ..
+                            } => {
+                                assert!(
+                                    matches!(**lhs, PowLhs::Var { ref name, .. } if name == "c")
+                                );
+                                assert!(
+                                    matches!(**rhs, PowRhs::Var { ref name, .. } if name == "d")
+                                );
+                            }
+                            ref other => panic!("Expected PowRhs::Pow, got {:?}", other),
+                        }
+                    }
+                    ref other => panic!("Expected PowRhs::Pow, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::Pow, got {:?}", other),
+        }
     }
 
     // ========================================================================
@@ -703,11 +881,13 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Mod {
-            lhs: Box::new(MulLhs::IntLit(10)),
-            rhs: Box::new(MulRhs::IntLit(3)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Mod { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, MulLhs::IntLit { value: 10, .. }));
+                assert!(matches!(*rhs, MulRhs::IntLit { value: 3, .. }));
+            }
+            other => panic!("Expected Expr::Mod, got {:?}", other),
+        }
     }
 
     #[test]
@@ -719,14 +899,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Mod {
-            lhs: Box::new(MulLhs::Mod {
-                lhs: Box::new(MulLhs::IntLit(10)),
-                rhs: Box::new(MulRhs::IntLit(3)),
-            }),
-            rhs: Box::new(MulRhs::IntLit(2)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Mod { lhs, rhs, .. } => {
+                match *lhs {
+                    MulLhs::Mod {
+                        lhs: ref inner_lhs,
+                        rhs: ref inner_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**inner_lhs, MulLhs::IntLit { value: 10, .. }));
+                        assert!(matches!(**inner_rhs, MulRhs::IntLit { value: 3, .. }));
+                    }
+                    ref other => panic!("Expected MulLhs::Mod, got {:?}", other),
+                }
+                assert!(matches!(*rhs, MulRhs::IntLit { value: 2, .. }));
+            }
+            other => panic!("Expected Expr::Mod, got {:?}", other),
+        }
     }
 
     #[test]
@@ -738,14 +927,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Mod {
-            lhs: Box::new(MulLhs::Mul {
-                lhs: Box::new(MulLhs::IntLit(10)),
-                rhs: Box::new(MulRhs::IntLit(3)),
-            }),
-            rhs: Box::new(MulRhs::IntLit(2)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Mod { lhs, rhs, .. } => {
+                match *lhs {
+                    MulLhs::Mul {
+                        lhs: ref inner_lhs,
+                        rhs: ref inner_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**inner_lhs, MulLhs::IntLit { value: 10, .. }));
+                        assert!(matches!(**inner_rhs, MulRhs::IntLit { value: 3, .. }));
+                    }
+                    ref other => panic!("Expected MulLhs::Mul, got {:?}", other),
+                }
+                assert!(matches!(*rhs, MulRhs::IntLit { value: 2, .. }));
+            }
+            other => panic!("Expected Expr::Mod, got {:?}", other),
+        }
     }
 
     #[test]
@@ -757,14 +955,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Mod {
-            lhs: Box::new(MulLhs::Div {
-                lhs: Box::new(MulLhs::IntLit(10)),
-                rhs: Box::new(MulRhs::IntLit(3)),
-            }),
-            rhs: Box::new(MulRhs::IntLit(2)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Mod { lhs, rhs, .. } => {
+                match *lhs {
+                    MulLhs::Div {
+                        lhs: ref inner_lhs,
+                        rhs: ref inner_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**inner_lhs, MulLhs::IntLit { value: 10, .. }));
+                        assert!(matches!(**inner_rhs, MulRhs::IntLit { value: 3, .. }));
+                    }
+                    ref other => panic!("Expected MulLhs::Div, got {:?}", other),
+                }
+                assert!(matches!(*rhs, MulRhs::IntLit { value: 2, .. }));
+            }
+            other => panic!("Expected Expr::Mod, got {:?}", other),
+        }
     }
 
     #[test]
@@ -776,14 +983,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Add {
-            lhs: Box::new(AddLhs::IntLit(1)),
-            rhs: Box::new(AddRhs::Mod {
-                lhs: Box::new(MulLhs::IntLit(10)),
-                rhs: Box::new(MulRhs::IntLit(3)),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Add { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, AddLhs::IntLit { value: 1, .. }));
+                match *rhs {
+                    AddRhs::Mod {
+                        lhs: ref mod_lhs,
+                        rhs: ref mod_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**mod_lhs, MulLhs::IntLit { value: 10, .. }));
+                        assert!(matches!(**mod_rhs, MulRhs::IntLit { value: 3, .. }));
+                    }
+                    ref other => panic!("Expected AddRhs::Mod, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::Add, got {:?}", other),
+        }
     }
 
     #[test]
@@ -795,14 +1011,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Mod {
-            lhs: Box::new(MulLhs::Pow {
-                lhs: Box::new(PowLhs::IntLit(2)),
-                rhs: Box::new(PowRhs::IntLit(3)),
-            }),
-            rhs: Box::new(MulRhs::IntLit(5)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Mod { lhs, rhs, .. } => {
+                match *lhs {
+                    MulLhs::Pow {
+                        lhs: ref pow_lhs,
+                        rhs: ref pow_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**pow_lhs, PowLhs::IntLit { value: 2, .. }));
+                        assert!(matches!(**pow_rhs, PowRhs::IntLit { value: 3, .. }));
+                    }
+                    ref other => panic!("Expected MulLhs::Pow, got {:?}", other),
+                }
+                assert!(matches!(*rhs, MulRhs::IntLit { value: 5, .. }));
+            }
+            other => panic!("Expected Expr::Mod, got {:?}", other),
+        }
     }
 
     #[test]
@@ -814,14 +1039,24 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Mod {
-            lhs: Box::new(MulLhs::IntLit(10)),
-            rhs: Box::new(MulRhs::Paren(Box::new(Expr::Add {
-                lhs: Box::new(AddLhs::IntLit(3)),
-                rhs: Box::new(AddRhs::IntLit(2)),
-            }))),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Mod { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, MulLhs::IntLit { value: 10, .. }));
+                match *rhs {
+                    MulRhs::Paren { ref inner, .. } => match **inner {
+                        Expr::Add {
+                            ref lhs, ref rhs, ..
+                        } => {
+                            assert!(matches!(**lhs, AddLhs::IntLit { value: 3, .. }));
+                            assert!(matches!(**rhs, AddRhs::IntLit { value: 2, .. }));
+                        }
+                        ref other => panic!("Expected Expr::Add, got {:?}", other),
+                    },
+                    ref other => panic!("Expected MulRhs::Paren, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::Mod, got {:?}", other),
+        }
     }
 
     #[test]
@@ -833,11 +1068,13 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Mod {
-            lhs: Box::new(MulLhs::Var("x".to_string())),
-            rhs: Box::new(MulRhs::Var("y".to_string())),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Mod { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, MulLhs::Var { name, .. } if name == "x"));
+                assert!(matches!(*rhs, MulRhs::Var { name, .. } if name == "y"));
+            }
+            other => panic!("Expected Expr::Mod, got {:?}", other),
+        }
     }
 
     #[test]
@@ -849,17 +1086,31 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Add {
-            lhs: Box::new(AddLhs::IntLit(2)),
-            rhs: Box::new(AddRhs::Mod {
-                lhs: Box::new(MulLhs::Mul {
-                    lhs: Box::new(MulLhs::IntLit(3)),
-                    rhs: Box::new(MulRhs::IntLit(4)),
-                }),
-                rhs: Box::new(MulRhs::IntLit(5)),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Add { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, AddLhs::IntLit { value: 2, .. }));
+                match *rhs {
+                    AddRhs::Mod {
+                        lhs: ref mod_lhs,
+                        rhs: ref mod_rhs,
+                        ..
+                    } => {
+                        match **mod_lhs {
+                            MulLhs::Mul {
+                                ref lhs, ref rhs, ..
+                            } => {
+                                assert!(matches!(**lhs, MulLhs::IntLit { value: 3, .. }));
+                                assert!(matches!(**rhs, MulRhs::IntLit { value: 4, .. }));
+                            }
+                            ref other => panic!("Expected MulLhs::Mul, got {:?}", other),
+                        }
+                        assert!(matches!(**mod_rhs, MulRhs::IntLit { value: 5, .. }));
+                    }
+                    ref other => panic!("Expected AddRhs::Mod, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::Add, got {:?}", other),
+        }
     }
 
     // ========================================================================
@@ -875,10 +1126,12 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Neg {
-            inner: Box::new(PowLhs::IntLit(5)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Neg { inner, .. } => {
+                assert!(matches!(*inner, PowLhs::IntLit { value: 5, .. }));
+            }
+            other => panic!("Expected Expr::Neg, got {:?}", other),
+        }
     }
 
     #[test]
@@ -890,10 +1143,12 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Ref {
-            inner: Box::new(PowLhs::Var("x".to_string())),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Ref { inner, .. } => {
+                assert!(matches!(*inner, PowLhs::Var { name, .. } if name == "x"));
+            }
+            other => panic!("Expected Expr::Ref, got {:?}", other),
+        }
     }
 
     #[test]
@@ -905,12 +1160,15 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Neg {
-            inner: Box::new(PowLhs::Neg {
-                inner: Box::new(PowLhs::IntLit(5)),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Neg { inner, .. } => match *inner {
+                PowLhs::Neg { ref inner, .. } => {
+                    assert!(matches!(**inner, PowLhs::IntLit { value: 5, .. }));
+                }
+                ref other => panic!("Expected PowLhs::Neg, got {:?}", other),
+            },
+            other => panic!("Expected Expr::Neg, got {:?}", other),
+        }
     }
 
     #[test]
@@ -922,12 +1180,15 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Neg {
-            inner: Box::new(PowLhs::Ref {
-                inner: Box::new(PowLhs::Var("x".to_string())),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Neg { inner, .. } => match *inner {
+                PowLhs::Ref { ref inner, .. } => {
+                    assert!(matches!(**inner, PowLhs::Var { ref name, .. } if name == "x"));
+                }
+                ref other => panic!("Expected PowLhs::Ref, got {:?}", other),
+            },
+            other => panic!("Expected Expr::Neg, got {:?}", other),
+        }
     }
 
     #[test]
@@ -939,12 +1200,15 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Ref {
-            inner: Box::new(PowLhs::Neg {
-                inner: Box::new(PowLhs::Var("x".to_string())),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Ref { inner, .. } => match *inner {
+                PowLhs::Neg { ref inner, .. } => {
+                    assert!(matches!(**inner, PowLhs::Var { ref name, .. } if name == "x"));
+                }
+                ref other => panic!("Expected PowLhs::Neg, got {:?}", other),
+            },
+            other => panic!("Expected Expr::Ref, got {:?}", other),
+        }
     }
 
     #[test]
@@ -956,13 +1220,18 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Pow {
-            lhs: Box::new(PowLhs::Neg {
-                inner: Box::new(PowLhs::IntLit(2)),
-            }),
-            rhs: Box::new(PowRhs::IntLit(3)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Pow { lhs, rhs, .. } => {
+                match *lhs {
+                    PowLhs::Neg { ref inner, .. } => {
+                        assert!(matches!(**inner, PowLhs::IntLit { value: 2, .. }));
+                    }
+                    ref other => panic!("Expected PowLhs::Neg, got {:?}", other),
+                }
+                assert!(matches!(*rhs, PowRhs::IntLit { value: 3, .. }));
+            }
+            other => panic!("Expected Expr::Pow, got {:?}", other),
+        }
     }
 
     #[test]
@@ -974,13 +1243,18 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Mul {
-            lhs: Box::new(MulLhs::Neg {
-                inner: Box::new(PowLhs::IntLit(2)),
-            }),
-            rhs: Box::new(MulRhs::IntLit(3)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Mul { lhs, rhs, .. } => {
+                match *lhs {
+                    MulLhs::Neg { ref inner, .. } => {
+                        assert!(matches!(**inner, PowLhs::IntLit { value: 2, .. }));
+                    }
+                    ref other => panic!("Expected MulLhs::Neg, got {:?}", other),
+                }
+                assert!(matches!(*rhs, MulRhs::IntLit { value: 3, .. }));
+            }
+            other => panic!("Expected Expr::Mul, got {:?}", other),
+        }
     }
 
     #[test]
@@ -992,13 +1266,18 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Add {
-            lhs: Box::new(AddLhs::Neg {
-                inner: Box::new(PowLhs::IntLit(2)),
-            }),
-            rhs: Box::new(AddRhs::IntLit(3)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Add { lhs, rhs, .. } => {
+                match *lhs {
+                    AddLhs::Neg { ref inner, .. } => {
+                        assert!(matches!(**inner, PowLhs::IntLit { value: 2, .. }));
+                    }
+                    ref other => panic!("Expected AddLhs::Neg, got {:?}", other),
+                }
+                assert!(matches!(*rhs, AddRhs::IntLit { value: 3, .. }));
+            }
+            other => panic!("Expected Expr::Add, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1010,13 +1289,21 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Neg {
-            inner: Box::new(PowLhs::Paren(Box::new(Expr::Add {
-                lhs: Box::new(AddLhs::IntLit(2)),
-                rhs: Box::new(AddRhs::IntLit(3)),
-            }))),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Neg { inner, .. } => match *inner {
+                PowLhs::Paren { ref inner, .. } => match **inner {
+                    Expr::Add {
+                        ref lhs, ref rhs, ..
+                    } => {
+                        assert!(matches!(**lhs, AddLhs::IntLit { value: 2, .. }));
+                        assert!(matches!(**rhs, AddRhs::IntLit { value: 3, .. }));
+                    }
+                    ref other => panic!("Expected Expr::Add, got {:?}", other),
+                },
+                ref other => panic!("Expected PowLhs::Paren, got {:?}", other),
+            },
+            other => panic!("Expected Expr::Neg, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1028,13 +1315,18 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Add {
-            lhs: Box::new(AddLhs::Ref {
-                inner: Box::new(PowLhs::Var("x".to_string())),
-            }),
-            rhs: Box::new(AddRhs::IntLit(3)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Add { lhs, rhs, .. } => {
+                match *lhs {
+                    AddLhs::Ref { ref inner, .. } => {
+                        assert!(matches!(**inner, PowLhs::Var { ref name, .. } if name == "x"));
+                    }
+                    ref other => panic!("Expected AddLhs::Ref, got {:?}", other),
+                }
+                assert!(matches!(*rhs, AddRhs::IntLit { value: 3, .. }));
+            }
+            other => panic!("Expected Expr::Add, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1046,15 +1338,23 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Pow {
-            lhs: Box::new(PowLhs::Neg {
-                inner: Box::new(PowLhs::Var("a".to_string())),
-            }),
-            rhs: Box::new(PowRhs::Neg {
-                inner: Box::new(PowLhs::Var("b".to_string())),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Pow { lhs, rhs, .. } => {
+                match *lhs {
+                    PowLhs::Neg { ref inner, .. } => {
+                        assert!(matches!(**inner, PowLhs::Var { ref name, .. } if name == "a"));
+                    }
+                    ref other => panic!("Expected PowLhs::Neg, got {:?}", other),
+                }
+                match *rhs {
+                    PowRhs::Neg { ref inner, .. } => {
+                        assert!(matches!(**inner, PowLhs::Var { ref name, .. } if name == "b"));
+                    }
+                    ref other => panic!("Expected PowRhs::Neg, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::Pow, got {:?}", other),
+        }
     }
 
     // ========================================================================
@@ -1164,11 +1464,18 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::And {
-            lhs: Box::new(CmpLhs::BoolLit(true)),
-            rhs: Box::new(CmpRhs::Paren(Box::new(Expr::BoolLit(false)))),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::And { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, CmpLhs::BoolLit { value: true, .. }));
+                match *rhs {
+                    CmpRhs::Paren { ref inner, .. } => {
+                        assert!(matches!(**inner, Expr::BoolLit { value: false, .. }));
+                    }
+                    ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::And, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1180,11 +1487,18 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::Or {
-            lhs: Box::new(CmpLhs::BoolLit(true)),
-            rhs: Box::new(CmpRhs::Paren(Box::new(Expr::BoolLit(false)))),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::Or { lhs, rhs, .. } => {
+                assert!(matches!(*lhs, CmpLhs::BoolLit { value: true, .. }));
+                match *rhs {
+                    CmpRhs::Paren { ref inner, .. } => {
+                        assert!(matches!(**inner, Expr::BoolLit { value: false, .. }));
+                    }
+                    ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::Or, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1199,14 +1513,35 @@ mod tests {
         );
 
         // With left-associative parsing, this will be ((a or b) and c)
-        let expected = Expr::And {
-            lhs: Box::new(CmpLhs::Or {
-                lhs: Box::new(CmpLhs::Var("a".to_string())),
-                rhs: Box::new(CmpRhs::Paren(Box::new(Expr::Var("b".to_string())))),
-            }),
-            rhs: Box::new(CmpRhs::Paren(Box::new(Expr::Var("c".to_string())))),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::And { lhs, rhs, .. } => {
+                match *lhs {
+                    CmpLhs::Or {
+                        lhs: ref or_lhs,
+                        rhs: ref or_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**or_lhs, CmpLhs::Var { ref name, .. } if name == "a"));
+                        match **or_rhs {
+                            CmpRhs::Paren { ref inner, .. } => {
+                                assert!(
+                                    matches!(**inner, Expr::Var { ref name, .. } if name == "b")
+                                );
+                            }
+                            ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
+                        }
+                    }
+                    ref other => panic!("Expected CmpLhs::Or, got {:?}", other),
+                }
+                match *rhs {
+                    CmpRhs::Paren { ref inner, .. } => {
+                        assert!(matches!(**inner, Expr::Var { ref name, .. } if name == "c"));
+                    }
+                    ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::And, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1218,17 +1553,34 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::And {
-            lhs: Box::new(CmpLhs::Eq {
-                lhs: Box::new(CmpLhs::Var("x".to_string())),
-                rhs: Box::new(CmpRhs::IntLit(1)),
-            }),
-            rhs: Box::new(CmpRhs::Paren(Box::new(Expr::Eq {
-                lhs: Box::new(CmpLhs::Var("y".to_string())),
-                rhs: Box::new(CmpRhs::IntLit(2)),
-            }))),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::And { lhs, rhs, .. } => {
+                match *lhs {
+                    CmpLhs::Eq {
+                        lhs: ref eq_lhs,
+                        rhs: ref eq_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**eq_lhs, CmpLhs::Var { ref name, .. } if name == "x"));
+                        assert!(matches!(**eq_rhs, CmpRhs::IntLit { value: 1, .. }));
+                    }
+                    ref other => panic!("Expected CmpLhs::Eq, got {:?}", other),
+                }
+                match *rhs {
+                    CmpRhs::Paren { ref inner, .. } => match **inner {
+                        Expr::Eq {
+                            ref lhs, ref rhs, ..
+                        } => {
+                            assert!(matches!(**lhs, CmpLhs::Var { ref name, .. } if name == "y"));
+                            assert!(matches!(**rhs, CmpRhs::IntLit { value: 2, .. }));
+                        }
+                        ref other => panic!("Expected Expr::Eq, got {:?}", other),
+                    },
+                    ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::And, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1240,14 +1592,35 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Expr::And {
-            lhs: Box::new(CmpLhs::And {
-                lhs: Box::new(CmpLhs::Var("a".to_string())),
-                rhs: Box::new(CmpRhs::Paren(Box::new(Expr::Var("b".to_string())))),
-            }),
-            rhs: Box::new(CmpRhs::Paren(Box::new(Expr::Var("c".to_string())))),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Expr::And { lhs, rhs, .. } => {
+                match *lhs {
+                    CmpLhs::And {
+                        lhs: ref and_lhs,
+                        rhs: ref and_rhs,
+                        ..
+                    } => {
+                        assert!(matches!(**and_lhs, CmpLhs::Var { ref name, .. } if name == "a"));
+                        match **and_rhs {
+                            CmpRhs::Paren { ref inner, .. } => {
+                                assert!(
+                                    matches!(**inner, Expr::Var { ref name, .. } if name == "b")
+                                );
+                            }
+                            ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
+                        }
+                    }
+                    ref other => panic!("Expected CmpLhs::And, got {:?}", other),
+                }
+                match *rhs {
+                    CmpRhs::Paren { ref inner, .. } => {
+                        assert!(matches!(**inner, Expr::Var { ref name, .. } if name == "c"));
+                    }
+                    ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
+                }
+            }
+            other => panic!("Expected Expr::And, got {:?}", other),
+        }
     }
 
     // ========================================================================
@@ -1285,7 +1658,7 @@ mod tests {
             |input| type_annotation().parse(input).into_result(),
             Duration::from_secs(1),
         );
-        assert_eq!(result.unwrap(), Type::Bool);
+        assert!(matches!(result.unwrap(), Type::Bool { .. }));
     }
 
     #[test]
@@ -1295,7 +1668,7 @@ mod tests {
             |input| type_annotation().parse(input).into_result(),
             Duration::from_secs(1),
         );
-        assert_eq!(result.unwrap(), Type::I32);
+        assert!(matches!(result.unwrap(), Type::I32 { .. }));
     }
 
     #[test]
@@ -1305,7 +1678,7 @@ mod tests {
             |input| type_annotation().parse(input).into_result(),
             Duration::from_secs(1),
         );
-        assert_eq!(result.unwrap(), Type::F64);
+        assert!(matches!(result.unwrap(), Type::F64 { .. }));
     }
 
     #[test]
@@ -1315,7 +1688,7 @@ mod tests {
             |input| type_annotation().parse(input).into_result(),
             Duration::from_secs(1),
         );
-        assert_eq!(result.unwrap(), Type::Real);
+        assert!(matches!(result.unwrap(), Type::Real { .. }));
     }
 
     #[test]
@@ -1325,7 +1698,7 @@ mod tests {
             |input| type_annotation().parse(input).into_result(),
             Duration::from_secs(1),
         );
-        assert_eq!(result.unwrap(), Type::Algebraic);
+        assert!(matches!(result.unwrap(), Type::Algebraic { .. }));
     }
 
     // ========================================================================
@@ -1341,12 +1714,19 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Stmt::Let {
-            name: "x".to_string(),
-            type_annotation: Some(Type::I32),
-            init: Some(Expr::IntLit(42)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Stmt::Let {
+                name,
+                type_annotation,
+                init,
+                ..
+            } => {
+                assert_eq!(name, "x");
+                assert!(matches!(type_annotation, Some(Type::I32 { .. })));
+                assert!(matches!(init, Some(Expr::IntLit { value: 42, .. })));
+            }
+            other => panic!("Expected Stmt::Let, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1358,12 +1738,19 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Stmt::Let {
-            name: "y".to_string(),
-            type_annotation: Some(Type::Bool),
-            init: None,
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Stmt::Let {
+                name,
+                type_annotation,
+                init,
+                ..
+            } => {
+                assert_eq!(name, "y");
+                assert!(matches!(type_annotation, Some(Type::Bool { .. })));
+                assert!(init.is_none());
+            }
+            other => panic!("Expected Stmt::Let, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1375,12 +1762,19 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Stmt::Let {
-            name: "z".to_string(),
-            type_annotation: None,
-            init: Some(Expr::FloatLit(3.14)),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Stmt::Let {
+                name,
+                type_annotation,
+                init,
+                ..
+            } => {
+                assert_eq!(name, "z");
+                assert!(type_annotation.is_none());
+                assert!(matches!(init, Some(Expr::FloatLit { value, .. }) if value == 3.14));
+            }
+            other => panic!("Expected Stmt::Let, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1392,12 +1786,19 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Stmt::Let {
-            name: "w".to_string(),
-            type_annotation: None,
-            init: None,
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Stmt::Let {
+                name,
+                type_annotation,
+                init,
+                ..
+            } => {
+                assert_eq!(name, "w");
+                assert!(type_annotation.is_none());
+                assert!(init.is_none());
+            }
+            other => panic!("Expected Stmt::Let, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1409,17 +1810,34 @@ mod tests {
             Duration::from_secs(2),
         );
 
-        let expected = Stmt::Let {
-            name: "result".to_string(),
-            type_annotation: Some(Type::I32),
-            init: Some(Expr::Add {
-                lhs: Box::new(AddLhs::IntLit(1)),
-                rhs: Box::new(AddRhs::Mul {
-                    lhs: Box::new(MulLhs::IntLit(2)),
-                    rhs: Box::new(MulRhs::IntLit(3)),
-                }),
-            }),
-        };
-        assert_eq!(result.unwrap(), expected);
+        match result.unwrap() {
+            Stmt::Let {
+                name,
+                type_annotation,
+                init,
+                ..
+            } => {
+                assert_eq!(name, "result");
+                assert!(matches!(type_annotation, Some(Type::I32 { .. })));
+                match init {
+                    Some(Expr::Add { lhs, rhs, .. }) => {
+                        assert!(matches!(*lhs, AddLhs::IntLit { value: 1, .. }));
+                        match *rhs {
+                            AddRhs::Mul {
+                                lhs: ref mul_lhs,
+                                rhs: ref mul_rhs,
+                                ..
+                            } => {
+                                assert!(matches!(**mul_lhs, MulLhs::IntLit { value: 2, .. }));
+                                assert!(matches!(**mul_rhs, MulRhs::IntLit { value: 3, .. }));
+                            }
+                            ref other => panic!("Expected AddRhs::Mul, got {:?}", other),
+                        }
+                    }
+                    other => panic!("Expected Some(Expr::Add), got {:?}", other),
+                }
+            }
+            other => panic!("Expected Stmt::Let, got {:?}", other),
+        }
     }
 }

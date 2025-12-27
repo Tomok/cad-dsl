@@ -68,11 +68,7 @@ fn combine_spans(left: Span, right: Span) -> Span {
         } else {
             left.lines
         },
-        end_column: if right.lines > 0 {
-            right.end_column
-        } else {
-            right.end_column
-        },
+        end_column: right.end_column,
     }
 }
 

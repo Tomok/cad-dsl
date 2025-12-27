@@ -7,7 +7,7 @@
 //! - Unary negation (-) and reference (&) - highest precedence
 
 use crate::ast::*;
-use crate::lexer::{LineColumn, Span, Token};
+use crate::lexer::{Span, Token};
 use chumsky::prelude::*;
 
 use super::ParseError;
@@ -16,6 +16,46 @@ use super::atoms::atom;
 // ============================================================================
 // Helper functions for span management
 // ============================================================================
+
+/// Helper to extract span from PowLhs
+fn get_powlhs_span(node: &PowLhs) -> Span {
+    match node {
+        PowLhs::Paren { span, .. }
+        | PowLhs::Neg { span, .. }
+        | PowLhs::Ref { span, .. }
+        | PowLhs::Var { span, .. }
+        | PowLhs::IntLit { span, .. }
+        | PowLhs::FloatLit { span, .. }
+        | PowLhs::BoolLit { span, .. } => *span,
+    }
+}
+
+/// Helper to extract span from PowRhs
+fn get_powrhs_span(node: &PowRhs) -> Span {
+    match node {
+        PowRhs::Paren { span, .. }
+        | PowRhs::Pow { span, .. }
+        | PowRhs::Neg { span, .. }
+        | PowRhs::Ref { span, .. }
+        | PowRhs::Var { span, .. }
+        | PowRhs::IntLit { span, .. }
+        | PowRhs::FloatLit { span, .. }
+        | PowRhs::BoolLit { span, .. } => *span,
+    }
+}
+
+/// Combine a position (from operator token) with a span (from inner expression)
+fn combine_span_from_pos(pos: crate::lexer::LineColumn, inner: Span) -> Span {
+    Span {
+        start: pos,
+        lines: if inner.start.line != pos.line {
+            inner.start.line - pos.line + inner.lines
+        } else {
+            inner.lines
+        },
+        end_column: inner.end_column,
+    }
+}
 
 /// Helper to extract span from MulLhs
 fn get_mullhs_span(node: &MulLhs) -> Span {
@@ -93,11 +133,7 @@ fn combine_spans(left: Span, right: Span) -> Span {
         } else {
             left.lines
         },
-        end_column: if right.lines > 0 {
-            right.end_column
-        } else {
-            right.end_column
-        },
+        end_column: right.end_column,
     }
 }
 
@@ -112,37 +148,55 @@ pub fn pow_lhs_parser<'src, E>(
 where
     E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone + 'src,
 {
-    let lparen = select! { Token::LeftParen(_) => () };
-    let rparen = select! { Token::RightParen(_) => () };
-
     // Recursive parser for unary operators (allows stacking like --x or &-x)
     recursive(|unary_rec| {
-        let neg_op = select! { Token::Minus(_) => () };
-        let ref_op = select! { Token::Ampersand(_) => () };
-
         choice((
             // Unary negation: -<expr>
-            neg_op
-                .ignore_then(unary_rec.clone())
-                .map_with_span(|inner, span| PowLhs::Neg {
-                    inner: Box::new(inner),
-                    span,
+            select! { Token::Minus(t) => t.position }
+                .then(unary_rec.clone())
+                .map(|(op_pos, inner)| {
+                    let inner_span = get_powlhs_span(&inner);
+                    let span = combine_span_from_pos(op_pos, inner_span);
+                    PowLhs::Neg {
+                        inner: Box::new(inner),
+                        span,
+                    }
                 }),
             // Unary reference: &<expr>
-            ref_op
-                .ignore_then(unary_rec)
-                .map_with_span(|inner, span| PowLhs::Ref {
-                    inner: Box::new(inner),
-                    span,
+            select! { Token::Ampersand(t) => t.position }
+                .then(unary_rec)
+                .map(|(op_pos, inner)| {
+                    let inner_span = get_powlhs_span(&inner);
+                    let span = combine_span_from_pos(op_pos, inner_span);
+                    PowLhs::Ref {
+                        inner: Box::new(inner),
+                        span,
+                    }
                 }),
             // Atom (base case)
             atom().map(Into::into),
             // Parenthesized expression
-            expr_rec
-                .delimited_by(lparen, rparen)
-                .map_with_span(|e, span| PowLhs::Paren {
-                    inner: Box::new(e),
-                    span,
+            select! { Token::LeftParen(t) => t.position }
+                .then(expr_rec)
+                .then(select! { Token::RightParen(t) => t.position })
+                .map(|((lparen_pos, e), rparen_pos)| {
+                    let span = if lparen_pos.line == rparen_pos.line {
+                        Span {
+                            start: lparen_pos,
+                            lines: 0,
+                            end_column: rparen_pos.column + 1,
+                        }
+                    } else {
+                        Span {
+                            start: lparen_pos,
+                            lines: rparen_pos.line - lparen_pos.line,
+                            end_column: rparen_pos.column + 1,
+                        }
+                    };
+                    PowLhs::Paren {
+                        inner: Box::new(e),
+                        span,
+                    }
                 }),
         ))
     })
@@ -164,11 +218,14 @@ where
         let base_parser = pow_lhs.clone();
         base_parser
             .then(pow_op.then(pow_rhs_rec).or_not())
-            .map_with_span(|(base, rest), span| {
+            .map(|(base, rest)| {
                 match rest {
                     None => base.into(), // No power operator, just return base as PowRhs
                     Some((_, rhs)) => {
-                        // Build Pow node
+                        // Build Pow node - combine spans from base and rhs
+                        let lhs_span = get_powlhs_span(&base);
+                        let rhs_span = get_powrhs_span(&rhs);
+                        let span = combine_spans(lhs_span, rhs_span);
                         PowRhs::Pow {
                             lhs: Box::new(base),
                             rhs: Box::new(rhs),
@@ -192,9 +249,6 @@ pub fn mul_rhs_parser<'src, E>(
 where
     E: Parser<'src, &'src [Token<'src>], Expr, ParseError<'src>> + Clone,
 {
-    let lparen = select! { Token::LeftParen(_) => () };
-    let rparen = select! { Token::RightParen(_) => () };
-
     choice((
         pow_rhs.map(|p| {
             // Convert PowRhs to MulRhs
@@ -209,11 +263,27 @@ where
                 PowRhs::BoolLit { value, span } => MulRhs::BoolLit { value, span },
             }
         }),
-        expr_rec
-            .delimited_by(lparen, rparen)
-            .map_with_span(|e, span| MulRhs::Paren {
-                inner: Box::new(e),
-                span,
+        select! { Token::LeftParen(t) => t.position }
+            .then(expr_rec.clone())
+            .then(select! { Token::RightParen(t) => t.position })
+            .map(|((lparen_pos, e), rparen_pos)| {
+                let span = if lparen_pos.line == rparen_pos.line {
+                    Span {
+                        start: lparen_pos,
+                        lines: 0,
+                        end_column: rparen_pos.column + 1,
+                    }
+                } else {
+                    Span {
+                        start: lparen_pos,
+                        lines: rparen_pos.line - lparen_pos.line,
+                        end_column: rparen_pos.column + 1,
+                    }
+                };
+                MulRhs::Paren {
+                    inner: Box::new(e),
+                    span,
+                }
             }),
     ))
 }
@@ -229,8 +299,6 @@ where
     R: Parser<'src, &'src [Token<'src>], MulRhs, ParseError<'src>> + Clone,
     P: Parser<'src, &'src [Token<'src>], PowRhs, ParseError<'src>> + Clone,
 {
-    let lparen = select! { Token::LeftParen(_) => () };
-    let rparen = select! { Token::RightParen(_) => () };
     let mul_op = select! { Token::Multiply(_) => '*' };
     let div_op = select! { Token::Divide(_) => '/' };
     let mod_op = select! { Token::Modulo(_) => '%' };
@@ -250,11 +318,27 @@ where
                 PowRhs::BoolLit { value, span } => MulLhs::BoolLit { value, span },
             }
         }),
-        expr_rec
-            .delimited_by(lparen, rparen)
-            .map_with_span(|e, span| MulLhs::Paren {
-                inner: Box::new(e),
-                span,
+        select! { Token::LeftParen(t) => t.position }
+            .then(expr_rec)
+            .then(select! { Token::RightParen(t) => t.position })
+            .map(|((lparen_pos, e), rparen_pos)| {
+                let span = if lparen_pos.line == rparen_pos.line {
+                    Span {
+                        start: lparen_pos,
+                        lines: 0,
+                        end_column: rparen_pos.column + 1,
+                    }
+                } else {
+                    Span {
+                        start: lparen_pos,
+                        lines: rparen_pos.line - lparen_pos.line,
+                        end_column: rparen_pos.column + 1,
+                    }
+                };
+                MulLhs::Paren {
+                    inner: Box::new(e),
+                    span,
+                }
             }),
     ));
 
