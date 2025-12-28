@@ -436,6 +436,60 @@ pub fn return_stmt<'src>(
 }
 
 // ============================================================================
+// Expression Statement Parser
+// ============================================================================
+
+/// Parse an expression statement
+///
+/// Syntax:
+///   <expr>;
+///
+/// Examples:
+///   foo();
+///   print(x);
+///   obj.method();
+///   1 + 2;
+///
+/// Note: This parser should be used LAST in the statement choice combinator
+/// to avoid consuming parts of other statement types.
+pub fn expression_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    expr_parser
+        .labelled("expression")
+        .then(select! {
+            Token::SemiColon(t) => t.position,
+        })
+        .map(|(expr, semi_pos)| {
+            use crate::ast::span::HasSpan;
+            let expr_span = expr.span();
+
+            // Construct span from expression start to semicolon
+            let span = if expr_span.start.line == semi_pos.line {
+                // Same line
+                Span {
+                    start: expr_span.start,
+                    lines: 0,
+                    end_column: semi_pos.column + 1,
+                }
+            } else {
+                // Multiple lines
+                Span {
+                    start: expr_span.start,
+                    lines: semi_pos.line - expr_span.start.line,
+                    end_column: semi_pos.column + 1,
+                }
+            };
+
+            Stmt::Expression { expr, span }
+        })
+        .labelled("expression statement")
+}
+
+// ============================================================================
 // Function Definition Parser
 // ============================================================================
 
@@ -496,10 +550,11 @@ pub fn function_def<'src>(
     let left_brace = select! { Token::LeftBrace(_) => () };
     let right_brace = select! { Token::RightBrace(t) => t.position };
 
-    // Function bodies can contain let statements, assignment statements, field assignments, return statements, and for loops
+    // Function bodies can contain let statements, assignment statements, field assignments, return statements, for loops, and expression statements
     // Use recursive parser to support nested for loops
     // Note: field_assignment_stmt must come before assignment_stmt to avoid ambiguity
     // (obj.field = value should parse as field assignment, not fail on obj.field)
+    // Note: expression_stmt must come LAST to avoid consuming parts of other statements
     let stmt_parser = recursive(|stmt_rec| {
         choice((
             let_stmt(expr_parser.clone()),
@@ -507,6 +562,7 @@ pub fn function_def<'src>(
             assignment_stmt(expr_parser.clone()),
             return_stmt(expr_parser.clone()),
             for_stmt(expr_parser.clone(), stmt_rec),
+            expression_stmt(expr_parser.clone()),
         ))
     });
 

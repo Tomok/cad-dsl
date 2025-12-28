@@ -48,6 +48,7 @@ fn stmt_parser_for_tests<'src>()
             assignment_stmt(expr_inner()),
             return_stmt(expr_inner()),
             for_stmt(expr_inner(), stmt_rec),
+            expression_stmt(expr_inner()),
         ))
     })
 }
@@ -1754,6 +1755,7 @@ fn test_let_with_type_and_init() {
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
         Stmt::Return { .. } => panic!("Expected Stmt::Let, got Return"),
+        Stmt::Expression { .. } => panic!("Expected Stmt::Let, got Expression"),
     }
 }
 
@@ -1784,6 +1786,7 @@ fn test_let_with_type_only() {
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
         Stmt::Return { .. } => panic!("Expected Stmt::Let, got Return"),
+        Stmt::Expression { .. } => panic!("Expected Stmt::Let, got Expression"),
     }
 }
 
@@ -1814,6 +1817,7 @@ fn test_let_with_init_only() {
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
         Stmt::Return { .. } => panic!("Expected Stmt::Let, got Return"),
+        Stmt::Expression { .. } => panic!("Expected Stmt::Let, got Expression"),
     }
 }
 
@@ -1844,6 +1848,7 @@ fn test_let_no_type_no_init() {
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
         Stmt::Return { .. } => panic!("Expected Stmt::Let, got Return"),
+        Stmt::Expression { .. } => panic!("Expected Stmt::Let, got Expression"),
     }
 }
 
@@ -1890,6 +1895,7 @@ fn test_let_with_expression() {
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
         Stmt::Return { .. } => panic!("Expected Stmt::Let, got Return"),
+        Stmt::Expression { .. } => panic!("Expected Stmt::Let, got Expression"),
     }
 }
 
@@ -1925,6 +1931,7 @@ fn test_let_container_field_simple() {
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
         Stmt::Return { .. } => panic!("Expected Stmt::Let, got Return"),
+        Stmt::Expression { .. } => panic!("Expected Stmt::Let, got Expression"),
     }
 }
 
@@ -1960,6 +1967,7 @@ fn test_let_container_field_nested() {
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
         Stmt::Return { .. } => panic!("Expected Stmt::Let, got Return"),
+        Stmt::Expression { .. } => panic!("Expected Stmt::Let, got Expression"),
     }
 }
 
@@ -1991,6 +1999,7 @@ fn test_let_container_field_with_expression() {
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
         Stmt::Return { .. } => panic!("Expected Stmt::Let, got Return"),
+        Stmt::Expression { .. } => panic!("Expected Stmt::Let, got Expression"),
     }
 }
 
@@ -2022,6 +2031,7 @@ fn test_let_container_field_no_type() {
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
         Stmt::Return { .. } => panic!("Expected Stmt::Let, got Return"),
+        Stmt::Expression { .. } => panic!("Expected Stmt::Let, got Expression"),
     }
 }
 
@@ -2056,6 +2066,7 @@ fn test_let_container_field_deeply_nested() {
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
         Stmt::Return { .. } => panic!("Expected Stmt::Let, got Return"),
+        Stmt::Expression { .. } => panic!("Expected Stmt::Let, got Expression"),
     }
 }
 
@@ -2094,6 +2105,7 @@ fn test_let_container_field_span_tracking() {
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
         Stmt::Return { .. } => panic!("Expected Stmt::Let, got Return"),
+        Stmt::Expression { .. } => panic!("Expected Stmt::Let, got Expression"),
     }
 }
 
@@ -2781,6 +2793,7 @@ fn test_span_let_statement() {
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
         Stmt::Return { .. } => panic!("Expected Stmt::Let, got Return"),
+        Stmt::Expression { .. } => panic!("Expected Stmt::Let, got Expression"),
     }
 }
 
@@ -5055,5 +5068,327 @@ fn test_return_stmt_in_for_loop() {
             assert_matches!(body[0], Stmt::Return { .. });
         }
         other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// Expression Statement Tests
+// ============================================================================
+
+#[test]
+fn test_expression_stmt_function_call() {
+    let input = "foo();";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::Call { name: "foo", .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_function_call_with_args() {
+    let input = "print(x, y);";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::Call { name: "print", .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_method_call() {
+    let input = "obj.method();";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::MethodCall { .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_method_call_with_args() {
+    let input = "sketch.add_line(p1, p2);";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::MethodCall { .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_integer_literal() {
+    let input = "42;";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::IntLit { value: 42, .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_variable() {
+    let input = "x;";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::Var { name: "x", .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_arithmetic() {
+    let input = "a + b;";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::Add { .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_complex_expression() {
+    let input = "x * 2 + y / 3;";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::Add { .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_field_access() {
+    let input = "obj.field;";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::FieldAccess { .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_nested_field_access() {
+    let input = "obj.nested.field;";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::FieldAccess { .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_in_function_body() {
+    let input = "fn test() -> i32 { foo(); return 42; }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| function_def(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FunctionDef { body, .. } => {
+            assert_eq!(body.len(), 2);
+            assert_matches!(body[0], Stmt::Expression { .. });
+            assert_matches!(body[1], Stmt::Return { .. });
+        }
+        other => panic!("Expected Stmt::FunctionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_multiple_in_function() {
+    let input = "fn test() -> i32 { foo(); bar(); baz(); return 42; }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| function_def(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FunctionDef { body, .. } => {
+            assert_eq!(body.len(), 4);
+            assert_matches!(body[0], Stmt::Expression { .. });
+            assert_matches!(body[1], Stmt::Expression { .. });
+            assert_matches!(body[2], Stmt::Expression { .. });
+            assert_matches!(body[3], Stmt::Return { .. });
+        }
+        other => panic!("Expected Stmt::FunctionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_in_for_loop() {
+    let input = "for i in 0..5 { foo(i); }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For { body, .. } => {
+            assert_eq!(body.len(), 1);
+            assert_matches!(body[0], Stmt::Expression { .. });
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_mixed_with_other_statements() {
+    let input = "fn test() -> i32 { let x = 5; foo(x); x = x + 1; bar(x); return x; }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| function_def(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FunctionDef { body, .. } => {
+            assert_eq!(body.len(), 5);
+            assert_matches!(body[0], Stmt::Let { .. });
+            assert_matches!(body[1], Stmt::Expression { .. });
+            assert_matches!(body[2], Stmt::Assignment { .. });
+            assert_matches!(body[3], Stmt::Expression { .. });
+            assert_matches!(body[4], Stmt::Return { .. });
+        }
+        other => panic!("Expected Stmt::FunctionDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_with_array_literal() {
+    let input = "[1, 2, 3];";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::ArrayLit { .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_with_struct_literal() {
+    let input = "Point { x: 1, y: 2 };";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::StructLit { .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_with_range() {
+    let input = "0..10;";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::Range { .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expression_stmt_with_boolean_expr() {
+    let input = "x > 5 and y < 10;";
+    let result = parse_with_timeout(
+        input,
+        |tokens| expression_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Expression { expr, .. } => {
+            assert_matches!(expr, Expr::And { .. });
+        }
+        other => panic!("Expected Stmt::Expression, got {:?}", other),
     }
 }

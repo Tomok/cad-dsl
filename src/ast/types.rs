@@ -187,6 +187,14 @@ pub enum Stmt<'src> {
         value: Option<Expr<'src>>,
         span: Span,
     },
+
+    /// Expression statement (expression followed by semicolon)
+    /// Examples:
+    ///   foo();
+    ///   print(x);
+    ///   obj.method();
+    ///   1 + 2;
+    Expression { expr: Expr<'src>, span: Span },
 }
 
 impl<'src> HasSpan for Stmt<'src> {
@@ -199,6 +207,7 @@ impl<'src> HasSpan for Stmt<'src> {
             Stmt::FunctionDef { span, .. } => *span,
             Stmt::StructDef { span, .. } => *span,
             Stmt::Return { span, .. } => *span,
+            Stmt::Expression { span, .. } => *span,
         }
     }
 }
