@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use assert_matches::assert_matches;
     use crate::ast::expr::*;
     use crate::lexer::{LineColumn, Span};
 
@@ -130,7 +131,7 @@ mod tests {
             span: dummy_span(),
         };
 
-        assert!(matches!(add, Expr::Add { .. }));
+        assert_matches!(add, Expr::Add { .. });
     }
 
     #[test]

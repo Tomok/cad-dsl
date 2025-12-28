@@ -37,6 +37,12 @@ This project uses Nix for development environment management. Use `nix develop` 
 - `./hooks/install-hooks.sh` - Install pre-commit hooks for code quality enforcement
 - Pre-commit hook runs: `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test`
 
+## Coding Standards
+
+### Testing Best Practices
+
+- **Use `assert_matches!` macro**: Always use `assert_matches!(value, Pattern { .. })` instead of `assert!(matches!(value, Pattern { .. }))` in tests. The `assert_matches!` macro provides clearer error messages when assertions fail.
+
 ## Code Architecture
 
 ### Core Components
