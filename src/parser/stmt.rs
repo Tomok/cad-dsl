@@ -54,7 +54,7 @@ pub fn type_annotation<'src>()
     let reference_type = select! {
         Token::Ampersand(t) => t.position,
     }
-    .then(base_type.clone())
+    .then(base_type)
     .map(|(amp_pos, inner_type)| {
         let inner_span = inner_type.span();
         let span = if amp_pos.line == inner_span.start.line {
