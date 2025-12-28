@@ -13,6 +13,7 @@ mod hir_types;
 // Semantic analysis modules
 mod semantic_analyzer_context;
 mod semantic_analyzer_errors;
+mod semantic_analyzer_pass1;
 
 use chumsky::Parser as _;
 use clap::{Parser, Subcommand};
