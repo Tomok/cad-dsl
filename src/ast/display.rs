@@ -67,6 +67,16 @@ impl<'src> std::fmt::Display for Expr<'src> {
             Expr::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            Expr::ContainerFieldAccess { field_path, .. } => {
+                write!(f, ".")?;
+                for (i, field) in field_path.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ".")?;
+                    }
+                    write!(f, "{}", field)?;
+                }
+                Ok(())
+            }
             Expr::ArrayLit { elements, .. } => {
                 write!(f, "[")?;
                 for (i, elem) in elements.iter().enumerate() {
@@ -159,6 +169,16 @@ impl<'src> std::fmt::Display for CmpLhs<'src> {
             CmpLhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            CmpLhs::ContainerFieldAccess { field_path, .. } => {
+                write!(f, ".")?;
+                for (i, field) in field_path.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ".")?;
+                    }
+                    write!(f, "{}", field)?;
+                }
+                Ok(())
+            }
             CmpLhs::ArrayLit { elements, .. } => {
                 write!(f, "[")?;
                 for (i, elem) in elements.iter().enumerate() {
@@ -244,6 +264,16 @@ impl<'src> std::fmt::Display for CmpRhs<'src> {
             CmpRhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            CmpRhs::ContainerFieldAccess { field_path, .. } => {
+                write!(f, ".")?;
+                for (i, field) in field_path.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ".")?;
+                    }
+                    write!(f, "{}", field)?;
+                }
+                Ok(())
+            }
             CmpRhs::ArrayLit { elements, .. } => {
                 write!(f, "[")?;
                 for (i, elem) in elements.iter().enumerate() {
@@ -329,6 +359,16 @@ impl<'src> std::fmt::Display for AddLhs<'src> {
             AddLhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            AddLhs::ContainerFieldAccess { field_path, .. } => {
+                write!(f, ".")?;
+                for (i, field) in field_path.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ".")?;
+                    }
+                    write!(f, "{}", field)?;
+                }
+                Ok(())
+            }
             AddLhs::ArrayLit { elements, .. } => {
                 write!(f, "[")?;
                 for (i, elem) in elements.iter().enumerate() {
@@ -412,6 +452,16 @@ impl<'src> std::fmt::Display for AddRhs<'src> {
             AddRhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            AddRhs::ContainerFieldAccess { field_path, .. } => {
+                write!(f, ".")?;
+                for (i, field) in field_path.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ".")?;
+                    }
+                    write!(f, "{}", field)?;
+                }
+                Ok(())
+            }
             AddRhs::ArrayLit { elements, .. } => {
                 write!(f, "[")?;
                 for (i, elem) in elements.iter().enumerate() {
@@ -495,6 +545,16 @@ impl<'src> std::fmt::Display for MulLhs<'src> {
             MulLhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            MulLhs::ContainerFieldAccess { field_path, .. } => {
+                write!(f, ".")?;
+                for (i, field) in field_path.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ".")?;
+                    }
+                    write!(f, "{}", field)?;
+                }
+                Ok(())
+            }
             MulLhs::ArrayLit { elements, .. } => {
                 write!(f, "[")?;
                 for (i, elem) in elements.iter().enumerate() {
@@ -575,6 +635,16 @@ impl<'src> std::fmt::Display for MulRhs<'src> {
             MulRhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            MulRhs::ContainerFieldAccess { field_path, .. } => {
+                write!(f, ".")?;
+                for (i, field) in field_path.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ".")?;
+                    }
+                    write!(f, "{}", field)?;
+                }
+                Ok(())
+            }
             MulRhs::ArrayLit { elements, .. } => {
                 write!(f, "[")?;
                 for (i, elem) in elements.iter().enumerate() {
@@ -654,6 +724,16 @@ impl<'src> std::fmt::Display for PowLhs<'src> {
             PowLhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            PowLhs::ContainerFieldAccess { field_path, .. } => {
+                write!(f, ".")?;
+                for (i, field) in field_path.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ".")?;
+                    }
+                    write!(f, "{}", field)?;
+                }
+                Ok(())
+            }
             PowLhs::ArrayLit { elements, .. } => {
                 write!(f, "[")?;
                 for (i, elem) in elements.iter().enumerate() {
@@ -734,6 +814,16 @@ impl<'src> std::fmt::Display for PowRhs<'src> {
             PowRhs::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            PowRhs::ContainerFieldAccess { field_path, .. } => {
+                write!(f, ".")?;
+                for (i, field) in field_path.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ".")?;
+                    }
+                    write!(f, "{}", field)?;
+                }
+                Ok(())
+            }
             PowRhs::ArrayLit { elements, .. } => {
                 write!(f, "[")?;
                 for (i, elem) in elements.iter().enumerate() {
@@ -810,6 +900,16 @@ impl<'src> std::fmt::Display for Atom<'src> {
             Atom::FieldAccess {
                 receiver, field, ..
             } => write!(f, "{}.{}", receiver, field),
+            Atom::ContainerFieldAccess { field_path, .. } => {
+                write!(f, ".")?;
+                for (i, field) in field_path.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ".")?;
+                    }
+                    write!(f, "{}", field)?;
+                }
+                Ok(())
+            }
             Atom::ArrayLit { elements, .. } => {
                 write!(f, "[")?;
                 for (i, elem) in elements.iter().enumerate() {

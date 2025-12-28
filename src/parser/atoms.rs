@@ -37,6 +37,31 @@ pub fn atom<'src>(
 ) -> impl Parser<'src, &'src [Token<'src>], Atom<'src>, ParseError<'src>> + Clone {
     // First, parse a base atom (literal, variable, or function call)
     let base_atom = choice((
+        // Dot-prefixed field access: .identifier(.identifier)*
+        // For container field access in with blocks (e.g., .field or .field.x)
+        select! { Token::Dot(t) => t.position }
+            .then(
+                select! { Token::Identifier(t) => t.name }
+                    .separated_by(select! { Token::Dot(_) => () })
+                    .at_least(1)
+                    .collect::<Vec<_>>(),
+            )
+            .map(|(dot_pos, field_path)| {
+                let last_field_len = field_path.last().map_or(0, |f| f.len());
+                let span = Span {
+                    start: dot_pos,
+                    lines: 0,
+                    end_column: dot_pos.column
+                        + 1
+                        + field_path
+                            .iter()
+                            .take(field_path.len() - 1)
+                            .map(|f| f.len() + 1) // field + dot
+                            .sum::<usize>()
+                        + last_field_len,
+                };
+                Atom::ContainerFieldAccess { field_path, span }
+            }),
         // Try float first (it's more specific)
         select! {
             Token::FloatLiteral(t) => Atom::FloatLit { value: t.value, span: t.span },
@@ -259,6 +284,7 @@ pub fn atom<'src>(
                     Atom::Call { span, .. } => span.start,
                     Atom::MethodCall { span, .. } => span.start,
                     Atom::FieldAccess { span, .. } => span.start,
+                    Atom::ContainerFieldAccess { span, .. } => span.start,
                     Atom::ArrayLit { span, .. } => span.start,
                     Atom::StructLit { span, .. } => span.start,
                     Atom::Index { span, .. } => span.start,

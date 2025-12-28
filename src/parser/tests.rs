@@ -1741,6 +1741,7 @@ fn test_let_with_type_and_init() {
 
     match result.unwrap() {
         Stmt::Let {
+            dot_prefix: _,
             name_path,
             type_annotation,
             init,
@@ -1774,6 +1775,7 @@ fn test_let_with_type_only() {
 
     match result.unwrap() {
         Stmt::Let {
+            dot_prefix: _,
             name_path,
             type_annotation,
             init,
@@ -1807,6 +1809,7 @@ fn test_let_with_init_only() {
 
     match result.unwrap() {
         Stmt::Let {
+            dot_prefix: _,
             name_path,
             type_annotation,
             init,
@@ -1840,6 +1843,7 @@ fn test_let_no_type_no_init() {
 
     match result.unwrap() {
         Stmt::Let {
+            dot_prefix: _,
             name_path,
             type_annotation,
             init,
@@ -1873,6 +1877,7 @@ fn test_let_with_expression() {
 
     match result.unwrap() {
         Stmt::Let {
+            dot_prefix: _,
             name_path,
             type_annotation,
             init,
@@ -1926,6 +1931,7 @@ fn test_let_container_field_simple() {
 
     match result.unwrap() {
         Stmt::Let {
+            dot_prefix: _,
             name_path,
             type_annotation,
             init,
@@ -1960,6 +1966,7 @@ fn test_let_container_field_nested() {
 
     match result.unwrap() {
         Stmt::Let {
+            dot_prefix: _,
             name_path,
             type_annotation,
             init,
@@ -1998,6 +2005,7 @@ fn test_let_container_field_with_expression() {
 
     match result.unwrap() {
         Stmt::Let {
+            dot_prefix: _,
             name_path,
             type_annotation,
             init,
@@ -2032,6 +2040,7 @@ fn test_let_container_field_no_type() {
 
     match result.unwrap() {
         Stmt::Let {
+            dot_prefix: _,
             name_path,
             type_annotation,
             init,
@@ -2066,6 +2075,7 @@ fn test_let_container_field_deeply_nested() {
 
     match result.unwrap() {
         Stmt::Let {
+            dot_prefix: _,
             name_path,
             type_annotation,
             init,
@@ -2103,7 +2113,10 @@ fn test_let_container_field_span_tracking() {
 
     match result.unwrap() {
         Stmt::Let {
-            name_path, span, ..
+            dot_prefix: _,
+            name_path,
+            span,
+            ..
         } => {
             assert_eq!(name_path.len(), 2);
 
@@ -2357,6 +2370,7 @@ fn test_field_assignment_simple() {
 
     match result.unwrap() {
         Stmt::FieldAssignment {
+            dot_prefix: _,
             field_path,
             value,
             span,
@@ -2391,7 +2405,10 @@ fn test_field_assignment_nested_two_levels() {
 
     match result.unwrap() {
         Stmt::FieldAssignment {
-            field_path, value, ..
+            dot_prefix: _,
+            field_path,
+            value,
+            ..
         } => {
             assert_eq!(field_path.len(), 3);
             assert_eq!(field_path[0].0, "sketch");
@@ -2418,7 +2435,10 @@ fn test_field_assignment_deeply_nested() {
 
     match result.unwrap() {
         Stmt::FieldAssignment {
-            field_path, value, ..
+            dot_prefix: _,
+            field_path,
+            value,
+            ..
         } => {
             assert_eq!(field_path.len(), 4);
             assert_eq!(field_path[0].0, "sketch");
@@ -2598,7 +2618,10 @@ fn test_field_assignment_span_tracking() {
 
     match result.unwrap() {
         Stmt::FieldAssignment {
-            field_path, span, ..
+            dot_prefix: _,
+            field_path,
+            span,
+            ..
         } => {
             // Check field path spans
             assert_eq!(field_path[0].1.start.line, 1);
@@ -2797,7 +2820,10 @@ fn test_span_let_statement() {
 
     match result.unwrap() {
         Stmt::Let {
-            name_path, span, ..
+            dot_prefix: _,
+            name_path,
+            span,
+            ..
         } => {
             // name_path should have one element "x"
             assert_eq!(name_path.len(), 1);
@@ -5981,5 +6007,131 @@ fn test_with_stmt_with_block() {
             assert_matches!(body[0], Stmt::Block { .. });
         }
         other => panic!("Expected Stmt::With, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// Dot Prefix Tests (for use in with blocks)
+// ============================================================================
+
+#[test]
+fn test_let_dot_prefix_simple() {
+    let result = parse_with_timeout(
+        "let .field: i32 = 42;",
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Let {
+            dot_prefix,
+            name_path,
+            type_annotation,
+            init,
+            ..
+        } => {
+            assert_eq!(dot_prefix, true);
+            assert_eq!(name_path.len(), 1);
+            assert_eq!(name_path[0].0, "field");
+            assert_matches!(type_annotation, Some(Type::I32 { .. }));
+            assert_matches!(init, Some(Expr::IntLit { value: 42, .. }));
+        }
+        other => panic!("Expected Stmt::Let, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_let_dot_prefix_nested_path() {
+    let result = parse_with_timeout(
+        "let .p1.x: f64 = 10.0;",
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Let {
+            dot_prefix,
+            name_path,
+            type_annotation,
+            init,
+            ..
+        } => {
+            assert_eq!(dot_prefix, true);
+            assert_eq!(name_path.len(), 2);
+            assert_eq!(name_path[0].0, "p1");
+            assert_eq!(name_path[1].0, "x");
+            assert_matches!(type_annotation, Some(Type::F64 { .. }));
+            assert_matches!(init, Some(Expr::FloatLit { .. }));
+        }
+        other => panic!("Expected Stmt::Let, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_field_assignment_dot_prefix_simple() {
+    let result = parse_with_timeout(
+        ".field = 42;",
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FieldAssignment {
+            dot_prefix,
+            field_path,
+            value,
+            ..
+        } => {
+            assert_eq!(dot_prefix, true);
+            assert_eq!(field_path.len(), 1);
+            assert_eq!(field_path[0].0, "field");
+            assert_matches!(value, Expr::IntLit { value: 42, .. });
+        }
+        other => panic!("Expected Stmt::FieldAssignment, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_let_without_dot_prefix() {
+    let result = parse_with_timeout(
+        "let x: i32 = 42;",
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Let {
+            dot_prefix,
+            name_path,
+            ..
+        } => {
+            assert_eq!(dot_prefix, false);
+            assert_eq!(name_path.len(), 1);
+            assert_eq!(name_path[0].0, "x");
+        }
+        other => panic!("Expected Stmt::Let, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_field_assignment_without_dot_prefix() {
+    let result = parse_with_timeout(
+        "obj.field = 42;",
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FieldAssignment {
+            dot_prefix,
+            field_path,
+            ..
+        } => {
+            assert_eq!(dot_prefix, false);
+            assert_eq!(field_path.len(), 2);
+            assert_eq!(field_path[0].0, "obj");
+            assert_eq!(field_path[1].0, "field");
+        }
+        other => panic!("Expected Stmt::FieldAssignment, got {:?}", other),
     }
 }

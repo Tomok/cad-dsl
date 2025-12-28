@@ -91,11 +91,17 @@ pub enum Stmt<'src> {
     ///   let z = 3.14;
     ///   let container.field: Point = point(0mm, 0mm);
     ///   let sketch.entities.p1: Point = point(10mm, 10mm);
+    ///   let .field: Point = point(0mm, 0mm);  // Dot prefix (in with blocks)
     Let {
+        /// Whether this let statement has a dot prefix (e.g., `let .field = value;`)
+        /// Dot prefix indicates the entity should be stored in the container from
+        /// the enclosing `with` statement.
+        dot_prefix: bool,
         /// Path segments for the variable name
         /// - Simple let: `let x` -> vec![("x", span)]
         /// - Container field: `let container.field` -> vec![("container", span1), ("field", span2)]
         /// - Nested: `let a.b.c` -> vec![("a", span1), ("b", span2), ("c", span3)]
+        /// - Dot prefix: `let .field` -> vec![("field", span)]
         name_path: Vec<(&'src str, Span)>,
         type_annotation: Option<Type>,
         init: Option<Expr<'src>>,
@@ -125,11 +131,16 @@ pub enum Stmt<'src> {
     ///   obj.field = 42;
     ///   sketch.origin.x = 10mm;
     ///   container.entities.p1.x = 5;
-    /// Note: The path must have at least 2 segments (object.field).
+    ///   .field = 42;  // Dot prefix (in with blocks)
+    /// Note: Without dot prefix, the path must have at least 2 segments (object.field).
     FieldAssignment {
+        /// Whether this field assignment has a dot prefix (e.g., `.field = value;`)
+        /// Dot prefix indicates the field is on the container from the enclosing `with` statement.
+        dot_prefix: bool,
         /// Path to the field being assigned
         /// - obj.field -> vec![("obj", span1), ("field", span2)]
         /// - obj.nested.field -> vec![("obj", span1), ("nested", span2), ("field", span3)]
+        /// - .field -> vec![("field", span)]
         field_path: Vec<(&'src str, Span)>,
         /// Value expression
         value: Expr<'src>,

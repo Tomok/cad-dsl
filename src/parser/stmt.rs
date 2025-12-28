@@ -101,24 +101,46 @@ pub fn let_stmt<'src>(
     let colon = select! { Token::Colon(_) => () };
     let equals = select! { Token::Equals(_) => () };
     let dot = select! { Token::Dot(_) => () };
+    let dot_with_pos = select! { Token::Dot(t) => t.position };
 
-    // Parse a dotted path: identifier (.identifier)*
-    let name_path = select! {
-        Token::Identifier(t) => (t.name, t.span),
-    }
-    .labelled("variable name")
-    .then(
-        dot.ignore_then(select! {
+    // Parse a dotted path: [.] identifier (.identifier)*
+    // Returns (has_dot_prefix, path)
+    let name_path = choice((
+        // Dot-prefixed path: .identifier (.identifier)*
+        dot_with_pos
+            .then(select! {
+                Token::Identifier(t) => (t.name, t.span),
+            })
+            .then(
+                dot.ignore_then(select! {
+                    Token::Identifier(t) => (t.name, t.span),
+                })
+                .repeated()
+                .collect::<Vec<_>>(),
+            )
+            .map(|((_, first), rest)| {
+                let mut path = vec![first];
+                path.extend(rest);
+                (true, path)
+            }),
+        // Regular path: identifier (.identifier)*
+        select! {
             Token::Identifier(t) => (t.name, t.span),
-        })
-        .repeated()
-        .collect::<Vec<_>>(),
-    )
-    .map(|(first, rest)| {
-        let mut path = vec![first];
-        path.extend(rest);
-        path
-    });
+        }
+        .labelled("variable name")
+        .then(
+            dot.ignore_then(select! {
+                Token::Identifier(t) => (t.name, t.span),
+            })
+            .repeated()
+            .collect::<Vec<_>>(),
+        )
+        .map(|(first, rest)| {
+            let mut path = vec![first];
+            path.extend(rest);
+            (false, path)
+        }),
+    ));
 
     select! {
         Token::Let(t) => t.position,
@@ -136,7 +158,7 @@ pub fn let_stmt<'src>(
         Token::SemiColon(t) => t.position,
     })
     .map(
-        |((((let_pos, name_path), type_annotation), init), semi_pos)| {
+        |((((let_pos, (dot_prefix, name_path)), type_annotation), init), semi_pos)| {
             // Construct span from let keyword to semicolon
             let span = if let_pos.line == semi_pos.line {
                 // Same line
@@ -155,6 +177,7 @@ pub fn let_stmt<'src>(
             };
 
             Stmt::Let {
+                dot_prefix,
                 name_path,
                 type_annotation,
                 init,
@@ -252,28 +275,47 @@ pub fn field_assignment_stmt<'src>(
 
     let equals = select! { Token::Equals(_) => () };
     let dot = select! { Token::Dot(_) => () };
+    let dot_with_pos = select! { Token::Dot(t) => t.position };
 
-    // Parse a dotted path: identifier.identifier(.identifier)*
-    // Must have at least 2 segments
-    let field_path = select! {
-        Token::Identifier(t) => (t.name, t.span),
-    }
-    .labelled("object name")
-    .then_ignore(dot)
-    .then(
+    // Parse a dotted path: [.] identifier(.identifier)*
+    // Regular form requires at least 2 segments (obj.field)
+    // Dot-prefixed form requires at least 1 segment (.field)
+    // Returns (has_dot_prefix, path)
+    let field_path = choice((
+        // Dot-prefixed path: .identifier(.identifier)*
+        dot_with_pos
+            .then(
+                select! {
+                    Token::Identifier(t) => (t.name, t.span),
+                }
+                .labelled("field name")
+                .separated_by(dot)
+                .at_least(1)
+                .collect::<Vec<_>>(),
+            )
+            .map(|(_, path)| (true, path)),
+        // Regular path: identifier.identifier(.identifier)*
+        // Must have at least 2 segments
         select! {
             Token::Identifier(t) => (t.name, t.span),
         }
-        .labelled("field name")
-        .separated_by(dot)
-        .at_least(1)
-        .collect::<Vec<_>>(),
-    )
-    .map(|(first, rest)| {
-        let mut path = vec![first];
-        path.extend(rest);
-        path
-    });
+        .labelled("object name")
+        .then_ignore(dot)
+        .then(
+            select! {
+                Token::Identifier(t) => (t.name, t.span),
+            }
+            .labelled("field name")
+            .separated_by(dot)
+            .at_least(1)
+            .collect::<Vec<_>>(),
+        )
+        .map(|(first, rest)| {
+            let mut path = vec![first];
+            path.extend(rest);
+            (false, path)
+        }),
+    ));
 
     field_path
         .then_ignore(equals)
@@ -281,7 +323,7 @@ pub fn field_assignment_stmt<'src>(
         .then(select! {
             Token::SemiColon(t) => t.position,
         })
-        .map(|((field_path, value), semi_pos)| {
+        .map(|(((dot_prefix, field_path), value), semi_pos)| {
             // Construct span from first identifier to semicolon
             let first_span = field_path[0].1;
             let span = if first_span.start.line == semi_pos.line {
@@ -301,6 +343,7 @@ pub fn field_assignment_stmt<'src>(
             };
 
             Stmt::FieldAssignment {
+                dot_prefix,
                 field_path,
                 value,
                 span,
