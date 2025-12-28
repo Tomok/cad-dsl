@@ -91,7 +91,7 @@ fn test_expr_bool_true() {
         |input| expr().parse(input).into_result(),
         Duration::from_secs(2),
     );
-    assert!(matches!(result.unwrap(), Expr::BoolLit { value: true, .. }));
+    assert_matches!(result.unwrap(), Expr::BoolLit { value: true, .. });
 }
 
 #[test]
@@ -101,10 +101,10 @@ fn test_expr_bool_false() {
         |input| expr().parse(input).into_result(),
         Duration::from_secs(2),
     );
-    assert!(matches!(
+    assert_matches!(
         result.unwrap(),
         Expr::BoolLit { value: false, .. }
-    ));
+    );
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn test_expr_simple_var() {
         |input| expr().parse(input).into_result(),
         Duration::from_secs(2),
     );
-    assert!(matches!(result.unwrap(), Expr::Var { name, .. } if name == "x"));
+    assert_matches!(result.unwrap(), Expr::Var { name, .. } if name == "x");
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn test_expr_simple_int() {
         |input| expr().parse(input).into_result(),
         Duration::from_secs(2),
     );
-    assert!(matches!(result.unwrap(), Expr::IntLit { value: 42, .. }));
+    assert_matches!(result.unwrap(), Expr::IntLit { value: 42, .. });
 }
 
 #[test]
@@ -137,8 +137,8 @@ fn test_expr_simple_add() {
 
     match result.unwrap() {
         Expr::Add { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, AddLhs::IntLit { value: 1, .. }));
-            assert!(matches!(*rhs, AddRhs::IntLit { value: 2, .. }));
+            assert_matches!(*lhs, AddLhs::IntLit { value: 1, .. });
+            assert_matches!(*rhs, AddRhs::IntLit { value: 2, .. });
         }
         other => panic!("Expected Expr::Add, got {:?}", other),
     }
@@ -154,8 +154,8 @@ fn test_expr_simple_mul() {
 
     match result.unwrap() {
         Expr::Mul { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, MulLhs::IntLit { value: 3, .. }));
-            assert!(matches!(*rhs, MulRhs::IntLit { value: 4, .. }));
+            assert_matches!(*lhs, MulLhs::IntLit { value: 3, .. });
+            assert_matches!(*rhs, MulRhs::IntLit { value: 4, .. });
         }
         other => panic!("Expected Expr::Mul, got {:?}", other),
     }
@@ -172,15 +172,15 @@ fn test_expr_precedence() {
 
     match result.unwrap() {
         Expr::Add { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, AddLhs::IntLit { value: 1, .. }));
+            assert_matches!(*lhs, AddLhs::IntLit { value: 1, .. });
             match *rhs {
                 AddRhs::Mul {
                     lhs: ref mul_lhs,
                     rhs: ref mul_rhs,
                     ..
                 } => {
-                    assert!(matches!(**mul_lhs, MulLhs::IntLit { value: 2, .. }));
-                    assert!(matches!(**mul_rhs, MulRhs::IntLit { value: 3, .. }));
+                    assert_matches!(**mul_lhs, MulLhs::IntLit { value: 2, .. });
+                    assert_matches!(**mul_rhs, MulRhs::IntLit { value: 3, .. });
                 }
                 ref other => panic!("Expected AddRhs::Mul, got {:?}", other),
             }
@@ -206,12 +206,12 @@ fn test_expr_left_associative_add() {
                     rhs: ref inner_rhs,
                     ..
                 } => {
-                    assert!(matches!(**inner_lhs, AddLhs::IntLit { value: 1, .. }));
-                    assert!(matches!(**inner_rhs, AddRhs::IntLit { value: 2, .. }));
+                    assert_matches!(**inner_lhs, AddLhs::IntLit { value: 1, .. });
+                    assert_matches!(**inner_rhs, AddRhs::IntLit { value: 2, .. });
                 }
                 ref other => panic!("Expected AddLhs::Add, got {:?}", other),
             }
-            assert!(matches!(*rhs, AddRhs::IntLit { value: 3, .. }));
+            assert_matches!(*rhs, AddRhs::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::Add, got {:?}", other),
     }
@@ -233,14 +233,14 @@ fn test_expr_parentheses() {
                     Expr::Add {
                         ref lhs, ref rhs, ..
                     } => {
-                        assert!(matches!(**lhs, AddLhs::IntLit { value: 1, .. }));
-                        assert!(matches!(**rhs, AddRhs::IntLit { value: 2, .. }));
+                        assert_matches!(**lhs, AddLhs::IntLit { value: 1, .. });
+                        assert_matches!(**rhs, AddRhs::IntLit { value: 2, .. });
                     }
                     ref other => panic!("Expected Expr::Add, got {:?}", other),
                 },
                 ref other => panic!("Expected MulLhs::Paren, got {:?}", other),
             }
-            assert!(matches!(*rhs, MulRhs::IntLit { value: 3, .. }));
+            assert_matches!(*rhs, MulRhs::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::Mul, got {:?}", other),
     }
@@ -257,8 +257,8 @@ fn test_expr_simple_eq() {
 
     match result.unwrap() {
         Expr::Eq { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, CmpLhs::IntLit { value: 1, .. }));
-            assert!(matches!(*rhs, CmpRhs::IntLit { value: 2, .. }));
+            assert_matches!(*lhs, CmpLhs::IntLit { value: 1, .. });
+            assert_matches!(*rhs, CmpRhs::IntLit { value: 2, .. });
         }
         other => panic!("Expected Expr::Eq, got {:?}", other),
     }
@@ -281,8 +281,8 @@ fn test_expr_eq_with_addition() {
                     rhs: ref add_rhs,
                     ..
                 } => {
-                    assert!(matches!(**add_lhs, AddLhs::IntLit { value: 1, .. }));
-                    assert!(matches!(**add_rhs, AddRhs::IntLit { value: 2, .. }));
+                    assert_matches!(**add_lhs, AddLhs::IntLit { value: 1, .. });
+                    assert_matches!(**add_rhs, AddRhs::IntLit { value: 2, .. });
                 }
                 ref other => panic!("Expected CmpLhs::Add, got {:?}", other),
             }
@@ -292,8 +292,8 @@ fn test_expr_eq_with_addition() {
                     rhs: ref add_rhs,
                     ..
                 } => {
-                    assert!(matches!(**add_lhs, AddLhs::IntLit { value: 3, .. }));
-                    assert!(matches!(**add_rhs, AddRhs::IntLit { value: 4, .. }));
+                    assert_matches!(**add_lhs, AddLhs::IntLit { value: 3, .. });
+                    assert_matches!(**add_rhs, AddRhs::IntLit { value: 4, .. });
                 }
                 ref other => panic!("Expected CmpRhs::Add, got {:?}", other),
             }
@@ -319,12 +319,12 @@ fn test_expr_eq_left_associative() {
                     rhs: ref inner_rhs,
                     ..
                 } => {
-                    assert!(matches!(**inner_lhs, CmpLhs::IntLit { value: 1, .. }));
-                    assert!(matches!(**inner_rhs, CmpRhs::IntLit { value: 2, .. }));
+                    assert_matches!(**inner_lhs, CmpLhs::IntLit { value: 1, .. });
+                    assert_matches!(**inner_rhs, CmpRhs::IntLit { value: 2, .. });
                 }
                 ref other => panic!("Expected CmpLhs::Eq, got {:?}", other),
             }
-            assert!(matches!(*rhs, CmpRhs::IntLit { value: 3, .. }));
+            assert_matches!(*rhs, CmpRhs::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::Eq, got {:?}", other),
     }
@@ -341,8 +341,8 @@ fn test_expr_eq_with_bool() {
 
     match result.unwrap() {
         Expr::Eq { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, CmpLhs::BoolLit { value: true, .. }));
-            assert!(matches!(*rhs, CmpRhs::BoolLit { value: false, .. }));
+            assert_matches!(*lhs, CmpLhs::BoolLit { value: true, .. });
+            assert_matches!(*rhs, CmpRhs::BoolLit { value: false, .. });
         }
         other => panic!("Expected Expr::Eq, got {:?}", other),
     }
@@ -359,8 +359,8 @@ fn test_expr_simple_neq() {
 
     match result.unwrap() {
         Expr::NotEq { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, CmpLhs::IntLit { value: 1, .. }));
-            assert!(matches!(*rhs, CmpRhs::IntLit { value: 2, .. }));
+            assert_matches!(*lhs, CmpLhs::IntLit { value: 1, .. });
+            assert_matches!(*rhs, CmpRhs::IntLit { value: 2, .. });
         }
         other => panic!("Expected Expr::NotEq, got {:?}", other),
     }
@@ -383,8 +383,8 @@ fn test_expr_neq_with_addition() {
                     rhs: ref add_rhs,
                     ..
                 } => {
-                    assert!(matches!(**add_lhs, AddLhs::IntLit { value: 1, .. }));
-                    assert!(matches!(**add_rhs, AddRhs::IntLit { value: 2, .. }));
+                    assert_matches!(**add_lhs, AddLhs::IntLit { value: 1, .. });
+                    assert_matches!(**add_rhs, AddRhs::IntLit { value: 2, .. });
                 }
                 ref other => panic!("Expected CmpLhs::Add, got {:?}", other),
             }
@@ -394,8 +394,8 @@ fn test_expr_neq_with_addition() {
                     rhs: ref add_rhs,
                     ..
                 } => {
-                    assert!(matches!(**add_lhs, AddLhs::IntLit { value: 3, .. }));
-                    assert!(matches!(**add_rhs, AddRhs::IntLit { value: 4, .. }));
+                    assert_matches!(**add_lhs, AddLhs::IntLit { value: 3, .. });
+                    assert_matches!(**add_rhs, AddRhs::IntLit { value: 4, .. });
                 }
                 ref other => panic!("Expected CmpRhs::Add, got {:?}", other),
             }
@@ -421,12 +421,12 @@ fn test_expr_neq_left_associative() {
                     rhs: ref inner_rhs,
                     ..
                 } => {
-                    assert!(matches!(**inner_lhs, CmpLhs::IntLit { value: 1, .. }));
-                    assert!(matches!(**inner_rhs, CmpRhs::IntLit { value: 2, .. }));
+                    assert_matches!(**inner_lhs, CmpLhs::IntLit { value: 1, .. });
+                    assert_matches!(**inner_rhs, CmpRhs::IntLit { value: 2, .. });
                 }
                 ref other => panic!("Expected CmpLhs::NotEq, got {:?}", other),
             }
-            assert!(matches!(*rhs, CmpRhs::IntLit { value: 3, .. }));
+            assert_matches!(*rhs, CmpRhs::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::NotEq, got {:?}", other),
     }
@@ -443,8 +443,8 @@ fn test_expr_neq_with_bool() {
 
     match result.unwrap() {
         Expr::NotEq { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, CmpLhs::BoolLit { value: true, .. }));
-            assert!(matches!(*rhs, CmpRhs::BoolLit { value: false, .. }));
+            assert_matches!(*lhs, CmpLhs::BoolLit { value: true, .. });
+            assert_matches!(*rhs, CmpRhs::BoolLit { value: false, .. });
         }
         other => panic!("Expected Expr::NotEq, got {:?}", other),
     }
@@ -467,12 +467,12 @@ fn test_expr_mixed_eq_neq() {
                     rhs: ref inner_rhs,
                     ..
                 } => {
-                    assert!(matches!(**inner_lhs, CmpLhs::IntLit { value: 1, .. }));
-                    assert!(matches!(**inner_rhs, CmpRhs::IntLit { value: 2, .. }));
+                    assert_matches!(**inner_lhs, CmpLhs::IntLit { value: 1, .. });
+                    assert_matches!(**inner_rhs, CmpRhs::IntLit { value: 2, .. });
                 }
                 ref other => panic!("Expected CmpLhs::Eq, got {:?}", other),
             }
-            assert!(matches!(*rhs, CmpRhs::IntLit { value: 3, .. }));
+            assert_matches!(*rhs, CmpRhs::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::NotEq, got {:?}", other),
     }
@@ -493,8 +493,8 @@ fn test_expr_simple_pow() {
 
     match result.unwrap() {
         Expr::Pow { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, PowLhs::IntLit { value: 2, .. }));
-            assert!(matches!(*rhs, PowRhs::IntLit { value: 3, .. }));
+            assert_matches!(*lhs, PowLhs::IntLit { value: 2, .. });
+            assert_matches!(*rhs, PowRhs::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::Pow, got {:?}", other),
     }
@@ -511,15 +511,15 @@ fn test_expr_pow_right_associative() {
 
     match result.unwrap() {
         Expr::Pow { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, PowLhs::IntLit { value: 2, .. }));
+            assert_matches!(*lhs, PowLhs::IntLit { value: 2, .. });
             match *rhs {
                 PowRhs::Pow {
                     lhs: ref inner_lhs,
                     rhs: ref inner_rhs,
                     ..
                 } => {
-                    assert!(matches!(**inner_lhs, PowLhs::IntLit { value: 3, .. }));
-                    assert!(matches!(**inner_rhs, PowRhs::IntLit { value: 4, .. }));
+                    assert_matches!(**inner_lhs, PowLhs::IntLit { value: 3, .. });
+                    assert_matches!(**inner_rhs, PowRhs::IntLit { value: 4, .. });
                 }
                 ref other => panic!("Expected PowRhs::Pow, got {:?}", other),
             }
@@ -539,15 +539,15 @@ fn test_expr_pow_with_mul() {
 
     match result.unwrap() {
         Expr::Mul { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, MulLhs::IntLit { value: 2, .. }));
+            assert_matches!(*lhs, MulLhs::IntLit { value: 2, .. });
             match *rhs {
                 MulRhs::Pow {
                     lhs: ref pow_lhs,
                     rhs: ref pow_rhs,
                     ..
                 } => {
-                    assert!(matches!(**pow_lhs, PowLhs::IntLit { value: 3, .. }));
-                    assert!(matches!(**pow_rhs, PowRhs::IntLit { value: 4, .. }));
+                    assert_matches!(**pow_lhs, PowLhs::IntLit { value: 3, .. });
+                    assert_matches!(**pow_rhs, PowRhs::IntLit { value: 4, .. });
                 }
                 ref other => panic!("Expected MulRhs::Pow, got {:?}", other),
             }
@@ -567,15 +567,15 @@ fn test_expr_pow_with_add() {
 
     match result.unwrap() {
         Expr::Add { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, AddLhs::IntLit { value: 1, .. }));
+            assert_matches!(*lhs, AddLhs::IntLit { value: 1, .. });
             match *rhs {
                 AddRhs::Pow {
                     lhs: ref pow_lhs,
                     rhs: ref pow_rhs,
                     ..
                 } => {
-                    assert!(matches!(**pow_lhs, PowLhs::IntLit { value: 2, .. }));
-                    assert!(matches!(**pow_rhs, PowRhs::IntLit { value: 3, .. }));
+                    assert_matches!(**pow_lhs, PowLhs::IntLit { value: 2, .. });
+                    assert_matches!(**pow_rhs, PowRhs::IntLit { value: 3, .. });
                 }
                 ref other => panic!("Expected AddRhs::Pow, got {:?}", other),
             }
@@ -600,14 +600,14 @@ fn test_expr_pow_with_parens() {
                     Expr::Pow {
                         ref lhs, ref rhs, ..
                     } => {
-                        assert!(matches!(**lhs, PowLhs::IntLit { value: 2, .. }));
-                        assert!(matches!(**rhs, PowRhs::IntLit { value: 3, .. }));
+                        assert_matches!(**lhs, PowLhs::IntLit { value: 2, .. });
+                        assert_matches!(**rhs, PowRhs::IntLit { value: 3, .. });
                     }
                     ref other => panic!("Expected Expr::Pow, got {:?}", other),
                 },
                 ref other => panic!("Expected PowLhs::Paren, got {:?}", other),
             }
-            assert!(matches!(*rhs, PowRhs::IntLit { value: 4, .. }));
+            assert_matches!(*rhs, PowRhs::IntLit { value: 4, .. });
         }
         other => panic!("Expected Expr::Pow, got {:?}", other),
     }
@@ -624,8 +624,8 @@ fn test_expr_pow_with_vars() {
 
     match result.unwrap() {
         Expr::Pow { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, PowLhs::Var { name, .. } if name == "x"));
-            assert!(matches!(*rhs, PowRhs::Var { name, .. } if name == "y"));
+            assert_matches!(*lhs, PowLhs::Var { name, .. } if name == "x");
+            assert_matches!(*rhs, PowRhs::Var { name, .. } if name == "y");
         }
         other => panic!("Expected Expr::Pow, got {:?}", other),
     }
@@ -642,20 +642,20 @@ fn test_expr_complex_pow_precedence() {
 
     match result.unwrap() {
         Expr::Add { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, AddLhs::IntLit { value: 2, .. }));
+            assert_matches!(*lhs, AddLhs::IntLit { value: 2, .. });
             match *rhs {
                 AddRhs::Mul {
                     lhs: ref mul_lhs,
                     rhs: ref mul_rhs,
                     ..
                 } => {
-                    assert!(matches!(**mul_lhs, MulLhs::IntLit { value: 3, .. }));
+                    assert_matches!(**mul_lhs, MulLhs::IntLit { value: 3, .. });
                     match **mul_rhs {
                         MulRhs::Pow {
                             ref lhs, ref rhs, ..
                         } => {
-                            assert!(matches!(**lhs, PowLhs::IntLit { value: 4, .. }));
-                            assert!(matches!(**rhs, PowRhs::IntLit { value: 5, .. }));
+                            assert_matches!(**lhs, PowLhs::IntLit { value: 4, .. });
+                            assert_matches!(**rhs, PowRhs::IntLit { value: 5, .. });
                         }
                         ref other => panic!("Expected MulRhs::Pow, got {:?}", other),
                     }
@@ -678,20 +678,20 @@ fn test_expr_pow_chain_right_assoc() {
 
     match result.unwrap() {
         Expr::Pow { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, PowLhs::Var { name, .. } if name == "a"));
+            assert_matches!(*lhs, PowLhs::Var { name, .. } if name == "a");
             match *rhs {
                 PowRhs::Pow {
                     lhs: ref b_lhs,
                     rhs: ref b_rhs,
                     ..
                 } => {
-                    assert!(matches!(**b_lhs, PowLhs::Var { name, .. } if name == "b"));
+                    assert_matches!(**b_lhs, PowLhs::Var { name, .. } if name == "b");
                     match **b_rhs {
                         PowRhs::Pow {
                             ref lhs, ref rhs, ..
                         } => {
-                            assert!(matches!(**lhs, PowLhs::Var { name, .. } if name == "c"));
-                            assert!(matches!(**rhs, PowRhs::Var { name, .. } if name == "d"));
+                            assert_matches!(**lhs, PowLhs::Var { name, .. } if name == "c");
+                            assert_matches!(**rhs, PowRhs::Var { name, .. } if name == "d");
                         }
                         ref other => panic!("Expected PowRhs::Pow, got {:?}", other),
                     }
@@ -718,8 +718,8 @@ fn test_expr_simple_mod() {
 
     match result.unwrap() {
         Expr::Mod { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, MulLhs::IntLit { value: 10, .. }));
-            assert!(matches!(*rhs, MulRhs::IntLit { value: 3, .. }));
+            assert_matches!(*lhs, MulLhs::IntLit { value: 10, .. });
+            assert_matches!(*rhs, MulRhs::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::Mod, got {:?}", other),
     }
@@ -742,12 +742,12 @@ fn test_expr_mod_left_associative() {
                     rhs: ref inner_rhs,
                     ..
                 } => {
-                    assert!(matches!(**inner_lhs, MulLhs::IntLit { value: 10, .. }));
-                    assert!(matches!(**inner_rhs, MulRhs::IntLit { value: 3, .. }));
+                    assert_matches!(**inner_lhs, MulLhs::IntLit { value: 10, .. });
+                    assert_matches!(**inner_rhs, MulRhs::IntLit { value: 3, .. });
                 }
                 ref other => panic!("Expected MulLhs::Mod, got {:?}", other),
             }
-            assert!(matches!(*rhs, MulRhs::IntLit { value: 2, .. }));
+            assert_matches!(*rhs, MulRhs::IntLit { value: 2, .. });
         }
         other => panic!("Expected Expr::Mod, got {:?}", other),
     }
@@ -770,12 +770,12 @@ fn test_expr_mod_with_mul() {
                     rhs: ref inner_rhs,
                     ..
                 } => {
-                    assert!(matches!(**inner_lhs, MulLhs::IntLit { value: 10, .. }));
-                    assert!(matches!(**inner_rhs, MulRhs::IntLit { value: 3, .. }));
+                    assert_matches!(**inner_lhs, MulLhs::IntLit { value: 10, .. });
+                    assert_matches!(**inner_rhs, MulRhs::IntLit { value: 3, .. });
                 }
                 ref other => panic!("Expected MulLhs::Mul, got {:?}", other),
             }
-            assert!(matches!(*rhs, MulRhs::IntLit { value: 2, .. }));
+            assert_matches!(*rhs, MulRhs::IntLit { value: 2, .. });
         }
         other => panic!("Expected Expr::Mod, got {:?}", other),
     }
@@ -798,12 +798,12 @@ fn test_expr_mod_with_div() {
                     rhs: ref inner_rhs,
                     ..
                 } => {
-                    assert!(matches!(**inner_lhs, MulLhs::IntLit { value: 10, .. }));
-                    assert!(matches!(**inner_rhs, MulRhs::IntLit { value: 3, .. }));
+                    assert_matches!(**inner_lhs, MulLhs::IntLit { value: 10, .. });
+                    assert_matches!(**inner_rhs, MulRhs::IntLit { value: 3, .. });
                 }
                 ref other => panic!("Expected MulLhs::Div, got {:?}", other),
             }
-            assert!(matches!(*rhs, MulRhs::IntLit { value: 2, .. }));
+            assert_matches!(*rhs, MulRhs::IntLit { value: 2, .. });
         }
         other => panic!("Expected Expr::Mod, got {:?}", other),
     }
@@ -820,15 +820,15 @@ fn test_expr_mod_with_add() {
 
     match result.unwrap() {
         Expr::Add { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, AddLhs::IntLit { value: 1, .. }));
+            assert_matches!(*lhs, AddLhs::IntLit { value: 1, .. });
             match *rhs {
                 AddRhs::Mod {
                     lhs: ref mod_lhs,
                     rhs: ref mod_rhs,
                     ..
                 } => {
-                    assert!(matches!(**mod_lhs, MulLhs::IntLit { value: 10, .. }));
-                    assert!(matches!(**mod_rhs, MulRhs::IntLit { value: 3, .. }));
+                    assert_matches!(**mod_lhs, MulLhs::IntLit { value: 10, .. });
+                    assert_matches!(**mod_rhs, MulRhs::IntLit { value: 3, .. });
                 }
                 ref other => panic!("Expected AddRhs::Mod, got {:?}", other),
             }
@@ -854,12 +854,12 @@ fn test_expr_mod_with_pow() {
                     rhs: ref pow_rhs,
                     ..
                 } => {
-                    assert!(matches!(**pow_lhs, PowLhs::IntLit { value: 2, .. }));
-                    assert!(matches!(**pow_rhs, PowRhs::IntLit { value: 3, .. }));
+                    assert_matches!(**pow_lhs, PowLhs::IntLit { value: 2, .. });
+                    assert_matches!(**pow_rhs, PowRhs::IntLit { value: 3, .. });
                 }
                 ref other => panic!("Expected MulLhs::Pow, got {:?}", other),
             }
-            assert!(matches!(*rhs, MulRhs::IntLit { value: 5, .. }));
+            assert_matches!(*rhs, MulRhs::IntLit { value: 5, .. });
         }
         other => panic!("Expected Expr::Mod, got {:?}", other),
     }
@@ -876,14 +876,14 @@ fn test_expr_mod_with_parens() {
 
     match result.unwrap() {
         Expr::Mod { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, MulLhs::IntLit { value: 10, .. }));
+            assert_matches!(*lhs, MulLhs::IntLit { value: 10, .. });
             match *rhs {
                 MulRhs::Paren { ref inner, .. } => match **inner {
                     Expr::Add {
                         ref lhs, ref rhs, ..
                     } => {
-                        assert!(matches!(**lhs, AddLhs::IntLit { value: 3, .. }));
-                        assert!(matches!(**rhs, AddRhs::IntLit { value: 2, .. }));
+                        assert_matches!(**lhs, AddLhs::IntLit { value: 3, .. });
+                        assert_matches!(**rhs, AddRhs::IntLit { value: 2, .. });
                     }
                     ref other => panic!("Expected Expr::Add, got {:?}", other),
                 },
@@ -905,8 +905,8 @@ fn test_expr_mod_with_vars() {
 
     match result.unwrap() {
         Expr::Mod { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, MulLhs::Var { name, .. } if name == "x"));
-            assert!(matches!(*rhs, MulRhs::Var { name, .. } if name == "y"));
+            assert_matches!(*lhs, MulLhs::Var { name, .. } if name == "x");
+            assert_matches!(*rhs, MulRhs::Var { name, .. } if name == "y");
         }
         other => panic!("Expected Expr::Mod, got {:?}", other),
     }
@@ -923,7 +923,7 @@ fn test_expr_complex_mod_precedence() {
 
     match result.unwrap() {
         Expr::Add { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, AddLhs::IntLit { value: 2, .. }));
+            assert_matches!(*lhs, AddLhs::IntLit { value: 2, .. });
             match *rhs {
                 AddRhs::Mod {
                     lhs: ref mod_lhs,
@@ -934,12 +934,12 @@ fn test_expr_complex_mod_precedence() {
                         MulLhs::Mul {
                             ref lhs, ref rhs, ..
                         } => {
-                            assert!(matches!(**lhs, MulLhs::IntLit { value: 3, .. }));
-                            assert!(matches!(**rhs, MulRhs::IntLit { value: 4, .. }));
+                            assert_matches!(**lhs, MulLhs::IntLit { value: 3, .. });
+                            assert_matches!(**rhs, MulRhs::IntLit { value: 4, .. });
                         }
                         ref other => panic!("Expected MulLhs::Mul, got {:?}", other),
                     }
-                    assert!(matches!(**mod_rhs, MulRhs::IntLit { value: 5, .. }));
+                    assert_matches!(**mod_rhs, MulRhs::IntLit { value: 5, .. });
                 }
                 ref other => panic!("Expected AddRhs::Mod, got {:?}", other),
             }
@@ -963,7 +963,7 @@ fn test_expr_simple_neg() {
 
     match result.unwrap() {
         Expr::Neg { inner, .. } => {
-            assert!(matches!(*inner, PowLhs::IntLit { value: 5, .. }));
+            assert_matches!(*inner, PowLhs::IntLit { value: 5, .. });
         }
         other => panic!("Expected Expr::Neg, got {:?}", other),
     }
@@ -980,7 +980,7 @@ fn test_expr_simple_ref() {
 
     match result.unwrap() {
         Expr::Ref { inner, .. } => {
-            assert!(matches!(*inner, PowLhs::Var { name, .. } if name == "x"));
+            assert_matches!(*inner, PowLhs::Var { name, .. } if name == "x");
         }
         other => panic!("Expected Expr::Ref, got {:?}", other),
     }
@@ -998,7 +998,7 @@ fn test_expr_double_neg() {
     match result.unwrap() {
         Expr::Neg { inner, .. } => match *inner {
             PowLhs::Neg { ref inner, .. } => {
-                assert!(matches!(**inner, PowLhs::IntLit { value: 5, .. }));
+                assert_matches!(**inner, PowLhs::IntLit { value: 5, .. });
             }
             ref other => panic!("Expected PowLhs::Neg, got {:?}", other),
         },
@@ -1018,7 +1018,7 @@ fn test_expr_neg_ref() {
     match result.unwrap() {
         Expr::Neg { inner, .. } => match *inner {
             PowLhs::Ref { ref inner, .. } => {
-                assert!(matches!(**inner, PowLhs::Var { name, .. } if name == "x"));
+                assert_matches!(**inner, PowLhs::Var { name, .. } if name == "x");
             }
             ref other => panic!("Expected PowLhs::Ref, got {:?}", other),
         },
@@ -1038,7 +1038,7 @@ fn test_expr_ref_neg() {
     match result.unwrap() {
         Expr::Ref { inner, .. } => match *inner {
             PowLhs::Neg { ref inner, .. } => {
-                assert!(matches!(**inner, PowLhs::Var { name, .. } if name == "x"));
+                assert_matches!(**inner, PowLhs::Var { name, .. } if name == "x");
             }
             ref other => panic!("Expected PowLhs::Neg, got {:?}", other),
         },
@@ -1059,11 +1059,11 @@ fn test_expr_neg_with_pow() {
         Expr::Pow { lhs, rhs, .. } => {
             match *lhs {
                 PowLhs::Neg { ref inner, .. } => {
-                    assert!(matches!(**inner, PowLhs::IntLit { value: 2, .. }));
+                    assert_matches!(**inner, PowLhs::IntLit { value: 2, .. });
                 }
                 ref other => panic!("Expected PowLhs::Neg, got {:?}", other),
             }
-            assert!(matches!(*rhs, PowRhs::IntLit { value: 3, .. }));
+            assert_matches!(*rhs, PowRhs::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::Pow, got {:?}", other),
     }
@@ -1082,11 +1082,11 @@ fn test_expr_neg_with_mul() {
         Expr::Mul { lhs, rhs, .. } => {
             match *lhs {
                 MulLhs::Neg { ref inner, .. } => {
-                    assert!(matches!(**inner, PowLhs::IntLit { value: 2, .. }));
+                    assert_matches!(**inner, PowLhs::IntLit { value: 2, .. });
                 }
                 ref other => panic!("Expected MulLhs::Neg, got {:?}", other),
             }
-            assert!(matches!(*rhs, MulRhs::IntLit { value: 3, .. }));
+            assert_matches!(*rhs, MulRhs::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::Mul, got {:?}", other),
     }
@@ -1105,11 +1105,11 @@ fn test_expr_neg_with_add() {
         Expr::Add { lhs, rhs, .. } => {
             match *lhs {
                 AddLhs::Neg { ref inner, .. } => {
-                    assert!(matches!(**inner, PowLhs::IntLit { value: 2, .. }));
+                    assert_matches!(**inner, PowLhs::IntLit { value: 2, .. });
                 }
                 ref other => panic!("Expected AddLhs::Neg, got {:?}", other),
             }
-            assert!(matches!(*rhs, AddRhs::IntLit { value: 3, .. }));
+            assert_matches!(*rhs, AddRhs::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::Add, got {:?}", other),
     }
@@ -1130,8 +1130,8 @@ fn test_expr_neg_paren() {
                 Expr::Add {
                     ref lhs, ref rhs, ..
                 } => {
-                    assert!(matches!(**lhs, AddLhs::IntLit { value: 2, .. }));
-                    assert!(matches!(**rhs, AddRhs::IntLit { value: 3, .. }));
+                    assert_matches!(**lhs, AddLhs::IntLit { value: 2, .. });
+                    assert_matches!(**rhs, AddRhs::IntLit { value: 3, .. });
                 }
                 ref other => panic!("Expected Expr::Add, got {:?}", other),
             },
@@ -1154,11 +1154,11 @@ fn test_expr_ref_with_add() {
         Expr::Add { lhs, rhs, .. } => {
             match *lhs {
                 AddLhs::Ref { ref inner, .. } => {
-                    assert!(matches!(**inner, PowLhs::Var { name, .. } if name == "x"));
+                    assert_matches!(**inner, PowLhs::Var { name, .. } if name == "x");
                 }
                 ref other => panic!("Expected AddLhs::Ref, got {:?}", other),
             }
-            assert!(matches!(*rhs, AddRhs::IntLit { value: 3, .. }));
+            assert_matches!(*rhs, AddRhs::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::Add, got {:?}", other),
     }
@@ -1177,13 +1177,13 @@ fn test_expr_complex_unary() {
         Expr::Pow { lhs, rhs, .. } => {
             match *lhs {
                 PowLhs::Neg { ref inner, .. } => {
-                    assert!(matches!(**inner, PowLhs::Var { name, .. } if name == "a"));
+                    assert_matches!(**inner, PowLhs::Var { name, .. } if name == "a");
                 }
                 ref other => panic!("Expected PowLhs::Neg, got {:?}", other),
             }
             match *rhs {
                 PowRhs::Neg { ref inner, .. } => {
-                    assert!(matches!(**inner, PowLhs::Var { name, .. } if name == "b"));
+                    assert_matches!(**inner, PowLhs::Var { name, .. } if name == "b");
                 }
                 ref other => panic!("Expected PowRhs::Neg, got {:?}", other),
             }
@@ -1301,10 +1301,10 @@ fn test_expr_simple_and() {
 
     match result.unwrap() {
         Expr::And { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, CmpLhs::BoolLit { value: true, .. }));
+            assert_matches!(*lhs, CmpLhs::BoolLit { value: true, .. });
             match *rhs {
                 CmpRhs::Paren { ref inner, .. } => {
-                    assert!(matches!(**inner, Expr::BoolLit { value: false, .. }));
+                    assert_matches!(**inner, Expr::BoolLit { value: false, .. });
                 }
                 ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
             }
@@ -1324,10 +1324,10 @@ fn test_expr_simple_or() {
 
     match result.unwrap() {
         Expr::Or { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, CmpLhs::BoolLit { value: true, .. }));
+            assert_matches!(*lhs, CmpLhs::BoolLit { value: true, .. });
             match *rhs {
                 CmpRhs::Paren { ref inner, .. } => {
-                    assert!(matches!(**inner, Expr::BoolLit { value: false, .. }));
+                    assert_matches!(**inner, Expr::BoolLit { value: false, .. });
                 }
                 ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
             }
@@ -1356,10 +1356,10 @@ fn test_expr_and_precedence_over_or() {
                     rhs: ref or_rhs,
                     ..
                 } => {
-                    assert!(matches!(**or_lhs, CmpLhs::Var { name, .. } if name == "a"));
+                    assert_matches!(**or_lhs, CmpLhs::Var { name, .. } if name == "a");
                     match **or_rhs {
                         CmpRhs::Paren { ref inner, .. } => {
-                            assert!(matches!(**inner, Expr::Var { name, .. } if name == "b"));
+                            assert_matches!(**inner, Expr::Var { name, .. } if name == "b");
                         }
                         ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
                     }
@@ -1368,7 +1368,7 @@ fn test_expr_and_precedence_over_or() {
             }
             match *rhs {
                 CmpRhs::Paren { ref inner, .. } => {
-                    assert!(matches!(**inner, Expr::Var { name, .. } if name == "c"));
+                    assert_matches!(**inner, Expr::Var { name, .. } if name == "c");
                 }
                 ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
             }
@@ -1394,8 +1394,8 @@ fn test_expr_logical_with_comparison() {
                     rhs: ref eq_rhs,
                     ..
                 } => {
-                    assert!(matches!(**eq_lhs, CmpLhs::Var { name, .. } if name == "x"));
-                    assert!(matches!(**eq_rhs, CmpRhs::IntLit { value: 1, .. }));
+                    assert_matches!(**eq_lhs, CmpLhs::Var { name, .. } if name == "x");
+                    assert_matches!(**eq_rhs, CmpRhs::IntLit { value: 1, .. });
                 }
                 ref other => panic!("Expected CmpLhs::Eq, got {:?}", other),
             }
@@ -1404,8 +1404,8 @@ fn test_expr_logical_with_comparison() {
                     Expr::Eq {
                         ref lhs, ref rhs, ..
                     } => {
-                        assert!(matches!(**lhs, CmpLhs::Var { name, .. } if name == "y"));
-                        assert!(matches!(**rhs, CmpRhs::IntLit { value: 2, .. }));
+                        assert_matches!(**lhs, CmpLhs::Var { name, .. } if name == "y");
+                        assert_matches!(**rhs, CmpRhs::IntLit { value: 2, .. });
                     }
                     ref other => panic!("Expected Expr::Eq, got {:?}", other),
                 },
@@ -1433,10 +1433,10 @@ fn test_expr_logical_left_associative() {
                     rhs: ref and_rhs,
                     ..
                 } => {
-                    assert!(matches!(**and_lhs, CmpLhs::Var { name, .. } if name == "a"));
+                    assert_matches!(**and_lhs, CmpLhs::Var { name, .. } if name == "a");
                     match **and_rhs {
                         CmpRhs::Paren { ref inner, .. } => {
-                            assert!(matches!(**inner, Expr::Var { name, .. } if name == "b"));
+                            assert_matches!(**inner, Expr::Var { name, .. } if name == "b");
                         }
                         ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
                     }
@@ -1445,7 +1445,7 @@ fn test_expr_logical_left_associative() {
             }
             match *rhs {
                 CmpRhs::Paren { ref inner, .. } => {
-                    assert!(matches!(**inner, Expr::Var { name, .. } if name == "c"));
+                    assert_matches!(**inner, Expr::Var { name, .. } if name == "c");
                 }
                 ref other => panic!("Expected CmpRhs::Paren, got {:?}", other),
             }
@@ -1489,7 +1489,7 @@ fn test_type_bool() {
         |input| type_annotation().parse(input).into_result(),
         Duration::from_secs(1),
     );
-    assert!(matches!(result.unwrap(), Type::Bool { .. }));
+    assert_matches!(result.unwrap(), Type::Bool { .. });
 }
 
 #[test]
@@ -1499,7 +1499,7 @@ fn test_type_i32() {
         |input| type_annotation().parse(input).into_result(),
         Duration::from_secs(1),
     );
-    assert!(matches!(result.unwrap(), Type::I32 { .. }));
+    assert_matches!(result.unwrap(), Type::I32 { .. });
 }
 
 #[test]
@@ -1509,7 +1509,7 @@ fn test_type_f64() {
         |input| type_annotation().parse(input).into_result(),
         Duration::from_secs(1),
     );
-    assert!(matches!(result.unwrap(), Type::F64 { .. }));
+    assert_matches!(result.unwrap(), Type::F64 { .. });
 }
 
 #[test]
@@ -1519,7 +1519,7 @@ fn test_type_real() {
         |input| type_annotation().parse(input).into_result(),
         Duration::from_secs(1),
     );
-    assert!(matches!(result.unwrap(), Type::Real { .. }));
+    assert_matches!(result.unwrap(), Type::Real { .. });
 }
 
 #[test]
@@ -1529,7 +1529,7 @@ fn test_type_algebraic() {
         |input| type_annotation().parse(input).into_result(),
         Duration::from_secs(1),
     );
-    assert!(matches!(result.unwrap(), Type::Algebraic { .. }));
+    assert_matches!(result.unwrap(), Type::Algebraic { .. });
 }
 
 // ========================================================================
@@ -1553,8 +1553,8 @@ fn test_let_with_type_and_init() {
             ..
         } => {
             assert_eq!(name, "x");
-            assert!(matches!(type_annotation, Some(Type::I32 { .. })));
-            assert!(matches!(init, Some(Expr::IntLit { value: 42, .. })));
+            assert_matches!(type_annotation, Some(Type::I32 { .. }));
+            assert_matches!(init, Some(Expr::IntLit { value: 42, .. }));
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
     }
@@ -1577,7 +1577,7 @@ fn test_let_with_type_only() {
             ..
         } => {
             assert_eq!(name, "y");
-            assert!(matches!(type_annotation, Some(Type::Bool { .. })));
+            assert_matches!(type_annotation, Some(Type::Bool { .. }));
             assert!(init.is_none());
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
@@ -1602,7 +1602,7 @@ fn test_let_with_init_only() {
         } => {
             assert_eq!(name, "z");
             assert!(type_annotation.is_none());
-            assert!(matches!(init, Some(Expr::FloatLit { value, .. }) if value == 3.14));
+            assert_matches!(init, Some(Expr::FloatLit { value, .. }) if value == 3.14);
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
     }
@@ -1649,18 +1649,18 @@ fn test_let_with_expression() {
             ..
         } => {
             assert_eq!(name, "result");
-            assert!(matches!(type_annotation, Some(Type::I32 { .. })));
+            assert_matches!(type_annotation, Some(Type::I32 { .. }));
             match init {
                 Some(Expr::Add { lhs, rhs, .. }) => {
-                    assert!(matches!(*lhs, AddLhs::IntLit { value: 1, .. }));
+                    assert_matches!(*lhs, AddLhs::IntLit { value: 1, .. });
                     match *rhs {
                         AddRhs::Mul {
                             lhs: ref mul_lhs,
                             rhs: ref mul_rhs,
                             ..
                         } => {
-                            assert!(matches!(**mul_lhs, MulLhs::IntLit { value: 2, .. }));
-                            assert!(matches!(**mul_rhs, MulRhs::IntLit { value: 3, .. }));
+                            assert_matches!(**mul_lhs, MulLhs::IntLit { value: 2, .. });
+                            assert_matches!(**mul_rhs, MulRhs::IntLit { value: 3, .. });
                         }
                         ref other => panic!("Expected AddRhs::Mul, got {:?}", other),
                     }
@@ -1966,7 +1966,7 @@ fn test_function_call_one_arg() {
         Expr::Call { name, args, .. } => {
             assert_eq!(name, "foo");
             assert_eq!(args.len(), 1);
-            assert!(matches!(args[0], Expr::IntLit { value: 42, .. }));
+            assert_matches!(args[0], Expr::IntLit { value: 42, .. });
         }
         other => panic!("Expected Expr::Call, got {:?}", other),
     }
@@ -1985,9 +1985,9 @@ fn test_function_call_multiple_args() {
         Expr::Call { name, args, .. } => {
             assert_eq!(name, "add");
             assert_eq!(args.len(), 3);
-            assert!(matches!(args[0], Expr::IntLit { value: 1, .. }));
-            assert!(matches!(args[1], Expr::IntLit { value: 2, .. }));
-            assert!(matches!(args[2], Expr::IntLit { value: 3, .. }));
+            assert_matches!(args[0], Expr::IntLit { value: 1, .. });
+            assert_matches!(args[1], Expr::IntLit { value: 2, .. });
+            assert_matches!(args[2], Expr::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::Call, got {:?}", other),
     }
@@ -2006,8 +2006,8 @@ fn test_function_call_expr_args() {
         Expr::Call { name, args, .. } => {
             assert_eq!(name, "foo");
             assert_eq!(args.len(), 2);
-            assert!(matches!(args[0], Expr::Add { .. }));
-            assert!(matches!(args[1], Expr::Mul { .. }));
+            assert_matches!(args[0], Expr::Add { .. });
+            assert_matches!(args[1], Expr::Mul { .. });
         }
         other => panic!("Expected Expr::Call, got {:?}", other),
     }
@@ -2034,7 +2034,7 @@ fn test_function_call_nested() {
                 } => {
                     assert_eq!(*inner_name, "bar");
                     assert_eq!(inner_args.len(), 1);
-                    assert!(matches!(inner_args[0], Expr::IntLit { value: 42, .. }));
+                    assert_matches!(inner_args[0], Expr::IntLit { value: 42, .. });
                 }
                 other => panic!("Expected inner Expr::Call, got {:?}", other),
             }
@@ -2054,8 +2054,8 @@ fn test_function_call_in_expression() {
 
     match result.unwrap() {
         Expr::Add { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, AddLhs::Call { .. }));
-            assert!(matches!(*rhs, AddRhs::Call { .. }));
+            assert_matches!(*lhs, AddLhs::Call { .. });
+            assert_matches!(*rhs, AddRhs::Call { .. });
         }
         other => panic!("Expected Expr::Add, got {:?}", other),
     }
@@ -2081,7 +2081,7 @@ fn test_method_call_no_args() {
             args,
             ..
         } => {
-            assert!(matches!(*receiver, Expr::Var { name, .. } if name == "obj"));
+            assert_matches!(*receiver, Expr::Var { name, .. } if name == "obj");
             assert_eq!(method, "method");
             assert_eq!(args.len(), 0);
         }
@@ -2105,10 +2105,10 @@ fn test_method_call_one_arg() {
             args,
             ..
         } => {
-            assert!(matches!(*receiver, Expr::Var { name, .. } if name == "obj"));
+            assert_matches!(*receiver, Expr::Var { name, .. } if name == "obj");
             assert_eq!(method, "method");
             assert_eq!(args.len(), 1);
-            assert!(matches!(args[0], Expr::IntLit { value: 42, .. }));
+            assert_matches!(args[0], Expr::IntLit { value: 42, .. });
         }
         other => panic!("Expected Expr::MethodCall, got {:?}", other),
     }
@@ -2130,12 +2130,12 @@ fn test_method_call_multiple_args() {
             args,
             ..
         } => {
-            assert!(matches!(*receiver, Expr::Var { name, .. } if name == "obj"));
+            assert_matches!(*receiver, Expr::Var { name, .. } if name == "obj");
             assert_eq!(method, "method");
             assert_eq!(args.len(), 3);
-            assert!(matches!(args[0], Expr::IntLit { value: 1, .. }));
-            assert!(matches!(args[1], Expr::IntLit { value: 2, .. }));
-            assert!(matches!(args[2], Expr::IntLit { value: 3, .. }));
+            assert_matches!(args[0], Expr::IntLit { value: 1, .. });
+            assert_matches!(args[1], Expr::IntLit { value: 2, .. });
+            assert_matches!(args[2], Expr::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::MethodCall, got {:?}", other),
     }
@@ -2166,7 +2166,7 @@ fn test_method_call_chaining() {
                     args: inner_args,
                     ..
                 } => {
-                    assert!(matches!(*inner_receiver, Expr::Var { name, .. } if name == "obj"));
+                    assert_matches!(*inner_receiver, Expr::Var { name, .. } if name == "obj");
                     assert_eq!(inner_method, "method1");
                     assert_eq!(inner_args.len(), 0);
                 }
@@ -2195,7 +2195,7 @@ fn test_method_call_on_function_call() {
         } => {
             assert_eq!(method, "bar");
             assert_eq!(args.len(), 0);
-            assert!(matches!(*receiver, Expr::Call { name, .. } if name == "foo"));
+            assert_matches!(*receiver, Expr::Call { name, .. } if name == "foo");
         }
         other => panic!("Expected Expr::MethodCall, got {:?}", other),
     }
@@ -2217,11 +2217,11 @@ fn test_method_call_with_expr_args() {
             args,
             ..
         } => {
-            assert!(matches!(*receiver, Expr::Var { name, .. } if name == "obj"));
+            assert_matches!(*receiver, Expr::Var { name, .. } if name == "obj");
             assert_eq!(method, "method");
             assert_eq!(args.len(), 2);
-            assert!(matches!(args[0], Expr::Add { .. }));
-            assert!(matches!(args[1], Expr::Mul { .. }));
+            assert_matches!(args[0], Expr::Add { .. });
+            assert_matches!(args[1], Expr::Mul { .. });
         }
         other => panic!("Expected Expr::MethodCall, got {:?}", other),
     }
@@ -2238,8 +2238,8 @@ fn test_method_call_in_expression() {
 
     match result.unwrap() {
         Expr::Add { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, AddLhs::MethodCall { .. }));
-            assert!(matches!(*rhs, AddRhs::IntLit { value: 2, .. }));
+            assert_matches!(*lhs, AddLhs::MethodCall { .. });
+            assert_matches!(*rhs, AddRhs::IntLit { value: 2, .. });
         }
         other => panic!("Expected Expr::Add, got {:?}", other),
     }
@@ -2258,7 +2258,7 @@ fn test_field_access() {
         Expr::FieldAccess {
             receiver, field, ..
         } => {
-            assert!(matches!(*receiver, Expr::Var { name, .. } if name == "obj"));
+            assert_matches!(*receiver, Expr::Var { name, .. } if name == "obj");
             assert_eq!(field, "field");
         }
         other => panic!("Expected Expr::FieldAccess, got {:?}", other),
@@ -2285,7 +2285,7 @@ fn test_field_access_chaining() {
                     field: inner_field,
                     ..
                 } => {
-                    assert!(matches!(*inner_receiver, Expr::Var { name, .. } if name == "obj"));
+                    assert_matches!(*inner_receiver, Expr::Var { name, .. } if name == "obj");
                     assert_eq!(inner_field, "field1");
                 }
                 other => panic!("Expected inner Expr::FieldAccess, got {:?}", other),
@@ -2309,7 +2309,7 @@ fn test_field_access_on_function_call() {
             receiver, field, ..
         } => {
             assert_eq!(field, "field");
-            assert!(matches!(*receiver, Expr::Call { name, .. } if name == "foo"));
+            assert_matches!(*receiver, Expr::Call { name, .. } if name == "foo");
         }
         other => panic!("Expected Expr::FieldAccess, got {:?}", other),
     }
@@ -2339,7 +2339,7 @@ fn test_field_access_then_method_call() {
                     field,
                     ..
                 } => {
-                    assert!(matches!(*inner_receiver, Expr::Var { name, .. } if name == "obj"));
+                    assert_matches!(*inner_receiver, Expr::Var { name, .. } if name == "obj");
                     assert_eq!(field, "field");
                 }
                 other => panic!("Expected Expr::FieldAccess, got {:?}", other),
@@ -2370,7 +2370,7 @@ fn test_method_call_then_field_access() {
                     args,
                     ..
                 } => {
-                    assert!(matches!(*inner_receiver, Expr::Var { name, .. } if name == "obj"));
+                    assert_matches!(*inner_receiver, Expr::Var { name, .. } if name == "obj");
                     assert_eq!(method, "method");
                     assert_eq!(args.len(), 0);
                 }
@@ -2392,8 +2392,8 @@ fn test_field_access_in_expression() {
 
     match result.unwrap() {
         Expr::Add { lhs, rhs, .. } => {
-            assert!(matches!(*lhs, AddLhs::FieldAccess { .. }));
-            assert!(matches!(*rhs, AddRhs::IntLit { value: 2, .. }));
+            assert_matches!(*lhs, AddLhs::FieldAccess { .. });
+            assert_matches!(*rhs, AddRhs::IntLit { value: 2, .. });
         }
         other => panic!("Expected Expr::Add, got {:?}", other),
     }
