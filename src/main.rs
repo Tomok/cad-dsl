@@ -54,9 +54,10 @@ fn main() {
                 }
             };
 
-            // Parse as either a let statement or function definition
+            // Parse as either a let statement, function definition, or struct definition
             use chumsky::primitive::choice;
             let stmt_parser = choice((
+                parser::struct_def(parser::expr_inner()),
                 parser::function_def(parser::expr_inner()),
                 parser::let_stmt(parser::expr_inner()),
             ));

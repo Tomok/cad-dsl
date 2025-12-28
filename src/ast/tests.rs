@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use assert_matches::assert_matches;
     use crate::ast::expr::*;
     use crate::lexer::{LineColumn, Span};
+    use assert_matches::assert_matches;
 
     // Helper function to create a dummy span for testing
     fn dummy_span() -> Span {

@@ -1,7 +1,7 @@
 //! Statement and type annotation parsers
 
 use crate::ast::span::HasSpan;
-use crate::ast::{FunctionParam, Stmt, Type};
+use crate::ast::{FunctionParam, Stmt, StructField, Type};
 use crate::lexer::Token;
 use crate::parser::ParseError;
 use chumsky::prelude::*;
@@ -276,4 +276,162 @@ pub fn function_def<'src>(
         },
     )
     .labelled("function definition")
+}
+
+// ============================================================================
+// Struct Definition Parser
+// ============================================================================
+
+/// Parse a struct field: name: Type
+fn struct_field<'src>()
+-> impl Parser<'src, &'src [Token<'src>], StructField, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    let colon = select! { Token::Colon(_) => () };
+
+    select! {
+        Token::Identifier(t) => (t.name.to_string(), t.span),
+    }
+    .labelled("field name")
+    .then_ignore(colon)
+    .then(type_annotation())
+    .map(|((name, name_span), type_annotation)| {
+        let type_span = type_annotation.span();
+        let span = if name_span.start.line == type_span.start.line {
+            Span {
+                start: name_span.start,
+                lines: 0,
+                end_column: type_span.end_column,
+            }
+        } else {
+            Span {
+                start: name_span.start,
+                lines: type_span.start.line - name_span.start.line + type_span.lines,
+                end_column: type_span.end_column,
+            }
+        };
+        StructField {
+            name,
+            name_span,
+            type_annotation,
+            span,
+        }
+    })
+    .labelled("struct field")
+}
+
+/// Parse a container field declaration: container name
+fn container_field<'src>()
+-> impl Parser<'src, &'src [Token<'src>], (String, crate::lexer::Span), ParseError<'src>> + Clone {
+    select! {
+        Token::Container(t) => t.position,
+    }
+    .then(select! {
+        Token::Identifier(t) => (t.name.to_string(), t.span),
+    })
+    .map(|(_, (name, span))| (name, span))
+    .labelled("container field")
+}
+
+/// Parse a struct definition
+///
+/// Syntax:
+///   struct Name { field1: Type, field2: Type }
+///   struct Name { container entities, field: Type }
+///   struct Name { field: Type, fn method() -> Type { ... } }
+pub fn struct_def<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone
+    + 'src,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    let left_brace = select! { Token::LeftBrace(_) => () };
+    let right_brace = select! { Token::RightBrace(t) => t.position };
+    let comma = select! { Token::Comma(_) => () };
+
+    // Parse struct members: either container field, regular field, or method
+    let member_parser = choice((
+        // Container field
+        container_field().map(MemberItem::Container),
+        // Function definition
+        function_def(expr_parser.clone()).map(MemberItem::Method),
+        // Regular field
+        struct_field().map(MemberItem::Field),
+    ));
+
+    select! {
+        Token::Struct(t) => t.position,
+    }
+    .then(
+        select! {
+            Token::Identifier(t) => (t.name.to_string(), t.span),
+        }
+        .labelled("struct name"),
+    )
+    .then_ignore(left_brace)
+    .then(
+        // Parse members separated by commas (with optional trailing comma)
+        member_parser
+            .separated_by(comma)
+            .allow_trailing()
+            .collect::<Vec<_>>(),
+    )
+    .then(right_brace)
+    .try_map(
+        |(((struct_pos, (name, name_span)), members), brace_pos), span| {
+            // Separate members into container, fields, and methods
+            let mut container = None;
+            let mut fields = Vec::new();
+            let mut methods = Vec::new();
+
+            for member in members {
+                match member {
+                    MemberItem::Container(c) => {
+                        if container.is_some() {
+                            return Err(Rich::custom(
+                                span,
+                                "struct can have at most one container field",
+                            ));
+                        }
+                        container = Some(c);
+                    }
+                    MemberItem::Field(f) => fields.push(f),
+                    MemberItem::Method(m) => methods.push(m),
+                }
+            }
+
+            // Construct span from struct keyword to closing brace
+            let struct_span = if struct_pos.line == brace_pos.line {
+                Span {
+                    start: struct_pos,
+                    lines: 0,
+                    end_column: brace_pos.column + 1,
+                }
+            } else {
+                Span {
+                    start: struct_pos,
+                    lines: brace_pos.line - struct_pos.line,
+                    end_column: brace_pos.column + 1,
+                }
+            };
+
+            Ok(Stmt::StructDef {
+                name,
+                name_span,
+                container,
+                fields,
+                methods,
+                span: struct_span,
+            })
+        },
+    )
+    .labelled("struct definition")
+}
+
+// Helper enum for parsing struct members
+enum MemberItem<'src> {
+    Container((String, crate::lexer::Span)),
+    Field(StructField),
+    Method(Stmt<'src>),
 }
