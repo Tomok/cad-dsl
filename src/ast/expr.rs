@@ -3,6 +3,36 @@ use crate::lexer::Span;
 use subenum::subenum;
 
 // ============================================================================
+// Struct Literal Field
+// ============================================================================
+
+/// Represents a field in a struct literal
+#[derive(Debug, Clone, PartialEq)]
+pub enum StructLitField<'src> {
+    /// Regular field assignment: `field: value`
+    Field {
+        name: &'src str,
+        value: Expr<'src>,
+        span: Span,
+    },
+    /// Computed property constraint: `method() = value`
+    ComputedProperty {
+        name: &'src str,
+        value: Expr<'src>,
+        span: Span,
+    },
+}
+
+impl<'src> HasSpan for StructLitField<'src> {
+    fn span(&self) -> Span {
+        match self {
+            StructLitField::Field { span, .. } => *span,
+            StructLitField::ComputedProperty { span, .. } => *span,
+        }
+    }
+}
+
+// ============================================================================
 // Expression AST with Type-Safe Operator Precedence
 // ============================================================================
 
@@ -228,7 +258,7 @@ pub enum Expr<'src> {
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
     StructLit {
         name: &'src str,
-        fields: Vec<(&'src str, Expr<'src>)>,
+        fields: Vec<StructLitField<'src>>,
         span: Span,
     },
 

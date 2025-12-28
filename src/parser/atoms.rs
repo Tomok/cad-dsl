@@ -95,22 +95,62 @@ pub fn atom<'src>(
                     },
                 }
             }),
-        // Struct literal: StructName { field1: value1, field2: value2, ... }
+        // Struct literal: StructName { field1: value1, method() = value2, ... }
         select! {
             Token::Identifier(t) => (t.name, t.span),
         }
-        .then(
-            select! { Token::Identifier(t) => t.name }
-                .then_ignore(select! { Token::Colon(_) => () })
-                .then(expr.clone())
+        .then({
+            // Field can be:
+            // 1. Regular field: identifier : expr
+            // 2. Computed property: identifier () = expr
+            let field_parser = select! { Token::Identifier(t) => (t.name, t.span) }
+                .then(choice((
+                    // Computed property: identifier() = expr
+                    select! { Token::LeftParen(_) => () }
+                        .ignore_then(select! { Token::RightParen(_) => () })
+                        .ignore_then(select! { Token::Equals(_) => () })
+                        .ignore_then(expr.clone())
+                        .map(|value| (true, value)),
+                    // Regular field: identifier: expr
+                    select! { Token::Colon(_) => () }
+                        .ignore_then(expr.clone())
+                        .map(|value| (false, value)),
+                )))
+                .map_with(|((name, name_span), (is_computed, value)), e| {
+                    use crate::ast::StructLitField;
+                    let span_range = e.span();
+                    if is_computed {
+                        StructLitField::ComputedProperty {
+                            name,
+                            value,
+                            span: Span {
+                                start: name_span.start,
+                                lines: 0,
+                                end_column: span_range.end,
+                            },
+                        }
+                    } else {
+                        StructLitField::Field {
+                            name,
+                            value,
+                            span: Span {
+                                start: name_span.start,
+                                lines: 0,
+                                end_column: span_range.end,
+                            },
+                        }
+                    }
+                });
+
+            field_parser
                 .separated_by(select! { Token::Comma(_) => () })
                 .allow_trailing()
                 .collect::<Vec<_>>()
                 .delimited_by(
                     select! { Token::LeftBrace(_) => () },
                     select! { Token::RightBrace(_) => () },
-                ),
-        )
+                )
+        })
         .map_with(|((name, name_span), fields), e| {
             let span_range = e.span();
             Atom::StructLit {
