@@ -43,6 +43,58 @@ This project uses Nix for development environment management. Use `nix develop` 
 
 - **Use `assert_matches!` macro**: Always use `assert_matches!(value, Pattern { .. })` instead of `assert!(matches!(value, Pattern { .. }))` in tests. The `assert_matches!` macro provides clearer error messages when assertions fail.
 
+## Commit Guidelines
+
+When creating commits, follow these quality standards:
+
+### Quality Check Process
+
+**MANDATORY CHECKS** - All must pass before committing:
+1. `nix shell -c cargo fmt` - Format all code
+2. `nix shell -c cargo clippy -- -D warnings` - No warnings allowed
+3. `nix shell -c cargo test` - All tests must pass
+
+### Quality Check Loop
+
+**IMPORTANT**: If any check fails:
+1. Fix the issues in the code
+2. Re-run ALL quality checks (fmt → clippy → tests) in sequence
+3. Repeat until all checks pass
+
+**NEVER commit code with:**
+- Failing tests
+- Clippy warnings
+- Unformatted code
+
+### Commit Message Format
+
+**Subject Line** (max 50 characters):
+- Use imperative mood: "Add feature" not "Added feature"
+- Start with a verb: Add, Fix, Refactor, Update, Remove, etc.
+- Be specific and concise
+- No period at the end
+
+**Body** (wrap at 72 characters):
+- Explain WHY the change was made (the diff shows WHAT)
+- Include context and motivation
+- Reference related issues if applicable
+
+**Example:**
+```
+Add commit skill with quality checks
+
+Implements a custom Claude skill that ensures code quality before
+committing by running tests, clippy, and formatting in a loop until
+all checks pass. This prevents broken code from entering the repo.
+```
+
+### Pre-Commit Verification
+
+Before committing, always:
+1. Run `git status` and `git diff` to review changes
+2. Verify all quality checks have passed
+3. Ensure commit message follows the format above
+
 ## Code Architecture
 
 ### Core Components
