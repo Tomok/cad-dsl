@@ -278,8 +278,9 @@
 //! }
 //! ```
 
-// Allow dead code for now since HIR is not yet fully integrated
+// Allow dead code and unused imports for now since HIR is not yet fully integrated
 #![allow(dead_code)]
+#![allow(unused_imports)]
 
 // ============================================================================
 // Public Re-exports
