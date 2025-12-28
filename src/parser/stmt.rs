@@ -90,6 +90,8 @@ pub fn type_annotation<'src>()
 ///   let <name>: <type>;
 ///   let <name> = <expr>;
 ///   let <name>;
+///   let <container>.<field>: <type> = <expr>;
+///   let <container>.<subcontainer>.<field>: <type> = <expr>;
 pub fn let_stmt<'src>(
     expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
     + Clone,
@@ -98,16 +100,30 @@ pub fn let_stmt<'src>(
 
     let colon = select! { Token::Colon(_) => () };
     let equals = select! { Token::Equals(_) => () };
+    let dot = select! { Token::Dot(_) => () };
+
+    // Parse a dotted path: identifier (.identifier)*
+    let name_path = select! {
+        Token::Identifier(t) => (t.name, t.span),
+    }
+    .labelled("variable name")
+    .then(
+        dot.ignore_then(select! {
+            Token::Identifier(t) => (t.name, t.span),
+        })
+        .repeated()
+        .collect::<Vec<_>>(),
+    )
+    .map(|(first, rest)| {
+        let mut path = vec![first];
+        path.extend(rest);
+        path
+    });
 
     select! {
         Token::Let(t) => t.position,
     }
-    .then(
-        select! {
-            Token::Identifier(t) => (t.name, t.span),
-        }
-        .labelled("variable name"),
-    )
+    .then(name_path)
     .then(
         // Optional type annotation: : <type>
         colon.ignore_then(type_annotation()).or_not(),
@@ -120,7 +136,7 @@ pub fn let_stmt<'src>(
         Token::SemiColon(t) => t.position,
     })
     .map(
-        |((((let_pos, (name, name_span)), type_annotation), init), semi_pos)| {
+        |((((let_pos, name_path), type_annotation), init), semi_pos)| {
             // Construct span from let keyword to semicolon
             let span = if let_pos.line == semi_pos.line {
                 // Same line
@@ -139,8 +155,7 @@ pub fn let_stmt<'src>(
             };
 
             Stmt::Let {
-                name,
-                name_span,
+                name_path,
                 type_annotation,
                 init,
                 span,

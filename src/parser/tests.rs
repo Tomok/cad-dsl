@@ -1727,12 +1727,13 @@ fn test_let_with_type_and_init() {
 
     match result.unwrap() {
         Stmt::Let {
-            name,
+            name_path,
             type_annotation,
             init,
             ..
         } => {
-            assert_eq!(name, "x");
+            assert_eq!(name_path.len(), 1);
+            assert_eq!(name_path[0].0, "x");
             assert_matches!(type_annotation, Some(Type::I32 { .. }));
             assert_matches!(init, Some(Expr::IntLit { value: 42, .. }));
         }
@@ -1753,12 +1754,13 @@ fn test_let_with_type_only() {
 
     match result.unwrap() {
         Stmt::Let {
-            name,
+            name_path,
             type_annotation,
             init,
             ..
         } => {
-            assert_eq!(name, "y");
+            assert_eq!(name_path.len(), 1);
+            assert_eq!(name_path[0].0, "y");
             assert_matches!(type_annotation, Some(Type::Bool { .. }));
             assert!(init.is_none());
         }
@@ -1779,12 +1781,13 @@ fn test_let_with_init_only() {
 
     match result.unwrap() {
         Stmt::Let {
-            name,
+            name_path,
             type_annotation,
             init,
             ..
         } => {
-            assert_eq!(name, "z");
+            assert_eq!(name_path.len(), 1);
+            assert_eq!(name_path[0].0, "z");
             assert!(type_annotation.is_none());
             assert_matches!(init, Some(Expr::FloatLit { value, .. }) if value == 3.14);
         }
@@ -1805,12 +1808,13 @@ fn test_let_no_type_no_init() {
 
     match result.unwrap() {
         Stmt::Let {
-            name,
+            name_path,
             type_annotation,
             init,
             ..
         } => {
-            assert_eq!(name, "w");
+            assert_eq!(name_path.len(), 1);
+            assert_eq!(name_path[0].0, "w");
             assert!(type_annotation.is_none());
             assert!(init.is_none());
         }
@@ -1831,12 +1835,13 @@ fn test_let_with_expression() {
 
     match result.unwrap() {
         Stmt::Let {
-            name,
+            name_path,
             type_annotation,
             init,
             ..
         } => {
-            assert_eq!(name, "result");
+            assert_eq!(name_path.len(), 1);
+            assert_eq!(name_path[0].0, "result");
             assert_matches!(type_annotation, Some(Type::I32 { .. }));
             match init {
                 Some(Expr::Add { lhs, rhs, .. }) => {
@@ -1858,6 +1863,192 @@ fn test_let_with_expression() {
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
+        Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
+    }
+}
+
+// ========================================================================
+// Container Field Declaration Tests
+// ========================================================================
+
+#[test]
+fn test_let_container_field_simple() {
+    // let obj.field: i32 = 42;
+    let result = parse_with_timeout(
+        "let obj.field: i32 = 42;",
+        |input| let_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Let {
+            name_path,
+            type_annotation,
+            init,
+            ..
+        } => {
+            assert_eq!(name_path.len(), 2);
+            assert_eq!(name_path[0].0, "obj");
+            assert_eq!(name_path[1].0, "field");
+            assert_matches!(type_annotation, Some(Type::I32 { .. }));
+            assert_matches!(init, Some(Expr::IntLit { value: 42, .. }));
+        }
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
+        Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
+    }
+}
+
+#[test]
+fn test_let_container_field_nested() {
+    // let sketch.entities.p1: Point = point();
+    let result = parse_with_timeout(
+        "let sketch.entities.p1: Point;",
+        |input| let_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Let {
+            name_path,
+            type_annotation,
+            init,
+            ..
+        } => {
+            assert_eq!(name_path.len(), 3);
+            assert_eq!(name_path[0].0, "sketch");
+            assert_eq!(name_path[1].0, "entities");
+            assert_eq!(name_path[2].0, "p1");
+            assert_matches!(
+                type_annotation,
+                Some(Type::UserDefined { name, .. }) if name == "Point"
+            );
+            assert!(init.is_none());
+        }
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
+        Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
+    }
+}
+
+#[test]
+fn test_let_container_field_with_expression() {
+    // let obj.value: i32 = 10 + 20;
+    let result = parse_with_timeout(
+        "let obj.value: i32 = 10 + 20;",
+        |input| let_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Let {
+            name_path,
+            type_annotation,
+            init,
+            ..
+        } => {
+            assert_eq!(name_path.len(), 2);
+            assert_eq!(name_path[0].0, "obj");
+            assert_eq!(name_path[1].0, "value");
+            assert_matches!(type_annotation, Some(Type::I32 { .. }));
+            assert_matches!(init, Some(Expr::Add { .. }));
+        }
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
+        Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
+    }
+}
+
+#[test]
+fn test_let_container_field_no_type() {
+    // let obj.field = 3.14;
+    let result = parse_with_timeout(
+        "let obj.field = 3.14;",
+        |input| let_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Let {
+            name_path,
+            type_annotation,
+            init,
+            ..
+        } => {
+            assert_eq!(name_path.len(), 2);
+            assert_eq!(name_path[0].0, "obj");
+            assert_eq!(name_path[1].0, "field");
+            assert!(type_annotation.is_none());
+            assert_matches!(init, Some(Expr::FloatLit { value, .. }) if value == 3.14);
+        }
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
+        Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
+    }
+}
+
+#[test]
+fn test_let_container_field_deeply_nested() {
+    // let a.b.c.d.e: bool = true;
+    let result = parse_with_timeout(
+        "let a.b.c.d.e: bool = true;",
+        |input| let_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Let {
+            name_path,
+            type_annotation,
+            init,
+            ..
+        } => {
+            assert_eq!(name_path.len(), 5);
+            assert_eq!(name_path[0].0, "a");
+            assert_eq!(name_path[1].0, "b");
+            assert_eq!(name_path[2].0, "c");
+            assert_eq!(name_path[3].0, "d");
+            assert_eq!(name_path[4].0, "e");
+            assert_matches!(type_annotation, Some(Type::Bool { .. }));
+            assert_matches!(init, Some(Expr::BoolLit { value: true, .. }));
+        }
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
+        Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
+    }
+}
+
+#[test]
+fn test_let_container_field_span_tracking() {
+    // let obj.field: i32 = 42;
+    let result = parse_with_timeout(
+        "let obj.field: i32 = 42;",
+        |input| let_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Let {
+            name_path, span, ..
+        } => {
+            assert_eq!(name_path.len(), 2);
+
+            // First segment "obj" should start at column 5
+            assert_eq!(name_path[0].1.start.line, 1);
+            assert_eq!(name_path[0].1.start.column, 5);
+
+            // Second segment "field" should start at column 9 (after "obj.")
+            assert_eq!(name_path[1].1.start.line, 1);
+            assert_eq!(name_path[1].1.start.column, 9);
+
+            // Overall span should cover entire statement
+            assert_eq!(span.start.line, 1);
+            assert_eq!(span.start.column, 1); // Starts at "let"
+            assert_eq!(span.lines, 0);
+            assert_eq!(span.end_column, 25); // Ends after ';'
+        }
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
+        Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
     }
 }
@@ -2043,9 +2234,11 @@ fn test_span_let_statement() {
 
     match result.unwrap() {
         Stmt::Let {
-            name_span, span, ..
+            name_path, span, ..
         } => {
-            // name_span should point to "x"
+            // name_path should have one element "x"
+            assert_eq!(name_path.len(), 1);
+            let name_span = name_path[0].1;
             assert_eq!(name_span.start.line, 1);
             assert_eq!(name_span.start.column, 5); // "x" starts at column 5
 

@@ -89,9 +89,14 @@ pub enum Stmt<'src> {
     ///   let x: i32 = 42;
     ///   let y: bool;
     ///   let z = 3.14;
+    ///   let container.field: Point = point(0mm, 0mm);
+    ///   let sketch.entities.p1: Point = point(10mm, 10mm);
     Let {
-        name: &'src str,
-        name_span: Span,
+        /// Path segments for the variable name
+        /// - Simple let: `let x` -> vec![("x", span)]
+        /// - Container field: `let container.field` -> vec![("container", span1), ("field", span2)]
+        /// - Nested: `let a.b.c` -> vec![("a", span1), ("b", span2), ("c", span3)]
+        name_path: Vec<(&'src str, Span)>,
         type_annotation: Option<Type>,
         init: Option<Expr<'src>>,
         span: Span,
