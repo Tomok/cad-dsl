@@ -16,6 +16,17 @@ use chumsky::prelude::*;
 use super::ParseError;
 
 // ============================================================================
+// Helper Types
+// ============================================================================
+
+/// Represents a postfix operation (method call, field access, or indexing)
+#[derive(Debug, Clone)]
+enum PostfixOp<'src> {
+    MethodOrField((&'src str, Span), Option<(Vec<Expr<'src>>, SimpleSpan)>),
+    Index(Expr<'src>, SimpleSpan),
+}
+
+// ============================================================================
 // Atomic Parsers (with optional recursion for function calls)
 // ============================================================================
 
@@ -130,9 +141,12 @@ pub fn atom<'src>(
         },
     ));
 
-    // Then parse zero or more method calls or field accesses as postfix operations
+    // Then parse zero or more method calls, field accesses, or array indexing as postfix operations
     // Method call: .identifier(args)
     // Field access: .identifier (without parentheses)
+    // Array indexing: [expr]
+
+    // Method/field suffix: .identifier with optional args
     let method_or_field_suffix = select! { Token::Dot(_) => () }
         .ignore_then(select! {
             Token::Identifier(t) => (t.name, t.span),
@@ -151,14 +165,30 @@ pub fn atom<'src>(
                     (args, span_range)
                 })
                 .or_not(),
-        );
+        )
+        .map(|(name_span, args_and_span)| PostfixOp::MethodOrField(name_span, args_and_span));
 
-    // Combine base atom with repeated method calls or field accesses
+    // Index suffix: [expr]
+    let index_suffix = expr
+        .clone()
+        .delimited_by(
+            select! { Token::LeftBracket(_) => () },
+            select! { Token::RightBracket(t) => t.position },
+        )
+        .map_with(|index, e| {
+            let span_range = e.span();
+            PostfixOp::Index(index, span_range)
+        });
+
+    // Combine both postfix operations
+    let postfix_op = choice((method_or_field_suffix, index_suffix));
+
+    // Combine base atom with repeated postfix operations
     base_atom
-        .then(method_or_field_suffix.repeated().collect::<Vec<_>>())
+        .then(postfix_op.repeated().collect::<Vec<_>>())
         .map(|(mut atom, suffixes)| {
-            // Apply each suffix (method call or field access) in sequence
-            for ((name, name_span), args_and_span) in suffixes {
+            // Apply each postfix operation in sequence
+            for suffix in suffixes {
                 let start = match &atom {
                     Atom::Var { span, .. } => span.start,
                     Atom::IntLit { span, .. } => span.start,
@@ -169,28 +199,42 @@ pub fn atom<'src>(
                     Atom::FieldAccess { span, .. } => span.start,
                     Atom::ArrayLit { span, .. } => span.start,
                     Atom::StructLit { span, .. } => span.start,
+                    Atom::Index { span, .. } => span.start,
                 };
 
-                atom = match args_and_span {
-                    // Method call: has arguments
-                    Some((args, call_span)) => Atom::MethodCall {
-                        receiver: Box::new(atom.into()),
-                        method: name,
-                        args,
+                atom = match suffix {
+                    PostfixOp::MethodOrField((name, name_span), args_and_span) => {
+                        match args_and_span {
+                            // Method call: has arguments
+                            Some((args, call_span)) => Atom::MethodCall {
+                                receiver: Box::new(atom.into()),
+                                method: name,
+                                args,
+                                span: Span {
+                                    start,
+                                    lines: 0,
+                                    end_column: call_span.end,
+                                },
+                            },
+                            // Field access: no arguments
+                            None => Atom::FieldAccess {
+                                receiver: Box::new(atom.into()),
+                                field: name,
+                                span: Span {
+                                    start,
+                                    lines: 0,
+                                    end_column: name_span.end_column,
+                                },
+                            },
+                        }
+                    }
+                    PostfixOp::Index(index_expr, index_span) => Atom::Index {
+                        array: Box::new(atom.into()),
+                        index: Box::new(index_expr),
                         span: Span {
                             start,
                             lines: 0,
-                            end_column: call_span.end,
-                        },
-                    },
-                    // Field access: no arguments
-                    None => Atom::FieldAccess {
-                        receiver: Box::new(atom.into()),
-                        field: name,
-                        span: Span {
-                            start,
-                            lines: 0,
-                            end_column: name_span.end_column,
+                            end_column: index_span.end,
                         },
                     },
                 };

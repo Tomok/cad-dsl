@@ -193,6 +193,7 @@ where
                 PowRhs::StructLit { name, fields, span } => {
                     MulRhs::StructLit { name, fields, span }
                 }
+                PowRhs::Index { array, index, span } => MulRhs::Index { array, index, span },
             }
         }),
         select! { Token::LeftParen(t) => t.position }
@@ -273,6 +274,7 @@ where
                 PowRhs::StructLit { name, fields, span } => {
                     MulLhs::StructLit { name, fields, span }
                 }
+                PowRhs::Index { array, index, span } => MulLhs::Index { array, index, span },
             }
         }),
         select! { Token::LeftParen(t) => t.position }

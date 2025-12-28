@@ -44,6 +44,7 @@ impl<'src> From<AddLhs<'src>> for CmpRhs<'src> {
             },
             AddLhs::ArrayLit { elements, span } => CmpRhs::ArrayLit { elements, span },
             AddLhs::StructLit { name, fields, span } => CmpRhs::StructLit { name, fields, span },
+            AddLhs::Index { array, index, span } => CmpRhs::Index { array, index, span },
         }
     }
 }
@@ -88,6 +89,7 @@ impl<'src> From<AddLhs<'src>> for CmpLhs<'src> {
             },
             AddLhs::ArrayLit { elements, span } => CmpLhs::ArrayLit { elements, span },
             AddLhs::StructLit { name, fields, span } => CmpLhs::StructLit { name, fields, span },
+            AddLhs::Index { array, index, span } => CmpLhs::Index { array, index, span },
         }
     }
 }
@@ -123,6 +125,7 @@ impl<'src> From<Atom<'src>> for MulRhs<'src> {
             },
             Atom::ArrayLit { elements, span } => MulRhs::ArrayLit { elements, span },
             Atom::StructLit { name, fields, span } => MulRhs::StructLit { name, fields, span },
+            Atom::Index { array, index, span } => MulRhs::Index { array, index, span },
         }
     }
 }
@@ -158,6 +161,7 @@ impl<'src> From<Atom<'src>> for MulLhs<'src> {
             },
             Atom::ArrayLit { elements, span } => MulLhs::ArrayLit { elements, span },
             Atom::StructLit { name, fields, span } => MulLhs::StructLit { name, fields, span },
+            Atom::Index { array, index, span } => MulLhs::Index { array, index, span },
         }
     }
 }
@@ -200,6 +204,7 @@ impl<'src> From<MulLhs<'src>> for AddRhs<'src> {
             },
             MulLhs::ArrayLit { elements, span } => AddRhs::ArrayLit { elements, span },
             MulLhs::StructLit { name, fields, span } => AddRhs::StructLit { name, fields, span },
+            MulLhs::Index { array, index, span } => AddRhs::Index { array, index, span },
         }
     }
 }
@@ -242,6 +247,7 @@ impl<'src> From<MulLhs<'src>> for AddLhs<'src> {
             },
             MulLhs::ArrayLit { elements, span } => AddLhs::ArrayLit { elements, span },
             MulLhs::StructLit { name, fields, span } => AddLhs::StructLit { name, fields, span },
+            MulLhs::Index { array, index, span } => AddLhs::Index { array, index, span },
         }
     }
 }
@@ -277,6 +283,7 @@ impl<'src> From<Atom<'src>> for PowLhs<'src> {
             },
             Atom::ArrayLit { elements, span } => PowLhs::ArrayLit { elements, span },
             Atom::StructLit { name, fields, span } => PowLhs::StructLit { name, fields, span },
+            Atom::Index { array, index, span } => PowLhs::Index { array, index, span },
         }
     }
 }
@@ -312,6 +319,7 @@ impl<'src> From<Atom<'src>> for PowRhs<'src> {
             },
             Atom::ArrayLit { elements, span } => PowRhs::ArrayLit { elements, span },
             Atom::StructLit { name, fields, span } => PowRhs::StructLit { name, fields, span },
+            Atom::Index { array, index, span } => PowRhs::Index { array, index, span },
         }
     }
 }
@@ -350,6 +358,7 @@ impl<'src> From<PowLhs<'src>> for PowRhs<'src> {
             },
             PowLhs::ArrayLit { elements, span } => PowRhs::ArrayLit { elements, span },
             PowLhs::StructLit { name, fields, span } => PowRhs::StructLit { name, fields, span },
+            PowLhs::Index { array, index, span } => PowRhs::Index { array, index, span },
         }
     }
 }
@@ -388,6 +397,7 @@ impl<'src> From<PowLhs<'src>> for MulRhs<'src> {
             },
             PowLhs::ArrayLit { elements, span } => MulRhs::ArrayLit { elements, span },
             PowLhs::StructLit { name, fields, span } => MulRhs::StructLit { name, fields, span },
+            PowLhs::Index { array, index, span } => MulRhs::Index { array, index, span },
         }
     }
 }
@@ -426,6 +436,7 @@ impl<'src> From<PowLhs<'src>> for MulLhs<'src> {
             },
             PowLhs::ArrayLit { elements, span } => MulLhs::ArrayLit { elements, span },
             PowLhs::StructLit { name, fields, span } => MulLhs::StructLit { name, fields, span },
+            PowLhs::Index { array, index, span } => MulLhs::Index { array, index, span },
         }
     }
 }

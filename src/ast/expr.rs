@@ -195,6 +195,14 @@ pub enum Expr<'src> {
         fields: Vec<(&'src str, Expr<'src>)>,
         span: Span,
     },
+
+    // Array indexing - in all levels (high precedence like atoms)
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
+    Index {
+        array: Box<Expr<'src>>,
+        index: Box<Expr<'src>>,
+        span: Span,
+    },
 }
 
 // ============================================================================
@@ -226,6 +234,7 @@ impl<'src> HasSpan for Expr<'src> {
             Expr::FieldAccess { span, .. } => *span,
             Expr::ArrayLit { span, .. } => *span,
             Expr::StructLit { span, .. } => *span,
+            Expr::Index { span, .. } => *span,
         }
     }
 }
@@ -255,6 +264,7 @@ impl<'src> HasSpan for CmpLhs<'src> {
             CmpLhs::FieldAccess { span, .. } => *span,
             CmpLhs::ArrayLit { span, .. } => *span,
             CmpLhs::StructLit { span, .. } => *span,
+            CmpLhs::Index { span, .. } => *span,
         }
     }
 }
@@ -280,6 +290,7 @@ impl<'src> HasSpan for CmpRhs<'src> {
             CmpRhs::FieldAccess { span, .. } => *span,
             CmpRhs::ArrayLit { span, .. } => *span,
             CmpRhs::StructLit { span, .. } => *span,
+            CmpRhs::Index { span, .. } => *span,
         }
     }
 }
@@ -305,6 +316,7 @@ impl<'src> HasSpan for AddLhs<'src> {
             AddLhs::FieldAccess { span, .. } => *span,
             AddLhs::ArrayLit { span, .. } => *span,
             AddLhs::StructLit { span, .. } => *span,
+            AddLhs::Index { span, .. } => *span,
         }
     }
 }
@@ -328,6 +340,7 @@ impl<'src> HasSpan for AddRhs<'src> {
             AddRhs::FieldAccess { span, .. } => *span,
             AddRhs::ArrayLit { span, .. } => *span,
             AddRhs::StructLit { span, .. } => *span,
+            AddRhs::Index { span, .. } => *span,
         }
     }
 }
@@ -351,6 +364,7 @@ impl<'src> HasSpan for MulLhs<'src> {
             MulLhs::FieldAccess { span, .. } => *span,
             MulLhs::ArrayLit { span, .. } => *span,
             MulLhs::StructLit { span, .. } => *span,
+            MulLhs::Index { span, .. } => *span,
         }
     }
 }
@@ -371,6 +385,7 @@ impl<'src> HasSpan for MulRhs<'src> {
             MulRhs::FieldAccess { span, .. } => *span,
             MulRhs::ArrayLit { span, .. } => *span,
             MulRhs::StructLit { span, .. } => *span,
+            MulRhs::Index { span, .. } => *span,
         }
     }
 }
@@ -390,6 +405,7 @@ impl<'src> HasSpan for PowLhs<'src> {
             PowLhs::FieldAccess { span, .. } => *span,
             PowLhs::ArrayLit { span, .. } => *span,
             PowLhs::StructLit { span, .. } => *span,
+            PowLhs::Index { span, .. } => *span,
         }
     }
 }
@@ -410,6 +426,7 @@ impl<'src> HasSpan for PowRhs<'src> {
             PowRhs::FieldAccess { span, .. } => *span,
             PowRhs::ArrayLit { span, .. } => *span,
             PowRhs::StructLit { span, .. } => *span,
+            PowRhs::Index { span, .. } => *span,
         }
     }
 }
@@ -426,6 +443,7 @@ impl<'src> HasSpan for Atom<'src> {
             Atom::FieldAccess { span, .. } => *span,
             Atom::ArrayLit { span, .. } => *span,
             Atom::StructLit { span, .. } => *span,
+            Atom::Index { span, .. } => *span,
         }
     }
 }

@@ -2511,6 +2511,84 @@ fn test_nested_array_literal() {
 }
 
 // ============================================================================
+// Array Indexing Tests
+// ============================================================================
+
+#[test]
+fn test_array_index_simple() {
+    let result = parse_with_timeout(
+        "arr[0]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Index { array, index, .. } => {
+            assert_matches!(*array, Expr::Var { name, .. } if name == "arr");
+            assert_matches!(*index, Expr::IntLit { value, .. } if value == 0);
+        }
+        other => panic!("Expected Expr::Index, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_array_index_chained() {
+    let result = parse_with_timeout(
+        "matrix[i][j]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Index { array, index, .. } => {
+            // Outer index should be j
+            assert_matches!(*index, Expr::Var { name, .. } if name == "j");
+
+            // Inner should be matrix[i]
+            assert_matches!(*array, Expr::Index { array: inner_array, index: inner_index, .. } => {
+                assert_matches!(*inner_array, Expr::Var { name, .. } if name == "matrix");
+                assert_matches!(*inner_index, Expr::Var { name, .. } if name == "i");
+            });
+        }
+        other => panic!("Expected Expr::Index, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_array_index_with_expression() {
+    let result = parse_with_timeout(
+        "arr[i + 1]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Index { array, index, .. } => {
+            assert_matches!(*array, Expr::Var { name, .. } if name == "arr");
+            assert_matches!(*index, Expr::Add { .. });
+        }
+        other => panic!("Expected Expr::Index, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_array_index_on_field() {
+    let result = parse_with_timeout(
+        "obj.items[0]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Index { array, index, .. } => {
+            assert_matches!(*index, Expr::IntLit { value, .. } if value == 0);
+            assert_matches!(*array, Expr::FieldAccess { field, .. } if field == "items");
+        }
+        other => panic!("Expected Expr::Index, got {:?}", other),
+    }
+}
+
+// ============================================================================
 // Struct Literal Tests
 // ============================================================================
 
