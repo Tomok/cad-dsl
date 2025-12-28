@@ -89,11 +89,62 @@ pub enum Stmt<'src> {
     ///   let x: i32 = 42;
     ///   let y: bool;
     ///   let z = 3.14;
+    ///   let container.field: Point = point(0mm, 0mm);
+    ///   let sketch.entities.p1: Point = point(10mm, 10mm);
+    ///   let .field: Point = point(0mm, 0mm);  // Dot prefix (in with blocks)
     Let {
-        name: &'src str,
-        name_span: Span,
+        /// Whether this let statement has a dot prefix (e.g., `let .field = value;`)
+        /// Dot prefix indicates the entity should be stored in the container from
+        /// the enclosing `with` statement.
+        dot_prefix: bool,
+        /// Path segments for the variable name
+        /// - Simple let: `let x` -> vec![("x", span)]
+        /// - Container field: `let container.field` -> vec![("container", span1), ("field", span2)]
+        /// - Nested: `let a.b.c` -> vec![("a", span1), ("b", span2), ("c", span3)]
+        /// - Dot prefix: `let .field` -> vec![("field", span)]
+        name_path: Vec<(&'src str, Span)>,
         type_annotation: Option<Type>,
         init: Option<Expr<'src>>,
+        span: Span,
+    },
+
+    /// Assignment statement (creates a constraint)
+    /// Examples:
+    ///   x = 42;
+    ///   width = 100;
+    ///   result = a + b;
+    /// Note: This is for simple variable assignment only.
+    /// Field assignment uses Stmt::FieldAssignment.
+    Assignment {
+        /// Variable name being assigned to
+        name: &'src str,
+        /// Span of the variable name
+        name_span: Span,
+        /// Value expression
+        value: Expr<'src>,
+        /// Overall span of the statement
+        span: Span,
+    },
+
+    /// Field assignment statement (assigns to object fields)
+    /// Examples:
+    ///   obj.field = 42;
+    ///   sketch.origin.x = 10mm;
+    ///   container.entities.p1.x = 5;
+    ///   .field = 42;  // Dot prefix (in with blocks)
+    /// Note: Without dot prefix, the path must have at least 2 segments (object.field).
+    FieldAssignment {
+        /// Whether this field assignment has a dot prefix (e.g., `.field = value;`)
+        /// Dot prefix indicates the field is on the container from the enclosing `with` statement.
+        dot_prefix: bool,
+        /// Path to the field being assigned
+        /// - obj.field -> vec![("obj", span1), ("field", span2)]
+        /// - obj.nested.field -> vec![("obj", span1), ("nested", span2), ("field", span3)]
+        /// - .field -> vec![("field", span)]
+        field_path: Vec<(&'src str, Span)>,
+        /// Value expression
+        value: Expr<'src>,
+        /// Overall span of the statement
         span: Span,
     },
 
@@ -137,15 +188,76 @@ pub enum Stmt<'src> {
         methods: Vec<Stmt<'src>>,
         span: Span,
     },
+
+    /// Return statement with optional expression
+    /// Examples:
+    ///   return;
+    ///   return value;
+    ///   return a + b;
+    Return {
+        value: Option<Expr<'src>>,
+        span: Span,
+    },
+
+    /// Expression statement (expression followed by semicolon)
+    /// Examples:
+    ///   foo();
+    ///   print(x);
+    ///   obj.method();
+    ///   1 + 2;
+    Expression { expr: Expr<'src>, span: Span },
+
+    /// Block statement (sequence of statements in curly braces)
+    /// Examples:
+    ///   { }
+    ///   { let x = 1; }
+    ///   { let x = 1; let y = 2; }
+    ///   { { let x = 1; } { let y = 2; } }
+    Block {
+        statements: Vec<Stmt<'src>>,
+        span: Span,
+    },
+
+    /// With statement (apply transform or container context)
+    /// Examples:
+    ///   with transform { ... }
+    ///   with sketch { let .p1: Point = point(0mm, 0mm); }
+    ///   with translate { let p: Point = point(10mm, 10mm); }
+    With {
+        context_expr: Expr<'src>,
+        body: Vec<Stmt<'src>>,
+        span: Span,
+    },
+
+    /// If statement with optional else clause
+    /// Examples:
+    ///   if x > 0 { ... }
+    ///   if condition { ... } else { ... }
+    ///   if x > 0 { ... } else { if x < 0 { ... } else { ... } }
+    ///
+    /// Note: Else-if chains are supported by nesting if statements in the else branch.
+    If {
+        condition: Expr<'src>,
+        then_branch: Vec<Stmt<'src>>,
+        else_branch: Option<Vec<Stmt<'src>>>,
+        span: Span,
+    },
 }
 
 impl<'src> HasSpan for Stmt<'src> {
     fn span(&self) -> Span {
         match self {
             Stmt::Let { span, .. } => *span,
+            Stmt::Assignment { span, .. } => *span,
+            Stmt::FieldAssignment { span, .. } => *span,
             Stmt::For { span, .. } => *span,
             Stmt::FunctionDef { span, .. } => *span,
             Stmt::StructDef { span, .. } => *span,
+            Stmt::Return { span, .. } => *span,
+            Stmt::Expression { span, .. } => *span,
+            Stmt::Block { span, .. } => *span,
+            Stmt::With { span, .. } => *span,
+            Stmt::If { span, .. } => *span,
         }
     }
 }

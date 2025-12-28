@@ -247,6 +247,17 @@ pub enum Expr<'src> {
         span: Span,
     },
 
+    // Container field access (dot prefix in with blocks) - in all levels (high precedence like atoms)
+    // Example: .field or .field.x (starts with a dot, refers to container context)
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
+    ContainerFieldAccess {
+        /// Path segments after the leading dot
+        /// For `.field` -> vec!["field"]
+        /// For `.field.x` -> vec!["field", "x"]
+        field_path: Vec<&'src str>,
+        span: Span,
+    },
+
     // Array literal - in all levels (high precedence like atoms)
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
     ArrayLit {
@@ -318,6 +329,7 @@ impl<'src> HasSpan for Expr<'src> {
             Expr::Call { span, .. } => *span,
             Expr::MethodCall { span, .. } => *span,
             Expr::FieldAccess { span, .. } => *span,
+            Expr::ContainerFieldAccess { span, .. } => *span,
             Expr::ArrayLit { span, .. } => *span,
             Expr::StructLit { span, .. } => *span,
             Expr::Index { span, .. } => *span,
@@ -355,6 +367,7 @@ impl<'src> HasSpan for CmpLhs<'src> {
             CmpLhs::Call { span, .. } => *span,
             CmpLhs::MethodCall { span, .. } => *span,
             CmpLhs::FieldAccess { span, .. } => *span,
+            CmpLhs::ContainerFieldAccess { span, .. } => *span,
             CmpLhs::ArrayLit { span, .. } => *span,
             CmpLhs::StructLit { span, .. } => *span,
             CmpLhs::Index { span, .. } => *span,
@@ -384,6 +397,7 @@ impl<'src> HasSpan for CmpRhs<'src> {
             CmpRhs::Call { span, .. } => *span,
             CmpRhs::MethodCall { span, .. } => *span,
             CmpRhs::FieldAccess { span, .. } => *span,
+            CmpRhs::ContainerFieldAccess { span, .. } => *span,
             CmpRhs::ArrayLit { span, .. } => *span,
             CmpRhs::StructLit { span, .. } => *span,
             CmpRhs::Index { span, .. } => *span,
@@ -413,6 +427,7 @@ impl<'src> HasSpan for AddLhs<'src> {
             AddLhs::Call { span, .. } => *span,
             AddLhs::MethodCall { span, .. } => *span,
             AddLhs::FieldAccess { span, .. } => *span,
+            AddLhs::ContainerFieldAccess { span, .. } => *span,
             AddLhs::ArrayLit { span, .. } => *span,
             AddLhs::StructLit { span, .. } => *span,
             AddLhs::Index { span, .. } => *span,
@@ -440,6 +455,7 @@ impl<'src> HasSpan for AddRhs<'src> {
             AddRhs::Call { span, .. } => *span,
             AddRhs::MethodCall { span, .. } => *span,
             AddRhs::FieldAccess { span, .. } => *span,
+            AddRhs::ContainerFieldAccess { span, .. } => *span,
             AddRhs::ArrayLit { span, .. } => *span,
             AddRhs::StructLit { span, .. } => *span,
             AddRhs::Index { span, .. } => *span,
@@ -467,6 +483,7 @@ impl<'src> HasSpan for MulLhs<'src> {
             MulLhs::Call { span, .. } => *span,
             MulLhs::MethodCall { span, .. } => *span,
             MulLhs::FieldAccess { span, .. } => *span,
+            MulLhs::ContainerFieldAccess { span, .. } => *span,
             MulLhs::ArrayLit { span, .. } => *span,
             MulLhs::StructLit { span, .. } => *span,
             MulLhs::Index { span, .. } => *span,
@@ -491,6 +508,7 @@ impl<'src> HasSpan for MulRhs<'src> {
             MulRhs::Call { span, .. } => *span,
             MulRhs::MethodCall { span, .. } => *span,
             MulRhs::FieldAccess { span, .. } => *span,
+            MulRhs::ContainerFieldAccess { span, .. } => *span,
             MulRhs::ArrayLit { span, .. } => *span,
             MulRhs::StructLit { span, .. } => *span,
             MulRhs::Index { span, .. } => *span,
@@ -514,6 +532,7 @@ impl<'src> HasSpan for PowLhs<'src> {
             PowLhs::Call { span, .. } => *span,
             PowLhs::MethodCall { span, .. } => *span,
             PowLhs::FieldAccess { span, .. } => *span,
+            PowLhs::ContainerFieldAccess { span, .. } => *span,
             PowLhs::ArrayLit { span, .. } => *span,
             PowLhs::StructLit { span, .. } => *span,
             PowLhs::Index { span, .. } => *span,
@@ -538,6 +557,7 @@ impl<'src> HasSpan for PowRhs<'src> {
             PowRhs::Call { span, .. } => *span,
             PowRhs::MethodCall { span, .. } => *span,
             PowRhs::FieldAccess { span, .. } => *span,
+            PowRhs::ContainerFieldAccess { span, .. } => *span,
             PowRhs::ArrayLit { span, .. } => *span,
             PowRhs::StructLit { span, .. } => *span,
             PowRhs::Index { span, .. } => *span,
@@ -558,6 +578,7 @@ impl<'src> HasSpan for Atom<'src> {
             Atom::Call { span, .. } => *span,
             Atom::MethodCall { span, .. } => *span,
             Atom::FieldAccess { span, .. } => *span,
+            Atom::ContainerFieldAccess { span, .. } => *span,
             Atom::ArrayLit { span, .. } => *span,
             Atom::StructLit { span, .. } => *span,
             Atom::Index { span, .. } => *span,

@@ -90,6 +90,8 @@ pub fn type_annotation<'src>()
 ///   let <name>: <type>;
 ///   let <name> = <expr>;
 ///   let <name>;
+///   let <container>.<field>: <type> = <expr>;
+///   let <container>.<subcontainer>.<field>: <type> = <expr>;
 pub fn let_stmt<'src>(
     expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
     + Clone,
@@ -98,16 +100,52 @@ pub fn let_stmt<'src>(
 
     let colon = select! { Token::Colon(_) => () };
     let equals = select! { Token::Equals(_) => () };
+    let dot = select! { Token::Dot(_) => () };
+    let dot_with_pos = select! { Token::Dot(t) => t.position };
+
+    // Parse a dotted path: [.] identifier (.identifier)*
+    // Returns (has_dot_prefix, path)
+    let name_path = choice((
+        // Dot-prefixed path: .identifier (.identifier)*
+        dot_with_pos
+            .then(select! {
+                Token::Identifier(t) => (t.name, t.span),
+            })
+            .then(
+                dot.ignore_then(select! {
+                    Token::Identifier(t) => (t.name, t.span),
+                })
+                .repeated()
+                .collect::<Vec<_>>(),
+            )
+            .map(|((_, first), rest)| {
+                let mut path = vec![first];
+                path.extend(rest);
+                (true, path)
+            }),
+        // Regular path: identifier (.identifier)*
+        select! {
+            Token::Identifier(t) => (t.name, t.span),
+        }
+        .labelled("variable name")
+        .then(
+            dot.ignore_then(select! {
+                Token::Identifier(t) => (t.name, t.span),
+            })
+            .repeated()
+            .collect::<Vec<_>>(),
+        )
+        .map(|(first, rest)| {
+            let mut path = vec![first];
+            path.extend(rest);
+            (false, path)
+        }),
+    ));
 
     select! {
         Token::Let(t) => t.position,
     }
-    .then(
-        select! {
-            Token::Identifier(t) => (t.name, t.span),
-        }
-        .labelled("variable name"),
-    )
+    .then(name_path)
     .then(
         // Optional type annotation: : <type>
         colon.ignore_then(type_annotation()).or_not(),
@@ -120,7 +158,7 @@ pub fn let_stmt<'src>(
         Token::SemiColon(t) => t.position,
     })
     .map(
-        |((((let_pos, (name, name_span)), type_annotation), init), semi_pos)| {
+        |((((let_pos, (dot_prefix, name_path)), type_annotation), init), semi_pos)| {
             // Construct span from let keyword to semicolon
             let span = if let_pos.line == semi_pos.line {
                 // Same line
@@ -139,8 +177,8 @@ pub fn let_stmt<'src>(
             };
 
             Stmt::Let {
-                name,
-                name_span,
+                dot_prefix,
+                name_path,
                 type_annotation,
                 init,
                 span,
@@ -148,6 +186,170 @@ pub fn let_stmt<'src>(
         },
     )
     .labelled("let statement")
+}
+
+// ============================================================================
+// Assignment Statement Parser
+// ============================================================================
+
+/// Parse an assignment statement
+///
+/// Syntax:
+///   <name> = <expr>;
+///
+/// Examples:
+///   x = 42;
+///   width = 100;
+///   result = a + b;
+///
+/// Note: This parser handles simple variable assignment only.
+/// Field assignment (obj.field = value) is not yet implemented.
+pub fn assignment_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    let equals = select! { Token::Equals(_) => () };
+
+    select! {
+        Token::Identifier(t) => (t.name, t.span),
+    }
+    .labelled("variable name")
+    .then_ignore(equals)
+    .then(expr_parser.labelled("value expression"))
+    .then(select! {
+        Token::SemiColon(t) => t.position,
+    })
+    .map(|(((name, name_span), value), semi_pos)| {
+        // Construct span from variable name to semicolon
+        let span = if name_span.start.line == semi_pos.line {
+            // Same line
+            Span {
+                start: name_span.start,
+                lines: 0,
+                end_column: semi_pos.column + 1,
+            }
+        } else {
+            // Multiple lines
+            Span {
+                start: name_span.start,
+                lines: semi_pos.line - name_span.start.line,
+                end_column: semi_pos.column + 1,
+            }
+        };
+
+        Stmt::Assignment {
+            name,
+            name_span,
+            value,
+            span,
+        }
+    })
+    .labelled("assignment statement")
+}
+
+// ============================================================================
+// Field Assignment Statement Parser
+// ============================================================================
+
+/// Parse a field assignment statement
+///
+/// Syntax:
+///   <obj>.<field> = <expr>;
+///   <obj>.<nested>.<field> = <expr>;
+///
+/// Examples:
+///   obj.field = 42;
+///   sketch.origin.x = 10mm;
+///   container.entities.p1.x = 5;
+///
+/// Note: The field path must have at least 2 segments (object.field).
+/// This parser handles field assignment (obj.field = value), distinct from
+/// simple assignment (x = value) which uses assignment_stmt.
+pub fn field_assignment_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    let equals = select! { Token::Equals(_) => () };
+    let dot = select! { Token::Dot(_) => () };
+    let dot_with_pos = select! { Token::Dot(t) => t.position };
+
+    // Parse a dotted path: [.] identifier(.identifier)*
+    // Regular form requires at least 2 segments (obj.field)
+    // Dot-prefixed form requires at least 1 segment (.field)
+    // Returns (has_dot_prefix, path)
+    let field_path = choice((
+        // Dot-prefixed path: .identifier(.identifier)*
+        dot_with_pos
+            .then(
+                select! {
+                    Token::Identifier(t) => (t.name, t.span),
+                }
+                .labelled("field name")
+                .separated_by(dot)
+                .at_least(1)
+                .collect::<Vec<_>>(),
+            )
+            .map(|(_, path)| (true, path)),
+        // Regular path: identifier.identifier(.identifier)*
+        // Must have at least 2 segments
+        select! {
+            Token::Identifier(t) => (t.name, t.span),
+        }
+        .labelled("object name")
+        .then_ignore(dot)
+        .then(
+            select! {
+                Token::Identifier(t) => (t.name, t.span),
+            }
+            .labelled("field name")
+            .separated_by(dot)
+            .at_least(1)
+            .collect::<Vec<_>>(),
+        )
+        .map(|(first, rest)| {
+            let mut path = vec![first];
+            path.extend(rest);
+            (false, path)
+        }),
+    ));
+
+    field_path
+        .then_ignore(equals)
+        .then(expr_parser.labelled("value expression"))
+        .then(select! {
+            Token::SemiColon(t) => t.position,
+        })
+        .map(|(((dot_prefix, field_path), value), semi_pos)| {
+            // Construct span from first identifier to semicolon
+            let first_span = field_path[0].1;
+            let span = if first_span.start.line == semi_pos.line {
+                // Same line
+                Span {
+                    start: first_span.start,
+                    lines: 0,
+                    end_column: semi_pos.column + 1,
+                }
+            } else {
+                // Multiple lines
+                Span {
+                    start: first_span.start,
+                    lines: semi_pos.line - first_span.start.line,
+                    end_column: semi_pos.column + 1,
+                }
+            };
+
+            Stmt::FieldAssignment {
+                dot_prefix,
+                field_path,
+                value,
+                span,
+            }
+        })
+        .labelled("field assignment statement")
 }
 
 // ============================================================================
@@ -222,6 +424,115 @@ pub fn for_stmt<'src>(
 }
 
 // ============================================================================
+// Return Statement Parser
+// ============================================================================
+
+/// Parse a return statement
+///
+/// Syntax:
+///   return;
+///   return <expr>;
+///
+/// Examples:
+///   return;
+///   return value;
+///   return a + b;
+///
+/// Note: Return without a value is allowed for functions with no return type.
+pub fn return_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    select! {
+        Token::Return(t) => t.position,
+    }
+    .then(
+        // Optional expression before semicolon
+        expr_parser.or_not(),
+    )
+    .then(select! {
+        Token::SemiColon(t) => t.position,
+    })
+    .map(|((return_pos, value), semi_pos)| {
+        // Construct span from return keyword to semicolon
+        let span = if return_pos.line == semi_pos.line {
+            // Same line
+            Span {
+                start: return_pos,
+                lines: 0,
+                end_column: semi_pos.column + 1,
+            }
+        } else {
+            // Multiple lines
+            Span {
+                start: return_pos,
+                lines: semi_pos.line - return_pos.line,
+                end_column: semi_pos.column + 1,
+            }
+        };
+
+        Stmt::Return { value, span }
+    })
+    .labelled("return statement")
+}
+
+// ============================================================================
+// Expression Statement Parser
+// ============================================================================
+
+/// Parse an expression statement
+///
+/// Syntax:
+///   <expr>;
+///
+/// Examples:
+///   foo();
+///   print(x);
+///   obj.method();
+///   1 + 2;
+///
+/// Note: This parser should be used LAST in the statement choice combinator
+/// to avoid consuming parts of other statement types.
+pub fn expression_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    expr_parser
+        .labelled("expression")
+        .then(select! {
+            Token::SemiColon(t) => t.position,
+        })
+        .map(|(expr, semi_pos)| {
+            use crate::ast::span::HasSpan;
+            let expr_span = expr.span();
+
+            // Construct span from expression start to semicolon
+            let span = if expr_span.start.line == semi_pos.line {
+                // Same line
+                Span {
+                    start: expr_span.start,
+                    lines: 0,
+                    end_column: semi_pos.column + 1,
+                }
+            } else {
+                // Multiple lines
+                Span {
+                    start: expr_span.start,
+                    lines: semi_pos.line - expr_span.start.line,
+                    end_column: semi_pos.column + 1,
+                }
+            };
+
+            Stmt::Expression { expr, span }
+        })
+        .labelled("expression statement")
+}
+
+// ============================================================================
 // Function Definition Parser
 // ============================================================================
 
@@ -282,12 +593,22 @@ pub fn function_def<'src>(
     let left_brace = select! { Token::LeftBrace(_) => () };
     let right_brace = select! { Token::RightBrace(t) => t.position };
 
-    // Function bodies can contain let statements and for loops
-    // Use recursive parser to support nested for loops
+    // Function bodies can contain let statements, assignment statements, field assignments, return statements, for loops, with statements, if statements, blocks, and expression statements
+    // Use recursive parser to support nested for loops, with statements, if statements, and nested blocks
+    // Note: field_assignment_stmt must come before assignment_stmt to avoid ambiguity
+    // (obj.field = value should parse as field assignment, not fail on obj.field)
+    // Note: expression_stmt must come LAST to avoid consuming parts of other statements
     let stmt_parser = recursive(|stmt_rec| {
         choice((
             let_stmt(expr_parser.clone()),
-            for_stmt(expr_parser.clone(), stmt_rec),
+            field_assignment_stmt(expr_parser.clone()),
+            assignment_stmt(expr_parser.clone()),
+            return_stmt(expr_parser.clone()),
+            for_stmt(expr_parser.clone(), stmt_rec.clone()),
+            with_stmt(expr_parser.clone(), stmt_rec.clone()),
+            if_stmt(expr_parser.clone(), stmt_rec.clone()),
+            block_stmt(stmt_rec),
+            expression_stmt(expr_parser.clone()),
         ))
     });
 
@@ -510,4 +831,198 @@ enum MemberItem<'src> {
     Container((String, crate::lexer::Span)),
     Field(StructField),
     Method(Stmt<'src>),
+}
+
+// ============================================================================
+// Block Statement Parser
+// ============================================================================
+
+/// Parse a block statement
+///
+/// Syntax:
+///   { <statements> }
+///
+/// Examples:
+///   { }
+///   { let x = 1; }
+///   { let x = 1; let y = 2; }
+///   { { let x = 1; } { let y = 2; } }
+///
+/// Note: Pass a recursive statement parser for nested blocks.
+/// Blocks can contain any statement type, including nested blocks.
+pub fn block_stmt<'src>(
+    stmt_parser: impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone + 'src,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    let left_brace = select! { Token::LeftBrace(t) => t.position };
+    let right_brace = select! { Token::RightBrace(t) => t.position };
+
+    left_brace
+        .then(stmt_parser.repeated().collect::<Vec<_>>())
+        .then(right_brace)
+        .map(|((left_pos, statements), right_pos)| {
+            // Construct span from left brace to right brace
+            let span = if left_pos.line == right_pos.line {
+                Span {
+                    start: left_pos,
+                    lines: 0,
+                    end_column: right_pos.column + 1,
+                }
+            } else {
+                Span {
+                    start: left_pos,
+                    lines: right_pos.line - left_pos.line,
+                    end_column: right_pos.column + 1,
+                }
+            };
+
+            Stmt::Block { statements, span }
+        })
+        .labelled("block statement")
+}
+
+// ============================================================================
+// With Statement Parser
+// ============================================================================
+
+/// Parse a with statement
+///
+/// Syntax:
+///   with <expr> { <statements> }
+///
+/// Examples:
+///   with transform { ... }
+///   with sketch { let .p1: Point = point(0mm, 0mm); }
+///   with translate { let p: Point = point(10mm, 10mm); }
+///
+/// The with statement applies a transform or container context to all
+/// entity accesses within its block. When used with container structs,
+/// it enables the dot prefix (.) to reference the container field.
+///
+/// Note: Pass a recursive statement parser for nested with statements.
+pub fn with_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone
+    + 'src,
+    stmt_parser: impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone + 'src,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    let left_brace = select! { Token::LeftBrace(_) => () };
+    let right_brace = select! { Token::RightBrace(t) => t.position };
+
+    select! {
+        Token::With(t) => t.position,
+    }
+    .then(expr_parser.labelled("context expression"))
+    .then_ignore(left_brace)
+    .then(stmt_parser.repeated().collect::<Vec<_>>())
+    .then(right_brace)
+    .map(|(((with_pos, context_expr), body), brace_pos)| {
+        // Construct span from with keyword to closing brace
+        let span = if with_pos.line == brace_pos.line {
+            Span {
+                start: with_pos,
+                lines: 0,
+                end_column: brace_pos.column + 1,
+            }
+        } else {
+            Span {
+                start: with_pos,
+                lines: brace_pos.line - with_pos.line,
+                end_column: brace_pos.column + 1,
+            }
+        };
+
+        Stmt::With {
+            context_expr,
+            body,
+            span,
+        }
+    })
+    .labelled("with statement")
+}
+
+// ============================================================================
+// If Statement Parser
+// ============================================================================
+
+/// Parse an if statement
+///
+/// Syntax:
+///   if <expr> { <statements> }
+///   if <expr> { <statements> } else { <statements> }
+///
+/// Examples:
+///   if x > 0 { return x; }
+///   if condition { doSomething(); } else { doSomethingElse(); }
+///   if x > 0 { pos(); } else { if x < 0 { neg(); } else { zero(); } }
+///
+/// The else clause is optional. Else-if chains are supported by nesting
+/// if statements in the else branch (requires braces around the nested if).
+///
+/// Note: Pass a recursive statement parser for nested if statements.
+pub fn if_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone
+    + 'src,
+    stmt_parser: impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone + 'src,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    let left_brace = select! { Token::LeftBrace(_) => () };
+    let right_brace = select! { Token::RightBrace(t) => t.position };
+
+    select! {
+        Token::If(t) => t.position,
+    }
+    .then(expr_parser.labelled("condition expression"))
+    .then_ignore(left_brace)
+    .then(stmt_parser.clone().repeated().collect::<Vec<_>>())
+    .then(right_brace)
+    .then(
+        // Optional else clause: else { <statements> }
+        // The else clause consists of braces with statements inside
+        select! {
+            Token::Else(_) => (),
+        }
+        .ignore_then(left_brace)
+        .ignore_then(stmt_parser.repeated().collect::<Vec<_>>())
+        .then(right_brace)
+        .map(|(stmts, end_pos)| (stmts, end_pos))
+        .or_not(),
+    )
+    .map(
+        |((((if_pos, condition), then_branch), then_end_pos), else_branch)| {
+            // Construct span from if keyword to end of else branch (if present) or end of then branch
+            let end_pos = if let Some((_, else_end_pos)) = &else_branch {
+                *else_end_pos
+            } else {
+                then_end_pos
+            };
+
+            let span = if if_pos.line == end_pos.line {
+                Span {
+                    start: if_pos,
+                    lines: 0,
+                    end_column: end_pos.column + 1,
+                }
+            } else {
+                Span {
+                    start: if_pos,
+                    lines: end_pos.line - if_pos.line,
+                    end_column: end_pos.column + 1,
+                }
+            };
+
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch: else_branch.map(|(stmts, _)| stmts),
+                span,
+            }
+        },
+    )
+    .labelled("if statement")
 }
