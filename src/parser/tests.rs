@@ -2,7 +2,8 @@ use super::*;
 use crate::ast::{Stmt, Type};
 use crate::lexer;
 use crate::parser::stmt::{
-    assignment_stmt, for_stmt, function_def, let_stmt, struct_def, type_annotation,
+    assignment_stmt, field_assignment_stmt, for_stmt, function_def, let_stmt, struct_def,
+    type_annotation,
 };
 use assert_matches::assert_matches;
 use std::time::Duration;
@@ -1746,6 +1747,7 @@ fn test_let_with_type_and_init() {
             assert_matches!(init, Some(Expr::IntLit { value: 42, .. }));
         }
         Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
+        Stmt::FieldAssignment { .. } => panic!("Expected Stmt::Let, got FieldAssignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1774,6 +1776,7 @@ fn test_let_with_type_only() {
             assert!(init.is_none());
         }
         Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
+        Stmt::FieldAssignment { .. } => panic!("Expected Stmt::Let, got FieldAssignment"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1802,6 +1805,7 @@ fn test_let_with_init_only() {
             assert_matches!(init, Some(Expr::FloatLit { value, .. }) if value == 3.14);
         }
         Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
+        Stmt::FieldAssignment { .. } => panic!("Expected Stmt::Let, got FieldAssignment"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1830,6 +1834,7 @@ fn test_let_no_type_no_init() {
             assert!(init.is_none());
         }
         Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
+        Stmt::FieldAssignment { .. } => panic!("Expected Stmt::Let, got FieldAssignment"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1874,6 +1879,7 @@ fn test_let_with_expression() {
             }
         }
         Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
+        Stmt::FieldAssignment { .. } => panic!("Expected Stmt::Let, got FieldAssignment"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1907,6 +1913,7 @@ fn test_let_container_field_simple() {
             assert_matches!(init, Some(Expr::IntLit { value: 42, .. }));
         }
         Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
+        Stmt::FieldAssignment { .. } => panic!("Expected Stmt::Let, got FieldAssignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1940,6 +1947,7 @@ fn test_let_container_field_nested() {
             assert!(init.is_none());
         }
         Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
+        Stmt::FieldAssignment { .. } => panic!("Expected Stmt::Let, got FieldAssignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1969,6 +1977,7 @@ fn test_let_container_field_with_expression() {
             assert_matches!(init, Some(Expr::Add { .. }));
         }
         Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
+        Stmt::FieldAssignment { .. } => panic!("Expected Stmt::Let, got FieldAssignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1998,6 +2007,7 @@ fn test_let_container_field_no_type() {
             assert_matches!(init, Some(Expr::FloatLit { value, .. }) if value == 3.14);
         }
         Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
+        Stmt::FieldAssignment { .. } => panic!("Expected Stmt::Let, got FieldAssignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -2030,6 +2040,7 @@ fn test_let_container_field_deeply_nested() {
             assert_matches!(init, Some(Expr::BoolLit { value: true, .. }));
         }
         Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
+        Stmt::FieldAssignment { .. } => panic!("Expected Stmt::Let, got FieldAssignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -2066,6 +2077,7 @@ fn test_let_container_field_span_tracking() {
             assert_eq!(span.end_column, 25); // Ends after ';'
         }
         Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
+        Stmt::FieldAssignment { .. } => panic!("Expected Stmt::Let, got FieldAssignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -2278,6 +2290,284 @@ fn test_assignment_parenthesized_expression() {
 }
 
 // ========================================================================
+// Field Assignment Statement Tests
+// ========================================================================
+
+#[test]
+fn test_field_assignment_simple() {
+    // obj.field = 42;
+    let result = parse_with_timeout(
+        "obj.field = 42;",
+        |input| {
+            field_assignment_stmt(expr_inner())
+                .parse(input)
+                .into_result()
+        },
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FieldAssignment {
+            field_path,
+            value,
+            span,
+        } => {
+            assert_eq!(field_path.len(), 2);
+            assert_eq!(field_path[0].0, "obj");
+            assert_eq!(field_path[1].0, "field");
+            assert_matches!(value, Expr::IntLit { value: 42, .. });
+
+            // Overall span should cover entire statement
+            assert_eq!(span.start.line, 1);
+            assert_eq!(span.start.column, 1);
+            assert_eq!(span.lines, 0);
+            assert_eq!(span.end_column, 16); // "obj.field = 42;" is 15 chars
+        }
+        _ => panic!("Expected Stmt::FieldAssignment"),
+    }
+}
+
+#[test]
+fn test_field_assignment_nested_two_levels() {
+    // sketch.origin.x = 10;
+    let result = parse_with_timeout(
+        "sketch.origin.x = 10;",
+        |input| {
+            field_assignment_stmt(expr_inner())
+                .parse(input)
+                .into_result()
+        },
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FieldAssignment {
+            field_path, value, ..
+        } => {
+            assert_eq!(field_path.len(), 3);
+            assert_eq!(field_path[0].0, "sketch");
+            assert_eq!(field_path[1].0, "origin");
+            assert_eq!(field_path[2].0, "x");
+            assert_matches!(value, Expr::IntLit { value: 10, .. });
+        }
+        _ => panic!("Expected Stmt::FieldAssignment"),
+    }
+}
+
+#[test]
+fn test_field_assignment_deeply_nested() {
+    // sketch.entities.p1.x = 5;
+    let result = parse_with_timeout(
+        "sketch.entities.p1.x = 5;",
+        |input| {
+            field_assignment_stmt(expr_inner())
+                .parse(input)
+                .into_result()
+        },
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FieldAssignment {
+            field_path, value, ..
+        } => {
+            assert_eq!(field_path.len(), 4);
+            assert_eq!(field_path[0].0, "sketch");
+            assert_eq!(field_path[1].0, "entities");
+            assert_eq!(field_path[2].0, "p1");
+            assert_eq!(field_path[3].0, "x");
+            assert_matches!(value, Expr::IntLit { value: 5, .. });
+        }
+        _ => panic!("Expected Stmt::FieldAssignment"),
+    }
+}
+
+#[test]
+fn test_field_assignment_with_float() {
+    // point.x = 3.14;
+    let result = parse_with_timeout(
+        "point.x = 3.14;",
+        |input| {
+            field_assignment_stmt(expr_inner())
+                .parse(input)
+                .into_result()
+        },
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FieldAssignment { value, .. } => {
+            assert_matches!(value, Expr::FloatLit { value, .. } if value == 3.14);
+        }
+        _ => panic!("Expected Stmt::FieldAssignment"),
+    }
+}
+
+#[test]
+fn test_field_assignment_with_variable() {
+    // obj.field = other_var;
+    let result = parse_with_timeout(
+        "obj.field = other_var;",
+        |input| {
+            field_assignment_stmt(expr_inner())
+                .parse(input)
+                .into_result()
+        },
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FieldAssignment { value, .. } => {
+            assert_matches!(value, Expr::Var { name, .. } if name == "other_var");
+        }
+        _ => panic!("Expected Stmt::FieldAssignment"),
+    }
+}
+
+#[test]
+fn test_field_assignment_with_expression() {
+    // obj.width = 10 + 20;
+    let result = parse_with_timeout(
+        "obj.width = 10 + 20;",
+        |input| {
+            field_assignment_stmt(expr_inner())
+                .parse(input)
+                .into_result()
+        },
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FieldAssignment { value, .. } => {
+            assert_matches!(value, Expr::Add { .. });
+        }
+        _ => panic!("Expected Stmt::FieldAssignment"),
+    }
+}
+
+#[test]
+fn test_field_assignment_with_complex_expression() {
+    // obj.area = width * height;
+    let result = parse_with_timeout(
+        "obj.area = width * height;",
+        |input| {
+            field_assignment_stmt(expr_inner())
+                .parse(input)
+                .into_result()
+        },
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FieldAssignment { value, .. } => {
+            assert_matches!(value, Expr::Mul { .. });
+        }
+        _ => panic!("Expected Stmt::FieldAssignment"),
+    }
+}
+
+#[test]
+fn test_field_assignment_with_field_access() {
+    // obj.x = other.y;
+    let result = parse_with_timeout(
+        "obj.x = other.y;",
+        |input| {
+            field_assignment_stmt(expr_inner())
+                .parse(input)
+                .into_result()
+        },
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FieldAssignment { value, .. } => {
+            assert_matches!(value, Expr::FieldAccess { .. });
+        }
+        _ => panic!("Expected Stmt::FieldAssignment"),
+    }
+}
+
+#[test]
+fn test_field_assignment_with_method_call() {
+    // obj.value = other.compute();
+    let result = parse_with_timeout(
+        "obj.value = other.compute();",
+        |input| {
+            field_assignment_stmt(expr_inner())
+                .parse(input)
+                .into_result()
+        },
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FieldAssignment { value, .. } => {
+            assert_matches!(value, Expr::MethodCall { .. });
+        }
+        _ => panic!("Expected Stmt::FieldAssignment"),
+    }
+}
+
+#[test]
+fn test_field_assignment_multiline() {
+    // obj.value =
+    //     10 + 20;
+    let result = parse_with_timeout(
+        "obj.value = \n    10 + 20;",
+        |input| {
+            field_assignment_stmt(expr_inner())
+                .parse(input)
+                .into_result()
+        },
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FieldAssignment { value, span, .. } => {
+            assert_matches!(value, Expr::Add { .. });
+            // Span should span multiple lines
+            assert_eq!(span.start.line, 1);
+            assert_eq!(span.start.column, 1);
+            assert_eq!(span.lines, 1); // Spans 2 lines total
+        }
+        _ => panic!("Expected Stmt::FieldAssignment"),
+    }
+}
+
+#[test]
+fn test_field_assignment_span_tracking() {
+    // a.b = 1;
+    let result = parse_with_timeout(
+        "a.b = 1;",
+        |input| {
+            field_assignment_stmt(expr_inner())
+                .parse(input)
+                .into_result()
+        },
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::FieldAssignment {
+            field_path, span, ..
+        } => {
+            // Check field path spans
+            assert_eq!(field_path[0].1.start.line, 1);
+            assert_eq!(field_path[0].1.start.column, 1);
+            assert_eq!(field_path[1].1.start.line, 1);
+            assert_eq!(field_path[1].1.start.column, 3);
+
+            // Check overall span
+            assert_eq!(span.start.line, 1);
+            assert_eq!(span.start.column, 1);
+            assert_eq!(span.lines, 0);
+            assert_eq!(span.end_column, 9); // "a.b = 1;" is 8 chars
+        }
+        _ => panic!("Expected Stmt::FieldAssignment"),
+    }
+}
+
+// ========================================================================
 // Span Tracking Tests
 // ========================================================================
 
@@ -2473,6 +2763,7 @@ fn test_span_let_statement() {
             assert_eq!(span.end_column, 12); // Ends after ';'
         }
         Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
+        Stmt::FieldAssignment { .. } => panic!("Expected Stmt::Let, got FieldAssignment"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),

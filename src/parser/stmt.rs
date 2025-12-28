@@ -227,6 +227,89 @@ pub fn assignment_stmt<'src>(
 }
 
 // ============================================================================
+// Field Assignment Statement Parser
+// ============================================================================
+
+/// Parse a field assignment statement
+///
+/// Syntax:
+///   <obj>.<field> = <expr>;
+///   <obj>.<nested>.<field> = <expr>;
+///
+/// Examples:
+///   obj.field = 42;
+///   sketch.origin.x = 10mm;
+///   container.entities.p1.x = 5;
+///
+/// Note: The field path must have at least 2 segments (object.field).
+/// This parser handles field assignment (obj.field = value), distinct from
+/// simple assignment (x = value) which uses assignment_stmt.
+pub fn field_assignment_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    let equals = select! { Token::Equals(_) => () };
+    let dot = select! { Token::Dot(_) => () };
+
+    // Parse a dotted path: identifier.identifier(.identifier)*
+    // Must have at least 2 segments
+    let field_path = select! {
+        Token::Identifier(t) => (t.name, t.span),
+    }
+    .labelled("object name")
+    .then_ignore(dot)
+    .then(
+        select! {
+            Token::Identifier(t) => (t.name, t.span),
+        }
+        .labelled("field name")
+        .separated_by(dot)
+        .at_least(1)
+        .collect::<Vec<_>>(),
+    )
+    .map(|(first, rest)| {
+        let mut path = vec![first];
+        path.extend(rest);
+        path
+    });
+
+    field_path
+        .then_ignore(equals)
+        .then(expr_parser.labelled("value expression"))
+        .then(select! {
+            Token::SemiColon(t) => t.position,
+        })
+        .map(|((field_path, value), semi_pos)| {
+            // Construct span from first identifier to semicolon
+            let first_span = field_path[0].1;
+            let span = if first_span.start.line == semi_pos.line {
+                // Same line
+                Span {
+                    start: first_span.start,
+                    lines: 0,
+                    end_column: semi_pos.column + 1,
+                }
+            } else {
+                // Multiple lines
+                Span {
+                    start: first_span.start,
+                    lines: semi_pos.line - first_span.start.line,
+                    end_column: semi_pos.column + 1,
+                }
+            };
+
+            Stmt::FieldAssignment {
+                field_path,
+                value,
+                span,
+            }
+        })
+        .labelled("field assignment statement")
+}
+
+// ============================================================================
 // For Loop Parser
 // ============================================================================
 
@@ -358,11 +441,14 @@ pub fn function_def<'src>(
     let left_brace = select! { Token::LeftBrace(_) => () };
     let right_brace = select! { Token::RightBrace(t) => t.position };
 
-    // Function bodies can contain let statements, assignment statements, and for loops
+    // Function bodies can contain let statements, assignment statements, field assignments, and for loops
     // Use recursive parser to support nested for loops
+    // Note: field_assignment_stmt must come before assignment_stmt to avoid ambiguity
+    // (obj.field = value should parse as field assignment, not fail on obj.field)
     let stmt_parser = recursive(|stmt_rec| {
         choice((
             let_stmt(expr_parser.clone()),
+            field_assignment_stmt(expr_parser.clone()),
             assignment_stmt(expr_parser.clone()),
             for_stmt(expr_parser.clone(), stmt_rec),
         ))

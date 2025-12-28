@@ -108,12 +108,29 @@ pub enum Stmt<'src> {
     ///   width = 100;
     ///   result = a + b;
     /// Note: This is for simple variable assignment only.
-    /// Field assignment (obj.field = value) is not yet implemented.
+    /// Field assignment uses Stmt::FieldAssignment.
     Assignment {
         /// Variable name being assigned to
         name: &'src str,
         /// Span of the variable name
         name_span: Span,
+        /// Value expression
+        value: Expr<'src>,
+        /// Overall span of the statement
+        span: Span,
+    },
+
+    /// Field assignment statement (assigns to object fields)
+    /// Examples:
+    ///   obj.field = 42;
+    ///   sketch.origin.x = 10mm;
+    ///   container.entities.p1.x = 5;
+    /// Note: The path must have at least 2 segments (object.field).
+    FieldAssignment {
+        /// Path to the field being assigned
+        /// - obj.field -> vec![("obj", span1), ("field", span2)]
+        /// - obj.nested.field -> vec![("obj", span1), ("nested", span2), ("field", span3)]
+        field_path: Vec<(&'src str, Span)>,
         /// Value expression
         value: Expr<'src>,
         /// Overall span of the statement
@@ -167,6 +184,7 @@ impl<'src> HasSpan for Stmt<'src> {
         match self {
             Stmt::Let { span, .. } => *span,
             Stmt::Assignment { span, .. } => *span,
+            Stmt::FieldAssignment { span, .. } => *span,
             Stmt::For { span, .. } => *span,
             Stmt::FunctionDef { span, .. } => *span,
             Stmt::StructDef { span, .. } => *span,
