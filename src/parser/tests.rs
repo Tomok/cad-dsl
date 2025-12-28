@@ -1,5 +1,5 @@
 use super::*;
-use crate::ast::{FunctionParam, Stmt, StructField, Type};
+use crate::ast::{Stmt, Type};
 use crate::lexer;
 use crate::parser::stmt::{function_def, struct_def, type_annotation};
 use assert_matches::assert_matches;
@@ -2507,6 +2507,234 @@ fn test_nested_array_literal() {
             assert_matches!(elements[1], Expr::ArrayLit { .. });
         }
         other => panic!("Expected Expr::ArrayLit, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// Array Indexing Tests
+// ============================================================================
+
+#[test]
+fn test_array_index_simple() {
+    let result = parse_with_timeout(
+        "arr[0]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Index { array, index, .. } => {
+            assert_matches!(*array, Expr::Var { name, .. } if name == "arr");
+            assert_matches!(*index, Expr::IntLit { value, .. } if value == 0);
+        }
+        other => panic!("Expected Expr::Index, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_array_index_chained() {
+    let result = parse_with_timeout(
+        "matrix[i][j]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Index { array, index, .. } => {
+            // Outer index should be j
+            assert_matches!(*index, Expr::Var { name, .. } if name == "j");
+
+            // Inner should be matrix[i]
+            assert_matches!(*array, Expr::Index { array: inner_array, index: inner_index, .. } => {
+                assert_matches!(*inner_array, Expr::Var { name, .. } if name == "matrix");
+                assert_matches!(*inner_index, Expr::Var { name, .. } if name == "i");
+            });
+        }
+        other => panic!("Expected Expr::Index, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_array_index_with_expression() {
+    let result = parse_with_timeout(
+        "arr[i + 1]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Index { array, index, .. } => {
+            assert_matches!(*array, Expr::Var { name, .. } if name == "arr");
+            assert_matches!(*index, Expr::Add { .. });
+        }
+        other => panic!("Expected Expr::Index, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_array_index_on_field() {
+    let result = parse_with_timeout(
+        "obj.items[0]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Index { array, index, .. } => {
+            assert_matches!(*index, Expr::IntLit { value, .. } if value == 0);
+            assert_matches!(*array, Expr::FieldAccess { field, .. } if field == "items");
+        }
+        other => panic!("Expected Expr::Index, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// Range Expression Tests
+// ============================================================================
+
+#[test]
+fn test_range_simple() {
+    let result = parse_with_timeout(
+        "0..5",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Range { start, end, .. } => {
+            assert_matches!(*start, Expr::IntLit { value, .. } if value == 0);
+            assert_matches!(*end, Expr::IntLit { value, .. } if value == 5);
+        }
+        other => panic!("Expected Expr::Range, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_range_with_variables() {
+    let result = parse_with_timeout(
+        "start..end",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Range { start, end, .. } => {
+            assert_matches!(*start, Expr::Var { name, .. } if name == "start");
+            assert_matches!(*end, Expr::Var { name, .. } if name == "end");
+        }
+        other => panic!("Expected Expr::Range, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_range_with_arithmetic() {
+    let result = parse_with_timeout(
+        "i*2..n",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Range { start, end, .. } => {
+            // Start should be i*2 (multiplication has higher precedence than range)
+            assert_matches!(*start, Expr::Mul { .. });
+            // End should be just n
+            assert_matches!(*end, Expr::Var { name, .. } if name == "n");
+        }
+        other => panic!("Expected Expr::Range, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_range_in_array_literal() {
+    let result = parse_with_timeout(
+        "[0..5]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::ArrayLit { elements, .. } => {
+            assert_eq!(elements.len(), 1);
+            assert_matches!(elements[0], Expr::Range { .. });
+        }
+        other => panic!("Expected Expr::ArrayLit, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// Closure Expression Tests
+// ============================================================================
+
+#[test]
+fn test_closure_single_param() {
+    let result = parse_with_timeout(
+        "|x| x + 1",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Closure { params, body, .. } => {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0], "x");
+            assert_matches!(*body, Expr::Add { .. });
+        }
+        other => panic!("Expected Expr::Closure, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_closure_multiple_params() {
+    let result = parse_with_timeout(
+        "|x, y| x * y",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Closure { params, body, .. } => {
+            assert_eq!(params.len(), 2);
+            assert_eq!(params[0], "x");
+            assert_eq!(params[1], "y");
+            assert_matches!(*body, Expr::Mul { .. });
+        }
+        other => panic!("Expected Expr::Closure, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_closure_no_params() {
+    let result = parse_with_timeout(
+        "|| 42",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Closure { params, body, .. } => {
+            assert_eq!(params.len(), 0);
+            assert_matches!(*body, Expr::IntLit { value, .. } if value == 42);
+        }
+        other => panic!("Expected Expr::Closure, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_closure_in_method_call() {
+    let result = parse_with_timeout(
+        "points.map(|p| p.x)",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::MethodCall { method, args, .. } => {
+            assert_eq!(method, "map");
+            assert_eq!(args.len(), 1);
+            assert_matches!(args[0], Expr::Closure { .. });
+        }
+        other => panic!("Expected Expr::MethodCall, got {:?}", other),
     }
 }
 

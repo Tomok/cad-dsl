@@ -72,6 +72,22 @@ impl<'src> std::fmt::Display for Expr<'src> {
                 }
                 write!(f, " }}")
             }
+            Expr::Index { array, index, .. } => write!(f, "{}[{}]", array, index),
+            Expr::Range { start, end, .. } => write!(f, "{}..{}", start, end),
+
+            Expr::Closure { params, body, .. } => {
+                write!(f, "|")?;
+
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+
+                    write!(f, "{}", param)?;
+                }
+
+                write!(f, "| {}", body)
+            }
         }
     }
 }
@@ -144,6 +160,23 @@ impl<'src> std::fmt::Display for CmpLhs<'src> {
                 }
                 write!(f, " }}")
             }
+            CmpLhs::Index { array, index, .. } => write!(f, "{}[{}]", array, index),
+
+            CmpLhs::Range { start, end, .. } => write!(f, "{}..{}", start, end),
+
+            CmpLhs::Closure { params, body, .. } => {
+                write!(f, "|")?;
+
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+
+                    write!(f, "{}", param)?;
+                }
+
+                write!(f, "| {}", body)
+            }
         }
     }
 }
@@ -211,6 +244,23 @@ impl<'src> std::fmt::Display for CmpRhs<'src> {
                     write!(f, "{}: {}", field_name, field_value)?;
                 }
                 write!(f, " }}")
+            }
+            CmpRhs::Index { array, index, .. } => write!(f, "{}[{}]", array, index),
+
+            CmpRhs::Range { start, end, .. } => write!(f, "{}..{}", start, end),
+
+            CmpRhs::Closure { params, body, .. } => {
+                write!(f, "|")?;
+
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+
+                    write!(f, "{}", param)?;
+                }
+
+                write!(f, "| {}", body)
             }
         }
     }
@@ -280,6 +330,23 @@ impl<'src> std::fmt::Display for AddLhs<'src> {
                 }
                 write!(f, " }}")
             }
+            AddLhs::Index { array, index, .. } => write!(f, "{}[{}]", array, index),
+
+            AddLhs::Range { start, end, .. } => write!(f, "{}..{}", start, end),
+
+            AddLhs::Closure { params, body, .. } => {
+                write!(f, "|")?;
+
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+
+                    write!(f, "{}", param)?;
+                }
+
+                write!(f, "| {}", body)
+            }
         }
     }
 }
@@ -345,6 +412,23 @@ impl<'src> std::fmt::Display for AddRhs<'src> {
                     write!(f, "{}: {}", field_name, field_value)?;
                 }
                 write!(f, " }}")
+            }
+            AddRhs::Index { array, index, .. } => write!(f, "{}[{}]", array, index),
+
+            AddRhs::Range { start, end, .. } => write!(f, "{}..{}", start, end),
+
+            AddRhs::Closure { params, body, .. } => {
+                write!(f, "|")?;
+
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+
+                    write!(f, "{}", param)?;
+                }
+
+                write!(f, "| {}", body)
             }
         }
     }
@@ -412,6 +496,23 @@ impl<'src> std::fmt::Display for MulLhs<'src> {
                 }
                 write!(f, " }}")
             }
+            MulLhs::Index { array, index, .. } => write!(f, "{}[{}]", array, index),
+
+            MulLhs::Range { start, end, .. } => write!(f, "{}..{}", start, end),
+
+            MulLhs::Closure { params, body, .. } => {
+                write!(f, "|")?;
+
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+
+                    write!(f, "{}", param)?;
+                }
+
+                write!(f, "| {}", body)
+            }
         }
     }
 }
@@ -475,6 +576,23 @@ impl<'src> std::fmt::Display for MulRhs<'src> {
                 }
                 write!(f, " }}")
             }
+            MulRhs::Index { array, index, .. } => write!(f, "{}[{}]", array, index),
+
+            MulRhs::Range { start, end, .. } => write!(f, "{}..{}", start, end),
+
+            MulRhs::Closure { params, body, .. } => {
+                write!(f, "|")?;
+
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+
+                    write!(f, "{}", param)?;
+                }
+
+                write!(f, "| {}", body)
+            }
         }
     }
 }
@@ -536,6 +654,23 @@ impl<'src> std::fmt::Display for PowLhs<'src> {
                     write!(f, "{}: {}", field_name, field_value)?;
                 }
                 write!(f, " }}")
+            }
+            PowLhs::Index { array, index, .. } => write!(f, "{}[{}]", array, index),
+
+            PowLhs::Range { start, end, .. } => write!(f, "{}..{}", start, end),
+
+            PowLhs::Closure { params, body, .. } => {
+                write!(f, "|")?;
+
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+
+                    write!(f, "{}", param)?;
+                }
+
+                write!(f, "| {}", body)
             }
         }
     }
@@ -600,6 +735,23 @@ impl<'src> std::fmt::Display for PowRhs<'src> {
                 }
                 write!(f, " }}")
             }
+            PowRhs::Index { array, index, .. } => write!(f, "{}[{}]", array, index),
+
+            PowRhs::Range { start, end, .. } => write!(f, "{}..{}", start, end),
+
+            PowRhs::Closure { params, body, .. } => {
+                write!(f, "|")?;
+
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+
+                    write!(f, "{}", param)?;
+                }
+
+                write!(f, "| {}", body)
+            }
         }
     }
 }
@@ -658,6 +810,23 @@ impl<'src> std::fmt::Display for Atom<'src> {
                     write!(f, "{}: {}", field_name, field_value)?;
                 }
                 write!(f, " }}")
+            }
+            Atom::Index { array, index, .. } => write!(f, "{}[{}]", array, index),
+
+            Atom::Range { start, end, .. } => write!(f, "{}..{}", start, end),
+
+            Atom::Closure { params, body, .. } => {
+                write!(f, "|")?;
+
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+
+                    write!(f, "{}", param)?;
+                }
+
+                write!(f, "| {}", body)
             }
         }
     }
