@@ -381,6 +381,61 @@ pub fn for_stmt<'src>(
 }
 
 // ============================================================================
+// Return Statement Parser
+// ============================================================================
+
+/// Parse a return statement
+///
+/// Syntax:
+///   return;
+///   return <expr>;
+///
+/// Examples:
+///   return;
+///   return value;
+///   return a + b;
+///
+/// Note: Return without a value is allowed for functions with no return type.
+pub fn return_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    select! {
+        Token::Return(t) => t.position,
+    }
+    .then(
+        // Optional expression before semicolon
+        expr_parser.or_not(),
+    )
+    .then(select! {
+        Token::SemiColon(t) => t.position,
+    })
+    .map(|((return_pos, value), semi_pos)| {
+        // Construct span from return keyword to semicolon
+        let span = if return_pos.line == semi_pos.line {
+            // Same line
+            Span {
+                start: return_pos,
+                lines: 0,
+                end_column: semi_pos.column + 1,
+            }
+        } else {
+            // Multiple lines
+            Span {
+                start: return_pos,
+                lines: semi_pos.line - return_pos.line,
+                end_column: semi_pos.column + 1,
+            }
+        };
+
+        Stmt::Return { value, span }
+    })
+    .labelled("return statement")
+}
+
+// ============================================================================
 // Function Definition Parser
 // ============================================================================
 
@@ -441,7 +496,7 @@ pub fn function_def<'src>(
     let left_brace = select! { Token::LeftBrace(_) => () };
     let right_brace = select! { Token::RightBrace(t) => t.position };
 
-    // Function bodies can contain let statements, assignment statements, field assignments, and for loops
+    // Function bodies can contain let statements, assignment statements, field assignments, return statements, and for loops
     // Use recursive parser to support nested for loops
     // Note: field_assignment_stmt must come before assignment_stmt to avoid ambiguity
     // (obj.field = value should parse as field assignment, not fail on obj.field)
@@ -450,6 +505,7 @@ pub fn function_def<'src>(
             let_stmt(expr_parser.clone()),
             field_assignment_stmt(expr_parser.clone()),
             assignment_stmt(expr_parser.clone()),
+            return_stmt(expr_parser.clone()),
             for_stmt(expr_parser.clone(), stmt_rec),
         ))
     });

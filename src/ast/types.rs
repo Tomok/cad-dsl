@@ -177,6 +177,16 @@ pub enum Stmt<'src> {
         methods: Vec<Stmt<'src>>,
         span: Span,
     },
+
+    /// Return statement with optional expression
+    /// Examples:
+    ///   return;
+    ///   return value;
+    ///   return a + b;
+    Return {
+        value: Option<Expr<'src>>,
+        span: Span,
+    },
 }
 
 impl<'src> HasSpan for Stmt<'src> {
@@ -188,6 +198,7 @@ impl<'src> HasSpan for Stmt<'src> {
             Stmt::For { span, .. } => *span,
             Stmt::FunctionDef { span, .. } => *span,
             Stmt::StructDef { span, .. } => *span,
+            Stmt::Return { span, .. } => *span,
         }
     }
 }
