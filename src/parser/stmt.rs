@@ -593,8 +593,8 @@ pub fn function_def<'src>(
     let left_brace = select! { Token::LeftBrace(_) => () };
     let right_brace = select! { Token::RightBrace(t) => t.position };
 
-    // Function bodies can contain let statements, assignment statements, field assignments, return statements, for loops, with statements, blocks, and expression statements
-    // Use recursive parser to support nested for loops, with statements, and nested blocks
+    // Function bodies can contain let statements, assignment statements, field assignments, return statements, for loops, with statements, if statements, blocks, and expression statements
+    // Use recursive parser to support nested for loops, with statements, if statements, and nested blocks
     // Note: field_assignment_stmt must come before assignment_stmt to avoid ambiguity
     // (obj.field = value should parse as field assignment, not fail on obj.field)
     // Note: expression_stmt must come LAST to avoid consuming parts of other statements
@@ -606,6 +606,7 @@ pub fn function_def<'src>(
             return_stmt(expr_parser.clone()),
             for_stmt(expr_parser.clone(), stmt_rec.clone()),
             with_stmt(expr_parser.clone(), stmt_rec.clone()),
+            if_stmt(expr_parser.clone(), stmt_rec.clone()),
             block_stmt(stmt_rec),
             expression_stmt(expr_parser.clone()),
         ))
@@ -941,4 +942,87 @@ pub fn with_stmt<'src>(
         }
     })
     .labelled("with statement")
+}
+
+// ============================================================================
+// If Statement Parser
+// ============================================================================
+
+/// Parse an if statement
+///
+/// Syntax:
+///   if <expr> { <statements> }
+///   if <expr> { <statements> } else { <statements> }
+///
+/// Examples:
+///   if x > 0 { return x; }
+///   if condition { doSomething(); } else { doSomethingElse(); }
+///   if x > 0 { pos(); } else { if x < 0 { neg(); } else { zero(); } }
+///
+/// The else clause is optional. Else-if chains are supported by nesting
+/// if statements in the else branch (requires braces around the nested if).
+///
+/// Note: Pass a recursive statement parser for nested if statements.
+pub fn if_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone
+    + 'src,
+    stmt_parser: impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone + 'src,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    let left_brace = select! { Token::LeftBrace(_) => () };
+    let right_brace = select! { Token::RightBrace(t) => t.position };
+
+    select! {
+        Token::If(t) => t.position,
+    }
+    .then(expr_parser.labelled("condition expression"))
+    .then_ignore(left_brace)
+    .then(stmt_parser.clone().repeated().collect::<Vec<_>>())
+    .then(right_brace)
+    .then(
+        // Optional else clause: else { <statements> }
+        // The else clause consists of braces with statements inside
+        select! {
+            Token::Else(_) => (),
+        }
+        .ignore_then(left_brace)
+        .ignore_then(stmt_parser.repeated().collect::<Vec<_>>())
+        .then(right_brace)
+        .map(|(stmts, end_pos)| (stmts, end_pos))
+        .or_not(),
+    )
+    .map(
+        |((((if_pos, condition), then_branch), then_end_pos), else_branch)| {
+            // Construct span from if keyword to end of else branch (if present) or end of then branch
+            let end_pos = if let Some((_, else_end_pos)) = &else_branch {
+                *else_end_pos
+            } else {
+                then_end_pos
+            };
+
+            let span = if if_pos.line == end_pos.line {
+                Span {
+                    start: if_pos,
+                    lines: 0,
+                    end_column: end_pos.column + 1,
+                }
+            } else {
+                Span {
+                    start: if_pos,
+                    lines: end_pos.line - if_pos.line,
+                    end_column: end_pos.column + 1,
+                }
+            };
+
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch: else_branch.map(|(stmts, _)| stmts),
+                span,
+            }
+        },
+    )
+    .labelled("if statement")
 }

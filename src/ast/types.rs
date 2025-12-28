@@ -228,6 +228,20 @@ pub enum Stmt<'src> {
         body: Vec<Stmt<'src>>,
         span: Span,
     },
+
+    /// If statement with optional else clause
+    /// Examples:
+    ///   if x > 0 { ... }
+    ///   if condition { ... } else { ... }
+    ///   if x > 0 { ... } else { if x < 0 { ... } else { ... } }
+    ///
+    /// Note: Else-if chains are supported by nesting if statements in the else branch.
+    If {
+        condition: Expr<'src>,
+        then_branch: Vec<Stmt<'src>>,
+        else_branch: Option<Vec<Stmt<'src>>>,
+        span: Span,
+    },
 }
 
 impl<'src> HasSpan for Stmt<'src> {
@@ -243,6 +257,7 @@ impl<'src> HasSpan for Stmt<'src> {
             Stmt::Expression { span, .. } => *span,
             Stmt::Block { span, .. } => *span,
             Stmt::With { span, .. } => *span,
+            Stmt::If { span, .. } => *span,
         }
     }
 }
