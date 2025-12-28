@@ -11,6 +11,7 @@ mod hir_scope;
 mod hir_types;
 
 // Semantic analysis modules
+mod semantic_analyzer;
 mod semantic_analyzer_context;
 mod semantic_analyzer_errors;
 mod semantic_analyzer_pass1;

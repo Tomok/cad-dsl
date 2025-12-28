@@ -214,24 +214,32 @@ fn resolve_let_statement<'src, 'arena>(
         // Get current scope level
         let scope_level: ScopeLevel = ctx.scope_stack.current_scope_level();
 
-        // Create variable definition
-        let var_def = ctx.arena.alloc(VarDefinition::new(
-            name,
-            name_span,
-            resolved_type,
-            init_expr,
-            scope_level,
-            span,
-        ));
+        // Check if the variable was already declared in Pass 1 (top-level, scope 0)
+        if scope_level == 0 {
+            // Top-level let statement - was already collected in Pass 1
+            // Just resolve the initializer, don't re-declare
+            // The variable is already in the scope from Pass 1
+        } else {
+            // Non-top-level let statement - declare it now
+            // Create variable definition
+            let var_def = ctx.arena.alloc(VarDefinition::new(
+                name,
+                name_span,
+                resolved_type,
+                init_expr,
+                scope_level,
+                span,
+            ));
 
-        // Declare the variable in the current scope
-        if let Some(old_def) = ctx.scope_stack.declare_variable(name, var_def) {
-            // Duplicate variable definition in the same scope
-            ctx.add_error(SemanticError::DuplicateDefinition {
-                name: name.to_string(),
-                first_span: old_def.name_span,
-                second_span: name_span,
-            });
+            // Declare the variable in the current scope
+            if let Some(old_def) = ctx.scope_stack.declare_variable(name, var_def) {
+                // Duplicate variable definition in the same scope
+                ctx.add_error(SemanticError::DuplicateDefinition {
+                    name: name.to_string(),
+                    first_span: old_def.name_span,
+                    second_span: name_span,
+                });
+            }
         }
 
         // Return the statement (for now, just clone the AST)
@@ -347,7 +355,7 @@ fn resolve_function_body<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
     name: &str,
     _name_span: Span,
-    _params: &[crate::ast::FunctionParam],
+    params: &[crate::ast::FunctionParam],
     _return_type: &crate::ast::Type,
     body: &[Stmt<'src>],
     return_expr: Option<&Expr<'src>>,
@@ -359,7 +367,24 @@ fn resolve_function_body<'src, 'arena>(
     // Push a new scope for the function body
     ctx.scope_stack.push_scope();
 
-    // TODO: Add function parameters to the scope
+    // Add function parameters to the scope
+    let scope_level = ctx.scope_stack.current_scope_level();
+    for param in params {
+        let param_name = extract_name(ctx.source, &param.name);
+        let param_type = resolve_type(ctx, &param.type_annotation);
+
+        let var_def = ctx.arena.alloc(VarDefinition::new(
+            param_name,
+            param.name_span,
+            param_type,
+            None, // Parameters don't have initializers
+            scope_level,
+            param.span,
+        ));
+
+        // Declare the parameter as a variable in the function scope
+        ctx.scope_stack.declare_variable(param_name, var_def);
+    }
 
     // Resolve body statements
     let _resolved_body = resolve_statements(ctx, body);
@@ -375,7 +400,7 @@ fn resolve_function_body<'src, 'arena>(
     let stmt = ctx.arena.alloc(Stmt::FunctionDef {
         name: name.to_string(),
         name_span: _name_span,
-        params: _params.to_vec(),
+        params: params.to_vec(),
         return_type: _return_type.clone(),
         body: body.to_vec(),
         return_expr: return_expr.cloned(),
