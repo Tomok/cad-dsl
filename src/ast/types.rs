@@ -195,6 +195,17 @@ pub enum Stmt<'src> {
     ///   obj.method();
     ///   1 + 2;
     Expression { expr: Expr<'src>, span: Span },
+
+    /// Block statement (sequence of statements in curly braces)
+    /// Examples:
+    ///   { }
+    ///   { let x = 1; }
+    ///   { let x = 1; let y = 2; }
+    ///   { { let x = 1; } { let y = 2; } }
+    Block {
+        statements: Vec<Stmt<'src>>,
+        span: Span,
+    },
 }
 
 impl<'src> HasSpan for Stmt<'src> {
@@ -208,6 +219,7 @@ impl<'src> HasSpan for Stmt<'src> {
             Stmt::StructDef { span, .. } => *span,
             Stmt::Return { span, .. } => *span,
             Stmt::Expression { span, .. } => *span,
+            Stmt::Block { span, .. } => *span,
         }
     }
 }

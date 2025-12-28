@@ -550,8 +550,8 @@ pub fn function_def<'src>(
     let left_brace = select! { Token::LeftBrace(_) => () };
     let right_brace = select! { Token::RightBrace(t) => t.position };
 
-    // Function bodies can contain let statements, assignment statements, field assignments, return statements, for loops, and expression statements
-    // Use recursive parser to support nested for loops
+    // Function bodies can contain let statements, assignment statements, field assignments, return statements, for loops, blocks, and expression statements
+    // Use recursive parser to support nested for loops and nested blocks
     // Note: field_assignment_stmt must come before assignment_stmt to avoid ambiguity
     // (obj.field = value should parse as field assignment, not fail on obj.field)
     // Note: expression_stmt must come LAST to avoid consuming parts of other statements
@@ -561,7 +561,8 @@ pub fn function_def<'src>(
             field_assignment_stmt(expr_parser.clone()),
             assignment_stmt(expr_parser.clone()),
             return_stmt(expr_parser.clone()),
-            for_stmt(expr_parser.clone(), stmt_rec),
+            for_stmt(expr_parser.clone(), stmt_rec.clone()),
+            block_stmt(stmt_rec),
             expression_stmt(expr_parser.clone()),
         ))
     });
@@ -785,4 +786,53 @@ enum MemberItem<'src> {
     Container((String, crate::lexer::Span)),
     Field(StructField),
     Method(Stmt<'src>),
+}
+
+// ============================================================================
+// Block Statement Parser
+// ============================================================================
+
+/// Parse a block statement
+///
+/// Syntax:
+///   { <statements> }
+///
+/// Examples:
+///   { }
+///   { let x = 1; }
+///   { let x = 1; let y = 2; }
+///   { { let x = 1; } { let y = 2; } }
+///
+/// Note: Pass a recursive statement parser for nested blocks.
+/// Blocks can contain any statement type, including nested blocks.
+pub fn block_stmt<'src>(
+    stmt_parser: impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone + 'src,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    let left_brace = select! { Token::LeftBrace(t) => t.position };
+    let right_brace = select! { Token::RightBrace(t) => t.position };
+
+    left_brace
+        .then(stmt_parser.repeated().collect::<Vec<_>>())
+        .then(right_brace)
+        .map(|((left_pos, statements), right_pos)| {
+            // Construct span from left brace to right brace
+            let span = if left_pos.line == right_pos.line {
+                Span {
+                    start: left_pos,
+                    lines: 0,
+                    end_column: right_pos.column + 1,
+                }
+            } else {
+                Span {
+                    start: left_pos,
+                    lines: right_pos.line - left_pos.line,
+                    end_column: right_pos.column + 1,
+                }
+            };
+
+            Stmt::Block { statements, span }
+        })
+        .labelled("block statement")
 }
