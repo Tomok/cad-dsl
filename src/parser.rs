@@ -58,7 +58,7 @@ mod stmt;
 // ============================================================================
 
 pub use error::report_parse_errors;
-pub use stmt::let_stmt;
+pub use stmt::{function_def, let_stmt};
 
 // ============================================================================
 // Parser Type Definitions

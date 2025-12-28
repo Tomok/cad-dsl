@@ -6,8 +6,7 @@ use crate::lexer::Span;
 // Type Annotations
 // ============================================================================
 
-/// Type annotations for variable declarations
-/// Currently includes only types without units
+/// Type annotations for variable declarations and function parameters
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     /// Boolean type
@@ -20,6 +19,10 @@ pub enum Type {
     Real { span: Span },
     /// Algebraic number (roots of polynomials with integer coefficients)
     Algebraic { span: Span },
+    /// Reference type (e.g., &Point)
+    Reference { inner: Box<Type>, span: Span },
+    /// User-defined type (e.g., Point, Circle)
+    UserDefined { name: String, span: Span },
 }
 
 impl HasSpan for Type {
@@ -30,7 +33,28 @@ impl HasSpan for Type {
             Type::F64 { span } => *span,
             Type::Real { span } => *span,
             Type::Algebraic { span } => *span,
+            Type::Reference { span, .. } => *span,
+            Type::UserDefined { span, .. } => *span,
         }
+    }
+}
+
+// ============================================================================
+// Function Parameters
+// ============================================================================
+
+/// Function parameter with name and type
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionParam {
+    pub name: String,
+    pub name_span: Span,
+    pub type_annotation: Type,
+    pub span: Span,
+}
+
+impl HasSpan for FunctionParam {
+    fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -53,12 +77,27 @@ pub enum Stmt<'src> {
         init: Option<Expr<'src>>,
         span: Span,
     },
+
+    /// Function definition with parameters, return type, and body
+    /// Examples:
+    ///   fn distance(p1: &Point, p2: &Point) -> Length { ... }
+    ///   fn area() -> f64 { self.width * self.height }
+    FunctionDef {
+        name: String,
+        name_span: Span,
+        params: Vec<FunctionParam>,
+        return_type: Type,
+        body: Vec<Stmt<'src>>,
+        return_expr: Option<Expr<'src>>,
+        span: Span,
+    },
 }
 
 impl<'src> HasSpan for Stmt<'src> {
     fn span(&self) -> Span {
         match self {
             Stmt::Let { span, .. } => *span,
+            Stmt::FunctionDef { span, .. } => *span,
         }
     }
 }

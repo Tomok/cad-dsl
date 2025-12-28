@@ -33,7 +33,7 @@ mod tests;
 pub use span::HasSpan;
 
 // Re-export types
-pub use types::{Stmt, Type};
+pub use types::{FunctionParam, Stmt, Type};
 
 // Re-export all expression types
 pub use expr::{AddLhs, AddRhs, Atom, CmpLhs, CmpRhs, Expr, MulLhs, MulRhs, PowLhs, PowRhs};

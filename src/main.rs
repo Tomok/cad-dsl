@@ -54,11 +54,14 @@ fn main() {
                 }
             };
 
-            // Then parse as a let statement
-            match parser::let_stmt(parser::expr_inner())
-                .parse(&tokens)
-                .into_result()
-            {
+            // Parse as either a let statement or function definition
+            use chumsky::primitive::choice;
+            let stmt_parser = choice((
+                parser::function_def(parser::expr_inner()),
+                parser::let_stmt(parser::expr_inner()),
+            ));
+
+            match stmt_parser.parse(&tokens).into_result() {
                 Ok(stmt) => {
                     println!("Successfully parsed!");
                     println!("Statement: {:?}", stmt);
