@@ -189,6 +189,9 @@ where
                     field,
                     span,
                 },
+                PowRhs::ContainerFieldAccess { field_path, span } => {
+                    MulRhs::ContainerFieldAccess { field_path, span }
+                }
                 PowRhs::ArrayLit { elements, span } => MulRhs::ArrayLit { elements, span },
                 PowRhs::StructLit { name, fields, span } => {
                     MulRhs::StructLit { name, fields, span }
@@ -273,6 +276,9 @@ where
                     field,
                     span,
                 },
+                PowRhs::ContainerFieldAccess { field_path, span } => {
+                    MulLhs::ContainerFieldAccess { field_path, span }
+                }
                 PowRhs::ArrayLit { elements, span } => MulLhs::ArrayLit { elements, span },
                 PowRhs::StructLit { name, fields, span } => {
                     MulLhs::StructLit { name, fields, span }
