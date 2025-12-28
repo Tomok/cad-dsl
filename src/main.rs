@@ -2,6 +2,14 @@ mod ast;
 mod lexer;
 mod parser;
 
+// HIR modules
+mod hir;
+mod hir_context;
+mod hir_definitions;
+mod hir_expr;
+mod hir_scope;
+mod hir_types;
+
 use chumsky::Parser as _;
 use clap::{Parser, Subcommand};
 use lexer::TokenTrait;
