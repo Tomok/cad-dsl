@@ -195,6 +195,8 @@ where
                 }
                 PowRhs::Index { array, index, span } => MulRhs::Index { array, index, span },
                 PowRhs::Range { start, end, span } => MulRhs::Range { start, end, span },
+
+                PowRhs::Closure { params, body, span } => MulRhs::Closure { params, body, span },
             }
         }),
         select! { Token::LeftParen(t) => t.position }
@@ -277,6 +279,8 @@ where
                 }
                 PowRhs::Index { array, index, span } => MulLhs::Index { array, index, span },
                 PowRhs::Range { start, end, span } => MulLhs::Range { start, end, span },
+
+                PowRhs::Closure { params, body, span } => MulLhs::Closure { params, body, span },
             }
         }),
         select! { Token::LeftParen(t) => t.position }

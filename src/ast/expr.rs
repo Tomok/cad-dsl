@@ -211,6 +211,14 @@ pub enum Expr<'src> {
         end: Box<Expr<'src>>,
         span: Span,
     },
+
+    // Closure expression - in all levels (high precedence like atoms)
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
+    Closure {
+        params: Vec<&'src str>,
+        body: Box<Expr<'src>>,
+        span: Span,
+    },
 }
 
 // ============================================================================
@@ -244,6 +252,8 @@ impl<'src> HasSpan for Expr<'src> {
             Expr::StructLit { span, .. } => *span,
             Expr::Index { span, .. } => *span,
             Expr::Range { span, .. } => *span,
+
+            Expr::Closure { span, .. } => *span,
         }
     }
 }
@@ -275,6 +285,8 @@ impl<'src> HasSpan for CmpLhs<'src> {
             CmpLhs::StructLit { span, .. } => *span,
             CmpLhs::Index { span, .. } => *span,
             CmpLhs::Range { span, .. } => *span,
+
+            CmpLhs::Closure { span, .. } => *span,
         }
     }
 }
@@ -302,6 +314,8 @@ impl<'src> HasSpan for CmpRhs<'src> {
             CmpRhs::StructLit { span, .. } => *span,
             CmpRhs::Index { span, .. } => *span,
             CmpRhs::Range { span, .. } => *span,
+
+            CmpRhs::Closure { span, .. } => *span,
         }
     }
 }
@@ -329,6 +343,8 @@ impl<'src> HasSpan for AddLhs<'src> {
             AddLhs::StructLit { span, .. } => *span,
             AddLhs::Index { span, .. } => *span,
             AddLhs::Range { span, .. } => *span,
+
+            AddLhs::Closure { span, .. } => *span,
         }
     }
 }
@@ -354,6 +370,8 @@ impl<'src> HasSpan for AddRhs<'src> {
             AddRhs::StructLit { span, .. } => *span,
             AddRhs::Index { span, .. } => *span,
             AddRhs::Range { span, .. } => *span,
+
+            AddRhs::Closure { span, .. } => *span,
         }
     }
 }
@@ -379,6 +397,8 @@ impl<'src> HasSpan for MulLhs<'src> {
             MulLhs::StructLit { span, .. } => *span,
             MulLhs::Index { span, .. } => *span,
             MulLhs::Range { span, .. } => *span,
+
+            MulLhs::Closure { span, .. } => *span,
         }
     }
 }
@@ -401,6 +421,8 @@ impl<'src> HasSpan for MulRhs<'src> {
             MulRhs::StructLit { span, .. } => *span,
             MulRhs::Index { span, .. } => *span,
             MulRhs::Range { span, .. } => *span,
+
+            MulRhs::Closure { span, .. } => *span,
         }
     }
 }
@@ -422,6 +444,8 @@ impl<'src> HasSpan for PowLhs<'src> {
             PowLhs::StructLit { span, .. } => *span,
             PowLhs::Index { span, .. } => *span,
             PowLhs::Range { span, .. } => *span,
+
+            PowLhs::Closure { span, .. } => *span,
         }
     }
 }
@@ -444,6 +468,8 @@ impl<'src> HasSpan for PowRhs<'src> {
             PowRhs::StructLit { span, .. } => *span,
             PowRhs::Index { span, .. } => *span,
             PowRhs::Range { span, .. } => *span,
+
+            PowRhs::Closure { span, .. } => *span,
         }
     }
 }
@@ -462,6 +488,8 @@ impl<'src> HasSpan for Atom<'src> {
             Atom::StructLit { span, .. } => *span,
             Atom::Index { span, .. } => *span,
             Atom::Range { span, .. } => *span,
+
+            Atom::Closure { span, .. } => *span,
         }
     }
 }

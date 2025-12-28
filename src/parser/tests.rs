@@ -2663,6 +2663,82 @@ fn test_range_in_array_literal() {
 }
 
 // ============================================================================
+// Closure Expression Tests
+// ============================================================================
+
+#[test]
+fn test_closure_single_param() {
+    let result = parse_with_timeout(
+        "|x| x + 1",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Closure { params, body, .. } => {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0], "x");
+            assert_matches!(*body, Expr::Add { .. });
+        }
+        other => panic!("Expected Expr::Closure, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_closure_multiple_params() {
+    let result = parse_with_timeout(
+        "|x, y| x * y",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Closure { params, body, .. } => {
+            assert_eq!(params.len(), 2);
+            assert_eq!(params[0], "x");
+            assert_eq!(params[1], "y");
+            assert_matches!(*body, Expr::Mul { .. });
+        }
+        other => panic!("Expected Expr::Closure, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_closure_no_params() {
+    let result = parse_with_timeout(
+        "|| 42",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Closure { params, body, .. } => {
+            assert_eq!(params.len(), 0);
+            assert_matches!(*body, Expr::IntLit { value, .. } if value == 42);
+        }
+        other => panic!("Expected Expr::Closure, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_closure_in_method_call() {
+    let result = parse_with_timeout(
+        "points.map(|p| p.x)",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::MethodCall { method, args, .. } => {
+            assert_eq!(method, "map");
+            assert_eq!(args.len(), 1);
+            assert_matches!(args[0], Expr::Closure { .. });
+        }
+        other => panic!("Expected Expr::MethodCall, got {:?}", other),
+    }
+}
+
+// ============================================================================
 // Struct Literal Tests
 // ============================================================================
 

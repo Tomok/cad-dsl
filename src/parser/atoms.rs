@@ -50,6 +50,28 @@ pub fn atom<'src>(
             Token::True(t) => Atom::BoolLit { value: true, span: Span { start: t.position, lines: 0, end_column: t.position.column + 4 } },
             Token::False(t) => Atom::BoolLit { value: false, span: Span { start: t.position, lines: 0, end_column: t.position.column + 5 } },
         },
+        // Closure: |param1, param2| expr
+        select! { Token::Pipe(t) => t.position }
+            .then(
+                select! { Token::Identifier(t) => t.name }
+                    .separated_by(select! { Token::Comma(_) => () })
+                    .allow_trailing()
+                    .collect::<Vec<_>>(),
+            )
+            .then_ignore(select! { Token::Pipe(_) => () })
+            .then(expr.clone())
+            .map_with(|((start_pos, params), body), e| {
+                let span_range = e.span();
+                Atom::Closure {
+                    params,
+                    body: Box::new(body),
+                    span: Span {
+                        start: start_pos,
+                        lines: 0,
+                        end_column: span_range.end,
+                    },
+                }
+            }),
         // Array literal: [elem1, elem2, ...]
         expr.clone()
             .separated_by(select! { Token::Comma(_) => () })
@@ -201,6 +223,8 @@ pub fn atom<'src>(
                     Atom::StructLit { span, .. } => span.start,
                     Atom::Index { span, .. } => span.start,
                     Atom::Range { span, .. } => span.start,
+
+                    Atom::Closure { span, .. } => span.start,
                 };
 
                 atom = match suffix {

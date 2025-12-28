@@ -46,6 +46,8 @@ impl<'src> From<AddLhs<'src>> for CmpRhs<'src> {
             AddLhs::StructLit { name, fields, span } => CmpRhs::StructLit { name, fields, span },
             AddLhs::Index { array, index, span } => CmpRhs::Index { array, index, span },
             AddLhs::Range { start, end, span } => CmpRhs::Range { start, end, span },
+
+            AddLhs::Closure { params, body, span } => CmpRhs::Closure { params, body, span },
         }
     }
 }
@@ -92,6 +94,8 @@ impl<'src> From<AddLhs<'src>> for CmpLhs<'src> {
             AddLhs::StructLit { name, fields, span } => CmpLhs::StructLit { name, fields, span },
             AddLhs::Index { array, index, span } => CmpLhs::Index { array, index, span },
             AddLhs::Range { start, end, span } => CmpLhs::Range { start, end, span },
+
+            AddLhs::Closure { params, body, span } => CmpLhs::Closure { params, body, span },
         }
     }
 }
@@ -129,6 +133,8 @@ impl<'src> From<Atom<'src>> for MulRhs<'src> {
             Atom::StructLit { name, fields, span } => MulRhs::StructLit { name, fields, span },
             Atom::Index { array, index, span } => MulRhs::Index { array, index, span },
             Atom::Range { start, end, span } => MulRhs::Range { start, end, span },
+
+            Atom::Closure { params, body, span } => MulRhs::Closure { params, body, span },
         }
     }
 }
@@ -166,6 +172,8 @@ impl<'src> From<Atom<'src>> for MulLhs<'src> {
             Atom::StructLit { name, fields, span } => MulLhs::StructLit { name, fields, span },
             Atom::Index { array, index, span } => MulLhs::Index { array, index, span },
             Atom::Range { start, end, span } => MulLhs::Range { start, end, span },
+
+            Atom::Closure { params, body, span } => MulLhs::Closure { params, body, span },
         }
     }
 }
@@ -210,6 +218,8 @@ impl<'src> From<MulLhs<'src>> for AddRhs<'src> {
             MulLhs::StructLit { name, fields, span } => AddRhs::StructLit { name, fields, span },
             MulLhs::Index { array, index, span } => AddRhs::Index { array, index, span },
             MulLhs::Range { start, end, span } => AddRhs::Range { start, end, span },
+
+            MulLhs::Closure { params, body, span } => AddRhs::Closure { params, body, span },
         }
     }
 }
@@ -254,6 +264,8 @@ impl<'src> From<MulLhs<'src>> for AddLhs<'src> {
             MulLhs::StructLit { name, fields, span } => AddLhs::StructLit { name, fields, span },
             MulLhs::Index { array, index, span } => AddLhs::Index { array, index, span },
             MulLhs::Range { start, end, span } => AddLhs::Range { start, end, span },
+
+            MulLhs::Closure { params, body, span } => AddLhs::Closure { params, body, span },
         }
     }
 }
@@ -291,6 +303,8 @@ impl<'src> From<Atom<'src>> for PowLhs<'src> {
             Atom::StructLit { name, fields, span } => PowLhs::StructLit { name, fields, span },
             Atom::Index { array, index, span } => PowLhs::Index { array, index, span },
             Atom::Range { start, end, span } => PowLhs::Range { start, end, span },
+
+            Atom::Closure { params, body, span } => PowLhs::Closure { params, body, span },
         }
     }
 }
@@ -328,6 +342,8 @@ impl<'src> From<Atom<'src>> for PowRhs<'src> {
             Atom::StructLit { name, fields, span } => PowRhs::StructLit { name, fields, span },
             Atom::Index { array, index, span } => PowRhs::Index { array, index, span },
             Atom::Range { start, end, span } => PowRhs::Range { start, end, span },
+
+            Atom::Closure { params, body, span } => PowRhs::Closure { params, body, span },
         }
     }
 }
@@ -368,6 +384,8 @@ impl<'src> From<PowLhs<'src>> for PowRhs<'src> {
             PowLhs::StructLit { name, fields, span } => PowRhs::StructLit { name, fields, span },
             PowLhs::Index { array, index, span } => PowRhs::Index { array, index, span },
             PowLhs::Range { start, end, span } => PowRhs::Range { start, end, span },
+
+            PowLhs::Closure { params, body, span } => PowRhs::Closure { params, body, span },
         }
     }
 }
@@ -408,6 +426,8 @@ impl<'src> From<PowLhs<'src>> for MulRhs<'src> {
             PowLhs::StructLit { name, fields, span } => MulRhs::StructLit { name, fields, span },
             PowLhs::Index { array, index, span } => MulRhs::Index { array, index, span },
             PowLhs::Range { start, end, span } => MulRhs::Range { start, end, span },
+
+            PowLhs::Closure { params, body, span } => MulRhs::Closure { params, body, span },
         }
     }
 }
@@ -448,6 +468,8 @@ impl<'src> From<PowLhs<'src>> for MulLhs<'src> {
             PowLhs::StructLit { name, fields, span } => MulLhs::StructLit { name, fields, span },
             PowLhs::Index { array, index, span } => MulLhs::Index { array, index, span },
             PowLhs::Range { start, end, span } => MulLhs::Range { start, end, span },
+
+            PowLhs::Closure { params, body, span } => MulLhs::Closure { params, body, span },
         }
     }
 }
