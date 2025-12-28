@@ -21,6 +21,7 @@ This file tracks which parts of the TextCAD language specification can be parsed
 - [x] Float literals
 - [x] Variables (Identifiers)
 - [x] Boolean literals: `true`, `false`
+- [x] Self keyword: `self` (parsed as variable, works in methods)
 
 #### Operators
 - [x] Arithmetic operators: `+`, `-`, `*`, `/`, `^` (power), `%` (modulo)
@@ -48,7 +49,7 @@ This file tracks which parts of the TextCAD language specification can be parsed
 #### Type Annotations
 - [x] Basic type annotations: `x: i32`, `p: Point`
 - [x] Reference types: `&Point`, `&Length`
-- [x] Array types: `[Type; size]`
+- [x] Array types: `[Type; size]` (in lexer, parser TBD)
 - [x] Function return types: `fn name() -> Type`
 - [x] Function parameter types: `fn name(param: Type)`, `fn name(param: &Type)`
 
@@ -58,11 +59,14 @@ This file tracks which parts of the TextCAD language specification can be parsed
 
 #### Definitions
 - [x] Basic struct definitions: `struct Name { field1: Type, field2: Type }`
-- [x] Struct with methods: `struct Name { field: Type, fn method() -> Type { ... } }`
+- [x] **Struct with container**: `struct Name { container entities, field: Type }`
+- [x] **Struct with methods**: `struct Name { field: Type, fn method() -> Type { ... } }`
+- [x] **Self reference in methods**: `self.field` (via field access on `self` variable)
+- [x] **Transform methods**: `fn __transform__(p: &Point) -> Point { ... }` (just a method with special name)
 - [x] Top-level function definitions: `fn name(param: Type) -> ReturnType { ... }`
 - [x] Functions with reference parameters: `fn name(p: &Point) -> Type`
 - [x] Functions with multiple parameters
-- [x] Functions with body blocks
+- [x] Functions with body blocks (as return expressions)
 
 #### Error Reporting
 - [x] Ariadne integration for beautiful error output
@@ -99,12 +103,6 @@ This file tracks which parts of the TextCAD language specification can be parsed
 - [ ] With statements with dot prefix: `with container { let .field = value; }`
 - [ ] If-else statements: `if condition { ... } else { ... }`
 
-### Definitions
-
-#### Struct Definitions
-- [ ] Struct with container: `struct Name { container entities, field: Type }`
-- [ ] Transform methods: `fn __transform__(p: &Point) -> Point { ... }`
-
 ### Functional Operations (Spec Required)
 
 - [ ] Map on arrays: `array.map(|elem| expr)`
@@ -119,25 +117,27 @@ This file tracks which parts of the TextCAD language specification can be parsed
 
 ## 📊 Progress Summary
 
-**Expressions**: ~85% complete
+**Expressions**: ~90% complete
 - All basic operators implemented
 - Function/method calls, field access, indexing all working
 - Closures and ranges implemented
-- Missing: unit suffixes, remaining comparison operators, dereference
+- Missing: unit suffixes, remaining comparison operators (<, >, <=, >=), dereference
 
 **Statements**: ~15% complete
 - Let statements fully working
-- Missing: assignments, returns, blocks, control flow
+- Missing: assignments, returns, blocks, control flow (if/else, for, with)
 
-**Definitions**: ~70% complete
-- Structs and functions implemented
-- Missing: container structs, transform methods, top-level program structure
+**Definitions**: ~95% complete
+- ✅ Structs with fields, methods, and container support
+- ✅ Functions with parameters and bodies
+- ✅ Transform methods (just regular methods with `__transform__` name)
+- Missing: top-level program structure (multiple items)
 
-**Overall**: ~60% of spec features implemented
+**Overall**: ~70% of spec features implemented
 
 ## 📝 Next Implementation Priority
 
-### High Priority (Core Functionality)
+### High Priority (Core Statements)
 1. **Remaining comparison operators**: `<`, `>`, `<=`, `>=`
 2. **Assignment statements**: `x = value;`, `obj.field = value;`
 3. **Return statements**: `return expr;`
@@ -148,11 +148,12 @@ This file tracks which parts of the TextCAD language specification can be parsed
 1. **If-else statements**: `if condition { ... } else { ... }`
 2. **For loops**: `for i in 0..10 { ... }`, `for elem in array { ... }`
 3. **With statements**: `with transform { ... }`
+4. **Container field declarations**: `let container.field: Type = value;`
 
 ### Lower Priority (Advanced Features)
 1. **Unit suffixes**: `mm`, `cm`, `m`, `deg`, `rad`
-2. **Container structs**: `container entities` field
-3. **Transform methods**: `fn __transform__(...)`
+2. **Dereference operator**: `*expr`
+3. **Struct literals with computed properties**: `area() = 5000mm²`
 4. **Map/reduce operations**: Functional array methods
 5. **Top-level program**: Parse multiple definitions/statements
 
@@ -162,17 +163,17 @@ This file tracks which parts of the TextCAD language specification can be parsed
 - **Lexer**: `src/lexer.rs` - Fully implemented
 - **Parser**:
   - `src/parser.rs` - Main entry point, expression parser
-  - `src/parser/atoms.rs` - Literals, variables, primitives
+  - `src/parser/atoms.rs` - Literals, variables, primitives (including `self` keyword)
   - `src/parser/arithmetic.rs` - Arithmetic operators with precedence
   - `src/parser/comparison.rs` - Equality operators
   - `src/parser/logical.rs` - Logical operators (and, or)
-  - `src/parser/stmt.rs` - Statements and definitions
+  - `src/parser/stmt.rs` - Statements and definitions (let, function, struct with container support)
   - `src/parser/error.rs` - Error reporting
-  - `src/parser/tests.rs` - Comprehensive test suite
+  - `src/parser/tests.rs` - Comprehensive test suite (3000+ lines)
 - **AST**:
   - `src/ast.rs` - Main module
   - `src/ast/expr.rs` - Expression types with type-safe precedence
-  - `src/ast/types.rs` - Type annotations and statements
+  - `src/ast/types.rs` - Type annotations, statements (Let, FunctionDef, StructDef with container)
   - `src/ast/span.rs` - Span tracking trait
   - `src/ast/display.rs` - Pretty-printing
   - `src/ast/conversions.rs` - Type conversions
@@ -183,6 +184,9 @@ This file tracks which parts of the TextCAD language specification can be parsed
 
 - This TODO list only includes features explicitly required by the TextCAD language specification
 - Standard library functions (like `distance()`, `point()`, etc.) are not parser features and are not included here
+- **Container structs ARE fully implemented**: `struct Name { container entities, field: Type }`
+- **Transform methods ARE fully implemented**: They're just regular methods with the name `__transform__`
+- **Self references in methods ARE supported**: `self` is parsed as a variable, so `self.field` works via field access
+- The parser has been extensively refactored into a modular structure for maintainability
 - The spec explicitly mentions if-else as part of control flow
 - All geometric types (Point, Length, Angle, Area) are built-in according to the spec
-- The parser has been extensively refactored into a modular structure for maintainability
