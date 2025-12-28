@@ -120,6 +120,10 @@ pub fn atom<'src>(
                 },
             }
         }),
+        // self keyword
+        select! {
+            Token::SelfKw(t) => Atom::Var { name: "self", span: Span { start: t.position, lines: 0, end_column: t.position.column + 4 } },
+        },
         // Finally plain variable (no function call)
         select! {
             Token::Identifier(t) => Atom::Var { name: t.name, span: t.span },

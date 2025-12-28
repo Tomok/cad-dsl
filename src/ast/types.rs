@@ -59,6 +59,25 @@ impl HasSpan for FunctionParam {
 }
 
 // ============================================================================
+// Struct Field
+// ============================================================================
+
+/// Struct field with name and type
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructField {
+    pub name: String,
+    pub name_span: Span,
+    pub type_annotation: Type,
+    pub span: Span,
+}
+
+impl HasSpan for StructField {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+// ============================================================================
 // Statements
 // ============================================================================
 
@@ -91,6 +110,21 @@ pub enum Stmt<'src> {
         return_expr: Option<Expr<'src>>,
         span: Span,
     },
+
+    /// Struct definition with fields and methods
+    /// Examples:
+    ///   struct Point { x: f64, y: f64 }
+    ///   struct Circle { center: Point, radius: f64, fn area() -> f64 { ... } }
+    ///   struct Sketch { container entities, origin: Point }
+    StructDef {
+        name: String,
+        name_span: Span,
+        /// Optional container field name
+        container: Option<(String, Span)>,
+        fields: Vec<StructField>,
+        methods: Vec<Stmt<'src>>,
+        span: Span,
+    },
 }
 
 impl<'src> HasSpan for Stmt<'src> {
@@ -98,6 +132,7 @@ impl<'src> HasSpan for Stmt<'src> {
         match self {
             Stmt::Let { span, .. } => *span,
             Stmt::FunctionDef { span, .. } => *span,
+            Stmt::StructDef { span, .. } => *span,
         }
     }
 }
