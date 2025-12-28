@@ -194,6 +194,7 @@ where
                     MulRhs::StructLit { name, fields, span }
                 }
                 PowRhs::Index { array, index, span } => MulRhs::Index { array, index, span },
+                PowRhs::Range { start, end, span } => MulRhs::Range { start, end, span },
             }
         }),
         select! { Token::LeftParen(t) => t.position }
@@ -275,6 +276,7 @@ where
                     MulLhs::StructLit { name, fields, span }
                 }
                 PowRhs::Index { array, index, span } => MulLhs::Index { array, index, span },
+                PowRhs::Range { start, end, span } => MulLhs::Range { start, end, span },
             }
         }),
         select! { Token::LeftParen(t) => t.position }

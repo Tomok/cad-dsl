@@ -2589,6 +2589,80 @@ fn test_array_index_on_field() {
 }
 
 // ============================================================================
+// Range Expression Tests
+// ============================================================================
+
+#[test]
+fn test_range_simple() {
+    let result = parse_with_timeout(
+        "0..5",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Range { start, end, .. } => {
+            assert_matches!(*start, Expr::IntLit { value, .. } if value == 0);
+            assert_matches!(*end, Expr::IntLit { value, .. } if value == 5);
+        }
+        other => panic!("Expected Expr::Range, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_range_with_variables() {
+    let result = parse_with_timeout(
+        "start..end",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Range { start, end, .. } => {
+            assert_matches!(*start, Expr::Var { name, .. } if name == "start");
+            assert_matches!(*end, Expr::Var { name, .. } if name == "end");
+        }
+        other => panic!("Expected Expr::Range, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_range_with_arithmetic() {
+    let result = parse_with_timeout(
+        "i*2..n",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Range { start, end, .. } => {
+            // Start should be i*2 (multiplication has higher precedence than range)
+            assert_matches!(*start, Expr::Mul { .. });
+            // End should be just n
+            assert_matches!(*end, Expr::Var { name, .. } if name == "n");
+        }
+        other => panic!("Expected Expr::Range, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_range_in_array_literal() {
+    let result = parse_with_timeout(
+        "[0..5]",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::ArrayLit { elements, .. } => {
+            assert_eq!(elements.len(), 1);
+            assert_matches!(elements[0], Expr::Range { .. });
+        }
+        other => panic!("Expected Expr::ArrayLit, got {:?}", other),
+    }
+}
+
+// ============================================================================
 // Struct Literal Tests
 // ============================================================================
 

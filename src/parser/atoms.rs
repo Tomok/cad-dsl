@@ -200,6 +200,7 @@ pub fn atom<'src>(
                     Atom::ArrayLit { span, .. } => span.start,
                     Atom::StructLit { span, .. } => span.start,
                     Atom::Index { span, .. } => span.start,
+                    Atom::Range { span, .. } => span.start,
                 };
 
                 atom = match suffix {

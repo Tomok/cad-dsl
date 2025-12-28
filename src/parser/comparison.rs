@@ -3,6 +3,7 @@
 //! This module contains parsers for comparison operations:
 //! - Equality (==)
 //! - Inequality (!=)
+//! - Range (..)
 //!
 //! These operators have lower precedence than arithmetic operators
 //! but higher precedence than logical operators.
@@ -56,12 +57,13 @@ where
 {
     let eq_op = select! { Token::EqualsEquals(_) => "==" };
     let neq_op = select! { Token::NotEquals(_) => "!=" };
+    let range_op = select! { Token::DotDot(_) => ".." };
 
     let cmp_atom = add_lhs.map(Into::into);
 
-    // Left-associative equality and not-equal operators (higher precedence than logical)
+    // Left-associative equality, not-equal, and range operators (higher precedence than logical)
     cmp_atom.foldl(
-        choice((eq_op, neq_op)).then(cmp_rhs).repeated(),
+        choice((eq_op, neq_op, range_op)).then(cmp_rhs).repeated(),
         |lhs: CmpLhs<'src>, (op, rhs): (&str, CmpRhs<'src>)| {
             let lhs_span = lhs.span();
             let rhs_span = rhs.span();
@@ -76,6 +78,11 @@ where
                 "!=" => CmpLhs::NotEq {
                     lhs: Box::new(lhs),
                     rhs: Box::new(rhs),
+                    span,
+                },
+                ".." => CmpLhs::Range {
+                    start: Box::new(lhs.into()),
+                    end: Box::new(rhs.into()),
                     span,
                 },
                 _ => unreachable!(),
