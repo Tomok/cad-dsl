@@ -163,21 +163,18 @@ pub fn let_stmt<'src>(
 ///   for i in 0..10 { ... }
 ///   for elem in array { ... }
 ///
-/// Note: For nested for loops, use the recursive statement parser pattern
-/// or call this function within a recursive parser context.
+/// Note: Pass a recursive statement parser for nested for loops.
+/// Use `recursive(|stmt| choice((let_stmt(...), for_stmt(..., stmt))))` for full statement support.
 pub fn for_stmt<'src>(
     expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
     + Clone
     + 'src,
+    stmt_parser: impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone + 'src,
 ) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
     use crate::lexer::Span;
 
     let left_brace = select! { Token::LeftBrace(_) => () };
     let right_brace = select! { Token::RightBrace(t) => t.position };
-
-    // For standalone parsing, body can contain let statements
-    // For nested for loops in function bodies, use choice((let_stmt(...), for_stmt(...)))
-    let stmt_parser = let_stmt(expr_parser.clone());
 
     select! {
         Token::For(t) => t.position,
@@ -286,8 +283,13 @@ pub fn function_def<'src>(
     let right_brace = select! { Token::RightBrace(t) => t.position };
 
     // Function bodies can contain let statements and for loops
-    // (nested function definitions will be added later if needed)
-    let stmt_parser = choice((let_stmt(expr_parser.clone()), for_stmt(expr_parser.clone())));
+    // Use recursive parser to support nested for loops
+    let stmt_parser = recursive(|stmt_rec| {
+        choice((
+            let_stmt(expr_parser.clone()),
+            for_stmt(expr_parser.clone(), stmt_rec),
+        ))
+    });
 
     select! {
         Token::Fn(t) => t.position,
