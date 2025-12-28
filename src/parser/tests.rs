@@ -1,7 +1,7 @@
 use super::*;
 use crate::ast::{Stmt, Type};
 use crate::lexer;
-use crate::parser::stmt::{function_def, struct_def, type_annotation};
+use crate::parser::stmt::{for_stmt, function_def, let_stmt, struct_def, type_annotation};
 use assert_matches::assert_matches;
 use std::time::Duration;
 
@@ -32,6 +32,13 @@ fn parse_with_timeout<T: Send + 'static>(
     rx.recv_timeout(timeout)
         .map_err(|_| "Test timeout - possible infinite recursion".to_string())
         .and_then(|r| r.map_err(|e| format!("Parse error: {:?}", e)))
+}
+
+/// Helper to create a recursive statement parser for testing for loops
+/// Supports both let statements and nested for loops
+fn stmt_parser_for_tests<'src>()
+-> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    recursive(|stmt_rec| choice((let_stmt(expr_inner()), for_stmt(expr_inner(), stmt_rec))))
 }
 
 #[test]
@@ -1729,6 +1736,7 @@ fn test_let_with_type_and_init() {
             assert_matches!(type_annotation, Some(Type::I32 { .. }));
             assert_matches!(init, Some(Expr::IntLit { value: 42, .. }));
         }
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
     }
@@ -1755,6 +1763,7 @@ fn test_let_with_type_only() {
             assert!(init.is_none());
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
     }
 }
@@ -1780,6 +1789,7 @@ fn test_let_with_init_only() {
             assert_matches!(init, Some(Expr::FloatLit { value, .. }) if value == 3.14);
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
     }
 }
@@ -1805,6 +1815,7 @@ fn test_let_no_type_no_init() {
             assert!(init.is_none());
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
     }
 }
@@ -1846,6 +1857,7 @@ fn test_let_with_expression() {
             }
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
     }
 }
@@ -2044,6 +2056,7 @@ fn test_span_let_statement() {
             assert_eq!(span.end_column, 12); // Ends after ';'
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
     }
 }
@@ -3788,5 +3801,237 @@ fn test_struct_def_multiline() {
             assert_eq!(fields[1].name, "y");
         }
         other => panic!("Expected Stmt::StructDef, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// For Loop Tests
+// ============================================================================
+
+#[test]
+fn test_for_loop_range() {
+    // for i in 0..10 { }
+    let input = "for i in 0..10 { }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "i");
+            assert_matches!(iterator, Expr::Range { .. });
+            assert_eq!(body.len(), 0);
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_with_body() {
+    // for i in 0..5 { let x: i32 = i; }
+    let input = "for i in 0..5 { let x: i32 = i; }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "i");
+            assert_matches!(iterator, Expr::Range { .. });
+            assert_eq!(body.len(), 1);
+            assert_matches!(body[0], Stmt::Let { .. });
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_over_variable() {
+    // for elem in (items) { }
+    // Note: Parentheses disambiguate from empty struct literal "items {}"
+    let input = "for elem in (items) { }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "elem");
+            // Parentheses create a Paren expression wrapping the variable
+            match iterator {
+                Expr::Paren { inner, .. } => match inner.as_ref() {
+                    Expr::Var { name, .. } if *name == "items" => {} // OK
+                    other => panic!("Expected Var inside Paren, got {:?}", other),
+                },
+                other => panic!("Expected Paren, got {:?}", other),
+            }
+            assert_eq!(body.len(), 0);
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_nested() {
+    // for i in 0..3 { for j in 0..2 { } }
+    let input = "for i in 0..3 { for j in 0..2 { } }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "i");
+            assert_matches!(iterator, Expr::Range { .. });
+            assert_eq!(body.len(), 1);
+
+            // Check inner for loop
+            match &body[0] {
+                Stmt::For {
+                    loop_var: inner_var,
+                    iterator: inner_iter,
+                    body: inner_body,
+                    ..
+                } => {
+                    assert_eq!(*inner_var, "j");
+                    assert_matches!(inner_iter, Expr::Range { .. });
+                    assert_eq!(inner_body.len(), 0);
+                }
+                other => panic!("Expected inner Stmt::For, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_with_multiple_statements() {
+    // for i in 0..5 { let x: i32 = i; let y: i32 = x + 1; }
+    let input = "for i in 0..5 { let x: i32 = i; let y: i32 = x + 1; }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "i");
+            assert_matches!(iterator, Expr::Range { .. });
+            assert_eq!(body.len(), 2);
+            assert_matches!(body[0], Stmt::Let { .. });
+            assert_matches!(body[1], Stmt::Let { .. });
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_over_expression() {
+    // for item in obj.items { }
+    let input = "for item in obj.items { }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "item");
+            assert_matches!(iterator, Expr::FieldAccess { .. });
+            assert_eq!(body.len(), 0);
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_multiline() {
+    let input = "for i in 0..10 {
+    let x: i32 = i;
+    let y: i32 = x + 1;
+}";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "i");
+            assert_matches!(iterator, Expr::Range { .. });
+            assert_eq!(body.len(), 2);
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_over_array_literal() {
+    // for x in [1, 2, 3] { }
+    let input = "for x in [1, 2, 3] { }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "x");
+            assert_matches!(iterator, Expr::ArrayLit { .. });
+            assert_eq!(body.len(), 0);
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
     }
 }

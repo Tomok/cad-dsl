@@ -58,7 +58,8 @@ mod stmt;
 // ============================================================================
 
 pub use error::report_parse_errors;
-pub use stmt::{function_def, let_stmt, struct_def};
+#[allow(unused_imports)] // Public API for statement parsers
+pub use stmt::{for_stmt, function_def, let_stmt, struct_def};
 
 // ============================================================================
 // Parser Type Definitions

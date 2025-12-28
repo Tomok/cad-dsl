@@ -97,6 +97,18 @@ pub enum Stmt<'src> {
         span: Span,
     },
 
+    /// For loop over ranges or arrays
+    /// Examples:
+    ///   for i in 0..10 { ... }
+    ///   for elem in array { ... }
+    For {
+        loop_var: &'src str,
+        loop_var_span: Span,
+        iterator: Expr<'src>,
+        body: Vec<Stmt<'src>>,
+        span: Span,
+    },
+
     /// Function definition with parameters, return type, and body
     /// Examples:
     ///   fn distance(p1: &Point, p2: &Point) -> Length { ... }
@@ -131,6 +143,7 @@ impl<'src> HasSpan for Stmt<'src> {
     fn span(&self) -> Span {
         match self {
             Stmt::Let { span, .. } => *span,
+            Stmt::For { span, .. } => *span,
             Stmt::FunctionDef { span, .. } => *span,
             Stmt::StructDef { span, .. } => *span,
         }
