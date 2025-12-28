@@ -1,5 +1,5 @@
 use super::*;
-use crate::ast::{FunctionParam, Stmt, StructField, Type};
+use crate::ast::{Stmt, Type};
 use crate::lexer;
 use crate::parser::stmt::{function_def, struct_def, type_annotation};
 use assert_matches::assert_matches;
