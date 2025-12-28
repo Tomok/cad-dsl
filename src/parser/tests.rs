@@ -1,7 +1,9 @@
 use super::*;
 use crate::ast::{Stmt, Type};
 use crate::lexer;
-use crate::parser::stmt::{for_stmt, function_def, let_stmt, struct_def, type_annotation};
+use crate::parser::stmt::{
+    assignment_stmt, for_stmt, function_def, let_stmt, struct_def, type_annotation,
+};
 use assert_matches::assert_matches;
 use std::time::Duration;
 
@@ -35,10 +37,16 @@ fn parse_with_timeout<T: Send + 'static>(
 }
 
 /// Helper to create a recursive statement parser for testing for loops
-/// Supports both let statements and nested for loops
+/// Supports let statements, assignment statements, and nested for loops
 fn stmt_parser_for_tests<'src>()
 -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
-    recursive(|stmt_rec| choice((let_stmt(expr_inner()), for_stmt(expr_inner(), stmt_rec))))
+    recursive(|stmt_rec| {
+        choice((
+            let_stmt(expr_inner()),
+            assignment_stmt(expr_inner()),
+            for_stmt(expr_inner(), stmt_rec),
+        ))
+    })
 }
 
 #[test]
@@ -1737,6 +1745,7 @@ fn test_let_with_type_and_init() {
             assert_matches!(type_annotation, Some(Type::I32 { .. }));
             assert_matches!(init, Some(Expr::IntLit { value: 42, .. }));
         }
+        Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1764,6 +1773,7 @@ fn test_let_with_type_only() {
             assert_matches!(type_annotation, Some(Type::Bool { .. }));
             assert!(init.is_none());
         }
+        Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1791,6 +1801,7 @@ fn test_let_with_init_only() {
             assert!(type_annotation.is_none());
             assert_matches!(init, Some(Expr::FloatLit { value, .. }) if value == 3.14);
         }
+        Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1818,6 +1829,7 @@ fn test_let_no_type_no_init() {
             assert!(type_annotation.is_none());
             assert!(init.is_none());
         }
+        Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1861,6 +1873,7 @@ fn test_let_with_expression() {
                 other => panic!("Expected Some(Expr::Add), got {:?}", other),
             }
         }
+        Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1893,6 +1906,7 @@ fn test_let_container_field_simple() {
             assert_matches!(type_annotation, Some(Type::I32 { .. }));
             assert_matches!(init, Some(Expr::IntLit { value: 42, .. }));
         }
+        Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1925,6 +1939,7 @@ fn test_let_container_field_nested() {
             );
             assert!(init.is_none());
         }
+        Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1953,6 +1968,7 @@ fn test_let_container_field_with_expression() {
             assert_matches!(type_annotation, Some(Type::I32 { .. }));
             assert_matches!(init, Some(Expr::Add { .. }));
         }
+        Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -1981,6 +1997,7 @@ fn test_let_container_field_no_type() {
             assert!(type_annotation.is_none());
             assert_matches!(init, Some(Expr::FloatLit { value, .. }) if value == 3.14);
         }
+        Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -2012,6 +2029,7 @@ fn test_let_container_field_deeply_nested() {
             assert_matches!(type_annotation, Some(Type::Bool { .. }));
             assert_matches!(init, Some(Expr::BoolLit { value: true, .. }));
         }
+        Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
@@ -2047,9 +2065,215 @@ fn test_let_container_field_span_tracking() {
             assert_eq!(span.lines, 0);
             assert_eq!(span.end_column, 25); // Ends after ';'
         }
+        Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
+    }
+}
+
+// ========================================================================
+// Assignment Statement Tests
+// ========================================================================
+
+#[test]
+fn test_assignment_simple_int() {
+    // x = 42;
+    let result = parse_with_timeout(
+        "x = 42;",
+        |input| assignment_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Assignment {
+            name,
+            name_span,
+            value,
+            span,
+        } => {
+            assert_eq!(name, "x");
+            assert_eq!(name_span.start.line, 1);
+            assert_eq!(name_span.start.column, 1);
+            assert_matches!(value, Expr::IntLit { value: 42, .. });
+
+            // Overall span should cover entire statement
+            assert_eq!(span.start.line, 1);
+            assert_eq!(span.start.column, 1);
+            assert_eq!(span.lines, 0);
+            assert_eq!(span.end_column, 8); // "x = 42;" is 7 chars
+        }
+        _ => panic!("Expected Stmt::Assignment"),
+    }
+}
+
+#[test]
+fn test_assignment_simple_float() {
+    // width = 3.14;
+    let result = parse_with_timeout(
+        "width = 3.14;",
+        |input| assignment_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Assignment { name, value, .. } => {
+            assert_eq!(name, "width");
+            assert_matches!(value, Expr::FloatLit { value, .. } if value == 3.14);
+        }
+        _ => panic!("Expected Stmt::Assignment"),
+    }
+}
+
+#[test]
+fn test_assignment_variable_to_variable() {
+    // y = x;
+    let result = parse_with_timeout(
+        "y = x;",
+        |input| assignment_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Assignment { name, value, .. } => {
+            assert_eq!(name, "y");
+            assert_matches!(value, Expr::Var { name, .. } if name == "x");
+        }
+        _ => panic!("Expected Stmt::Assignment"),
+    }
+}
+
+#[test]
+fn test_assignment_with_expression() {
+    // result = 1 + 2 * 3;
+    let result = parse_with_timeout(
+        "result = 1 + 2 * 3;",
+        |input| assignment_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Assignment { name, value, .. } => {
+            assert_eq!(name, "result");
+            assert_matches!(value, Expr::Add { .. });
+        }
+        _ => panic!("Expected Stmt::Assignment"),
+    }
+}
+
+#[test]
+fn test_assignment_boolean() {
+    // flag = true;
+    let result = parse_with_timeout(
+        "flag = true;",
+        |input| assignment_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Assignment { name, value, .. } => {
+            assert_eq!(name, "flag");
+            assert_matches!(value, Expr::BoolLit { value: true, .. });
+        }
+        _ => panic!("Expected Stmt::Assignment"),
+    }
+}
+
+#[test]
+fn test_assignment_complex_expression() {
+    // area = width * height;
+    let result = parse_with_timeout(
+        "area = width * height;",
+        |input| assignment_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Assignment { name, value, .. } => {
+            assert_eq!(name, "area");
+            assert_matches!(value, Expr::Mul { .. });
+        }
+        _ => panic!("Expected Stmt::Assignment"),
+    }
+}
+
+#[test]
+fn test_assignment_comparison_expression() {
+    // is_positive = x > 0;
+    let result = parse_with_timeout(
+        "is_positive = x > 0;",
+        |input| assignment_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Assignment { name, value, .. } => {
+            assert_eq!(name, "is_positive");
+            assert_matches!(value, Expr::Gt { .. });
+        }
+        _ => panic!("Expected Stmt::Assignment"),
+    }
+}
+
+#[test]
+fn test_assignment_logical_expression() {
+    // condition = a and b;
+    let result = parse_with_timeout(
+        "condition = a and b;",
+        |input| assignment_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Assignment { name, value, .. } => {
+            assert_eq!(name, "condition");
+            assert_matches!(value, Expr::And { .. });
+        }
+        _ => panic!("Expected Stmt::Assignment"),
+    }
+}
+
+#[test]
+fn test_assignment_multiline_expression() {
+    // value =
+    //     10 + 20;
+    let result = parse_with_timeout(
+        "value = \n    10 + 20;",
+        |input| assignment_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Assignment {
+            name, value, span, ..
+        } => {
+            assert_eq!(name, "value");
+            assert_matches!(value, Expr::Add { .. });
+
+            // Span should span multiple lines
+            assert_eq!(span.start.line, 1);
+            assert_eq!(span.start.column, 1);
+            assert_eq!(span.lines, 1); // Spans 2 lines total (lines=1 means line2-line1)
+        }
+        _ => panic!("Expected Stmt::Assignment"),
+    }
+}
+
+#[test]
+fn test_assignment_parenthesized_expression() {
+    // result = (a + b) * c;
+    let result = parse_with_timeout(
+        "result = (a + b) * c;",
+        |input| assignment_stmt(expr_inner()).parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Assignment { name, value, .. } => {
+            assert_eq!(name, "result");
+            assert_matches!(value, Expr::Mul { .. });
+        }
+        _ => panic!("Expected Stmt::Assignment"),
     }
 }
 
@@ -2248,6 +2472,7 @@ fn test_span_let_statement() {
             assert_eq!(span.lines, 0);
             assert_eq!(span.end_column, 12); // Ends after ';'
         }
+        Stmt::Assignment { .. } => panic!("Expected Stmt::Let, got Assignment"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),

@@ -102,6 +102,24 @@ pub enum Stmt<'src> {
         span: Span,
     },
 
+    /// Assignment statement (creates a constraint)
+    /// Examples:
+    ///   x = 42;
+    ///   width = 100;
+    ///   result = a + b;
+    /// Note: This is for simple variable assignment only.
+    /// Field assignment (obj.field = value) is not yet implemented.
+    Assignment {
+        /// Variable name being assigned to
+        name: &'src str,
+        /// Span of the variable name
+        name_span: Span,
+        /// Value expression
+        value: Expr<'src>,
+        /// Overall span of the statement
+        span: Span,
+    },
+
     /// For loop over ranges or arrays
     /// Examples:
     ///   for i in 0..10 { ... }
@@ -148,6 +166,7 @@ impl<'src> HasSpan for Stmt<'src> {
     fn span(&self) -> Span {
         match self {
             Stmt::Let { span, .. } => *span,
+            Stmt::Assignment { span, .. } => *span,
             Stmt::For { span, .. } => *span,
             Stmt::FunctionDef { span, .. } => *span,
             Stmt::StructDef { span, .. } => *span,

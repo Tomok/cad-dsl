@@ -166,6 +166,67 @@ pub fn let_stmt<'src>(
 }
 
 // ============================================================================
+// Assignment Statement Parser
+// ============================================================================
+
+/// Parse an assignment statement
+///
+/// Syntax:
+///   <name> = <expr>;
+///
+/// Examples:
+///   x = 42;
+///   width = 100;
+///   result = a + b;
+///
+/// Note: This parser handles simple variable assignment only.
+/// Field assignment (obj.field = value) is not yet implemented.
+pub fn assignment_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    let equals = select! { Token::Equals(_) => () };
+
+    select! {
+        Token::Identifier(t) => (t.name, t.span),
+    }
+    .labelled("variable name")
+    .then_ignore(equals)
+    .then(expr_parser.labelled("value expression"))
+    .then(select! {
+        Token::SemiColon(t) => t.position,
+    })
+    .map(|(((name, name_span), value), semi_pos)| {
+        // Construct span from variable name to semicolon
+        let span = if name_span.start.line == semi_pos.line {
+            // Same line
+            Span {
+                start: name_span.start,
+                lines: 0,
+                end_column: semi_pos.column + 1,
+            }
+        } else {
+            // Multiple lines
+            Span {
+                start: name_span.start,
+                lines: semi_pos.line - name_span.start.line,
+                end_column: semi_pos.column + 1,
+            }
+        };
+
+        Stmt::Assignment {
+            name,
+            name_span,
+            value,
+            span,
+        }
+    })
+    .labelled("assignment statement")
+}
+
+// ============================================================================
 // For Loop Parser
 // ============================================================================
 
@@ -297,11 +358,12 @@ pub fn function_def<'src>(
     let left_brace = select! { Token::LeftBrace(_) => () };
     let right_brace = select! { Token::RightBrace(t) => t.position };
 
-    // Function bodies can contain let statements and for loops
+    // Function bodies can contain let statements, assignment statements, and for loops
     // Use recursive parser to support nested for loops
     let stmt_parser = recursive(|stmt_rec| {
         choice((
             let_stmt(expr_parser.clone()),
+            assignment_stmt(expr_parser.clone()),
             for_stmt(expr_parser.clone(), stmt_rec),
         ))
     });
