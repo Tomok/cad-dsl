@@ -2947,8 +2947,14 @@ fn test_struct_literal_single_field() {
         Expr::StructLit { name, fields, .. } => {
             assert_eq!(name, "Point");
             assert_eq!(fields.len(), 1);
-            assert_eq!(fields[0].0, "x");
-            assert_matches!(fields[0].1, Expr::IntLit { value: 10, .. });
+            assert_matches!(
+                &fields[0],
+                StructLitField::Field {
+                    name: "x",
+                    value: Expr::IntLit { value: 10, .. },
+                    ..
+                }
+            );
         }
         other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
@@ -2966,10 +2972,22 @@ fn test_struct_literal_multiple_fields() {
         Expr::StructLit { name, fields, .. } => {
             assert_eq!(name, "Point");
             assert_eq!(fields.len(), 2);
-            assert_eq!(fields[0].0, "x");
-            assert_eq!(fields[1].0, "y");
-            assert_matches!(fields[0].1, Expr::IntLit { value: 10, .. });
-            assert_matches!(fields[1].1, Expr::IntLit { value: 20, .. });
+            assert_matches!(
+                &fields[0],
+                StructLitField::Field {
+                    name: "x",
+                    value: Expr::IntLit { value: 10, .. },
+                    ..
+                }
+            );
+            assert_matches!(
+                &fields[1],
+                StructLitField::Field {
+                    name: "y",
+                    value: Expr::IntLit { value: 20, .. },
+                    ..
+                }
+            );
         }
         other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
@@ -2987,10 +3005,22 @@ fn test_struct_literal_with_expressions() {
         Expr::StructLit { name, fields, .. } => {
             assert_eq!(name, "Circle");
             assert_eq!(fields.len(), 2);
-            assert_eq!(fields[0].0, "center");
-            assert_eq!(fields[1].0, "radius");
-            assert_matches!(fields[0].1, Expr::Call { .. });
-            assert_matches!(fields[1].1, Expr::Mul { .. });
+            assert_matches!(
+                &fields[0],
+                StructLitField::Field {
+                    name: "center",
+                    value: Expr::Call { .. },
+                    ..
+                }
+            );
+            assert_matches!(
+                &fields[1],
+                StructLitField::Field {
+                    name: "radius",
+                    value: Expr::Mul { .. },
+                    ..
+                }
+            );
         }
         other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
@@ -3025,10 +3055,22 @@ fn test_nested_struct_literal() {
         Expr::StructLit { name, fields, .. } => {
             assert_eq!(name, "Line");
             assert_eq!(fields.len(), 2);
-            assert_eq!(fields[0].0, "start");
-            assert_eq!(fields[1].0, "end");
-            assert_matches!(fields[0].1, Expr::StructLit { .. });
-            assert_matches!(fields[1].1, Expr::StructLit { .. });
+            assert_matches!(
+                &fields[0],
+                StructLitField::Field {
+                    name: "start",
+                    value: Expr::StructLit { .. },
+                    ..
+                }
+            );
+            assert_matches!(
+                &fields[1],
+                StructLitField::Field {
+                    name: "end",
+                    value: Expr::StructLit { .. },
+                    ..
+                }
+            );
         }
         other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
@@ -3049,6 +3091,105 @@ fn test_array_of_struct_literals() {
             assert_matches!(elements[1], Expr::StructLit { .. });
         }
         other => panic!("Expected Expr::ArrayLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_struct_literal_computed_property() {
+    let result = parse_with_timeout(
+        "Rect { area() = 500 }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::StructLit { name, fields, .. } => {
+            assert_eq!(name, "Rect");
+            assert_eq!(fields.len(), 1);
+            assert_matches!(
+                &fields[0],
+                StructLitField::ComputedProperty {
+                    name: "area",
+                    value: Expr::IntLit { value: 500, .. },
+                    ..
+                }
+            );
+        }
+        other => panic!("Expected Expr::StructLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_struct_literal_mixed_fields_and_computed() {
+    let result = parse_with_timeout(
+        "Rect { width: 100, area() = 500, height: 50 }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::StructLit { name, fields, .. } => {
+            assert_eq!(name, "Rect");
+            assert_eq!(fields.len(), 3);
+            assert_matches!(
+                &fields[0],
+                StructLitField::Field {
+                    name: "width",
+                    value: Expr::IntLit { value: 100, .. },
+                    ..
+                }
+            );
+            assert_matches!(
+                &fields[1],
+                StructLitField::ComputedProperty {
+                    name: "area",
+                    value: Expr::IntLit { value: 500, .. },
+                    ..
+                }
+            );
+            assert_matches!(
+                &fields[2],
+                StructLitField::Field {
+                    name: "height",
+                    value: Expr::IntLit { value: 50, .. },
+                    ..
+                }
+            );
+        }
+        other => panic!("Expected Expr::StructLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_struct_literal_computed_property_expression() {
+    let result = parse_with_timeout(
+        "Circle { center: point(0, 0), circumference() = 2 * 3.14 * r }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::StructLit { name, fields, .. } => {
+            assert_eq!(name, "Circle");
+            assert_eq!(fields.len(), 2);
+            assert_matches!(
+                &fields[0],
+                StructLitField::Field {
+                    name: "center",
+                    value: Expr::Call { .. },
+                    ..
+                }
+            );
+            assert_matches!(
+                &fields[1],
+                StructLitField::ComputedProperty {
+                    name: "circumference",
+                    value: Expr::Mul { .. },
+                    ..
+                }
+            );
+        }
+        other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
 }
 
