@@ -1,0 +1,49 @@
+# Cargo build configuration for CAD-DSL project
+#
+# This configuration enforces serial (non-parallel) linking to prevent memory exhaustion
+# and linker crashes during builds and tests.
+
+[build]
+# Limit to 1 concurrent build job (affects linking phase primarily)
+#
+# RATIONALE: Test binaries with full debug info cause memory exhaustion during parallel linking.
+# - Standard CI runners have ~7GB RAM available
+# - Parallel LLVM linker processes can consume 10GB+ combined
+# - Results in Bus errors or OOM killer terminating builds
+#
+# IMPACT:
+# - Prevents linker crashes in CI and on memory-constrained developer machines
+# - Increases build time but ensures build reliability
+# - Applies to both `cargo build` and `cargo test` (test binary compilation)
+#
+# FUTURE: Consider removing if:
+# - GitHub Actions provides larger runners (16GB+ RAM)
+# - Switching to more memory-efficient linker (e.g., mold)
+# - Reducing debug info level in test builds (trade-off: worse debugging)
+jobs = 1
+
+# Disable incremental compilation
+#
+# RATIONALE: Incremental compilation adds memory overhead during linking
+# - Incremental metadata increases linker memory pressure
+# - Provides minimal benefit with serial linking anyway
+# - Simplifies build process and reduces cache size
+incremental = false
+
+[profile.dev]
+# Use line-tables-only debug info instead of full debug symbols
+#
+# RATIONALE: Full debug info (level 2, the default) significantly increases:
+# - Binary size (test binaries can exceed 100MB)
+# - Linker memory consumption (can add several GB per process)
+# - Link time (especially critical with serial linking)
+#
+# IMPACT:
+# - debug = 1 provides line numbers for backtraces and basic debugging
+# - Reduces test binary size by 50-70%
+# - Significantly reduces linker memory pressure
+# - Trade-off: Limited variable inspection in debuggers (use debug = 2 locally if needed)
+#
+# ALTERNATIVE: Developers can override locally with CARGO_PROFILE_DEV_DEBUG=2
+# for full debug symbols when doing intensive debugging sessions.
+debug = 1
