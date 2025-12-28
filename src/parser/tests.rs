@@ -101,10 +101,7 @@ fn test_expr_bool_false() {
         |input| expr().parse(input).into_result(),
         Duration::from_secs(2),
     );
-    assert_matches!(
-        result.unwrap(),
-        Expr::BoolLit { value: false, .. }
-    );
+    assert_matches!(result.unwrap(), Expr::BoolLit { value: false, .. });
 }
 
 #[test]
@@ -2756,7 +2753,7 @@ fn test_function_def_with_reference_params() {
             assert_eq!(params.len(), 2);
             assert_eq!(params[0].name, "p1");
             assert_eq!(params[1].name, "p2");
-            
+
             // Check that both parameters are reference types
             assert_matches!(
                 params[0].type_annotation,
@@ -2766,7 +2763,7 @@ fn test_function_def_with_reference_params() {
                 params[1].type_annotation,
                 Type::Reference { ref inner, .. } if matches!(**inner, Type::UserDefined { ref name, .. } if name == "Point")
             );
-            
+
             assert_matches!(return_type, Type::F64 { .. });
         }
         other => panic!("Expected Stmt::FunctionDef, got {:?}", other),
@@ -2784,9 +2781,7 @@ fn test_function_def_with_user_defined_return_type() {
 
     match result.unwrap() {
         Stmt::FunctionDef {
-            name,
-            return_type,
-            ..
+            name, return_type, ..
         } => {
             assert_eq!(name, "create_point");
             assert_matches!(
@@ -2817,7 +2812,7 @@ fn test_function_def_with_body_statements() {
             assert_eq!(name, "calculate");
             assert_eq!(body.len(), 1);
             assert!(return_expr.is_some());
-            
+
             // Check that the body contains a let statement
             assert_matches!(body[0], Stmt::Let { .. });
         }
@@ -2836,9 +2831,7 @@ fn test_function_def_no_return_expr() {
 
     match result.unwrap() {
         Stmt::FunctionDef {
-            name,
-            return_expr,
-            ..
+            name, return_expr, ..
         } => {
             assert_eq!(name, "init");
             assert!(return_expr.is_none());
@@ -2865,16 +2858,16 @@ fn test_function_def_mixed_param_types() {
         } => {
             assert_eq!(name, "process");
             assert_eq!(params.len(), 3);
-            
+
             assert_eq!(params[0].name, "value");
             assert_matches!(params[0].type_annotation, Type::I32 { .. });
-            
+
             assert_eq!(params[1].name, "scale");
             assert_matches!(params[1].type_annotation, Type::F64 { .. });
-            
+
             assert_eq!(params[2].name, "ref");
             assert_matches!(params[2].type_annotation, Type::Reference { .. });
-            
+
             assert_matches!(return_type, Type::Bool { .. });
         }
         other => panic!("Expected Stmt::FunctionDef, got {:?}", other),
@@ -2886,9 +2879,9 @@ fn test_type_annotation_reference() {
     let input = "&Point";
     let tokens = lexer::tokenize(input).unwrap();
     let tokens_static: &'static [Token<'static>] = Box::leak(tokens.into_boxed_slice());
-    
+
     let result = type_annotation().parse(tokens_static).into_result();
-    
+
     match result.unwrap() {
         Type::Reference { inner, .. } => {
             assert_matches!(*inner, Type::UserDefined { ref name, .. } if name == "Point");
@@ -2902,15 +2895,16 @@ fn test_type_annotation_user_defined() {
     let input = "Point";
     let tokens = lexer::tokenize(input).unwrap();
     let tokens_static: &'static [Token<'static>] = Box::leak(tokens.into_boxed_slice());
-    
+
     let result = type_annotation().parse(tokens_static).into_result();
-    
+
     assert_matches!(result.unwrap(), Type::UserDefined { ref name, .. } if name == "Point");
 }
 
 #[test]
 fn test_function_def_complex_body() {
-    let input = "fn area(width: f64, height: f64) -> f64 { let result: f64 = width * height; result }";
+    let input =
+        "fn area(width: f64, height: f64) -> f64 { let result: f64 = width * height; result }";
     let result = parse_with_timeout(
         input,
         |tokens| function_def(expr_inner()).parse(tokens).into_result(),

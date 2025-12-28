@@ -199,8 +199,8 @@ pub fn function_param<'src>()
 ///   fn name() -> ReturnType { body }
 pub fn function_def<'src>(
     expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
-        + Clone
-        + 'src,
+    + Clone
+    + 'src,
 ) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
     use crate::lexer::Span;
 
@@ -245,7 +245,10 @@ pub fn function_def<'src>(
     )
     .then(right_brace)
     .map(
-        |(((((fn_pos, (name, name_span)), params), return_type), (body, return_expr)), brace_pos)| {
+        |(
+            ((((fn_pos, (name, name_span)), params), return_type), (body, return_expr)),
+            brace_pos,
+        )| {
             // Construct span from fn keyword to closing brace
             let span = if fn_pos.line == brace_pos.line {
                 Span {

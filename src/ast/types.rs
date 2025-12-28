@@ -20,15 +20,9 @@ pub enum Type {
     /// Algebraic number (roots of polynomials with integer coefficients)
     Algebraic { span: Span },
     /// Reference type (e.g., &Point)
-    Reference {
-        inner: Box<Type>,
-        span: Span,
-    },
+    Reference { inner: Box<Type>, span: Span },
     /// User-defined type (e.g., Point, Circle)
-    UserDefined {
-        name: String,
-        span: Span,
-    },
+    UserDefined { name: String, span: Span },
 }
 
 impl HasSpan for Type {
