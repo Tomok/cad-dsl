@@ -206,6 +206,17 @@ pub enum Stmt<'src> {
         statements: Vec<Stmt<'src>>,
         span: Span,
     },
+
+    /// With statement (apply transform or container context)
+    /// Examples:
+    ///   with transform { ... }
+    ///   with sketch { let .p1: Point = point(0mm, 0mm); }
+    ///   with translate { let p: Point = point(10mm, 10mm); }
+    With {
+        context_expr: Expr<'src>,
+        body: Vec<Stmt<'src>>,
+        span: Span,
+    },
 }
 
 impl<'src> HasSpan for Stmt<'src> {
@@ -220,6 +231,7 @@ impl<'src> HasSpan for Stmt<'src> {
             Stmt::Return { span, .. } => *span,
             Stmt::Expression { span, .. } => *span,
             Stmt::Block { span, .. } => *span,
+            Stmt::With { span, .. } => *span,
         }
     }
 }

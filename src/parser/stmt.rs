@@ -550,8 +550,8 @@ pub fn function_def<'src>(
     let left_brace = select! { Token::LeftBrace(_) => () };
     let right_brace = select! { Token::RightBrace(t) => t.position };
 
-    // Function bodies can contain let statements, assignment statements, field assignments, return statements, for loops, blocks, and expression statements
-    // Use recursive parser to support nested for loops and nested blocks
+    // Function bodies can contain let statements, assignment statements, field assignments, return statements, for loops, with statements, blocks, and expression statements
+    // Use recursive parser to support nested for loops, with statements, and nested blocks
     // Note: field_assignment_stmt must come before assignment_stmt to avoid ambiguity
     // (obj.field = value should parse as field assignment, not fail on obj.field)
     // Note: expression_stmt must come LAST to avoid consuming parts of other statements
@@ -562,6 +562,7 @@ pub fn function_def<'src>(
             assignment_stmt(expr_parser.clone()),
             return_stmt(expr_parser.clone()),
             for_stmt(expr_parser.clone(), stmt_rec.clone()),
+            with_stmt(expr_parser.clone(), stmt_rec.clone()),
             block_stmt(stmt_rec),
             expression_stmt(expr_parser.clone()),
         ))
@@ -835,4 +836,66 @@ pub fn block_stmt<'src>(
             Stmt::Block { statements, span }
         })
         .labelled("block statement")
+}
+
+// ============================================================================
+// With Statement Parser
+// ============================================================================
+
+/// Parse a with statement
+///
+/// Syntax:
+///   with <expr> { <statements> }
+///
+/// Examples:
+///   with transform { ... }
+///   with sketch { let .p1: Point = point(0mm, 0mm); }
+///   with translate { let p: Point = point(10mm, 10mm); }
+///
+/// The with statement applies a transform or container context to all
+/// entity accesses within its block. When used with container structs,
+/// it enables the dot prefix (.) to reference the container field.
+///
+/// Note: Pass a recursive statement parser for nested with statements.
+pub fn with_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone
+    + 'src,
+    stmt_parser: impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone + 'src,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    let left_brace = select! { Token::LeftBrace(_) => () };
+    let right_brace = select! { Token::RightBrace(t) => t.position };
+
+    select! {
+        Token::With(t) => t.position,
+    }
+    .then(expr_parser.labelled("context expression"))
+    .then_ignore(left_brace)
+    .then(stmt_parser.repeated().collect::<Vec<_>>())
+    .then(right_brace)
+    .map(|(((with_pos, context_expr), body), brace_pos)| {
+        // Construct span from with keyword to closing brace
+        let span = if with_pos.line == brace_pos.line {
+            Span {
+                start: with_pos,
+                lines: 0,
+                end_column: brace_pos.column + 1,
+            }
+        } else {
+            Span {
+                start: with_pos,
+                lines: brace_pos.line - with_pos.line,
+                end_column: brace_pos.column + 1,
+            }
+        };
+
+        Stmt::With {
+            context_expr,
+            body,
+            span,
+        }
+    })
+    .labelled("with statement")
 }
