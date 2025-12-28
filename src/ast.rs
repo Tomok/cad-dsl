@@ -36,4 +36,6 @@ pub use span::HasSpan;
 pub use types::{FunctionParam, Stmt, StructField, Type};
 
 // Re-export all expression types
-pub use expr::{AddLhs, AddRhs, Atom, CmpLhs, CmpRhs, Expr, MulLhs, MulRhs, PowLhs, PowRhs};
+pub use expr::{
+    AddLhs, AddRhs, Atom, CmpLhs, CmpRhs, Expr, MulLhs, MulRhs, PowLhs, PowRhs, StructLitField,
+};

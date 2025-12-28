@@ -3,6 +3,36 @@ use crate::lexer::Span;
 use subenum::subenum;
 
 // ============================================================================
+// Struct Literal Field
+// ============================================================================
+
+/// Represents a field in a struct literal
+#[derive(Debug, Clone, PartialEq)]
+pub enum StructLitField<'src> {
+    /// Regular field assignment: `field: value`
+    Field {
+        name: &'src str,
+        value: Expr<'src>,
+        span: Span,
+    },
+    /// Computed property constraint: `method() = value`
+    ComputedProperty {
+        name: &'src str,
+        value: Expr<'src>,
+        span: Span,
+    },
+}
+
+impl<'src> HasSpan for StructLitField<'src> {
+    fn span(&self) -> Span {
+        match self {
+            StructLitField::Field { span, .. } => *span,
+            StructLitField::ComputedProperty { span, .. } => *span,
+        }
+    }
+}
+
+// ============================================================================
 // Expression AST with Type-Safe Operator Precedence
 // ============================================================================
 
@@ -64,6 +94,42 @@ pub enum Expr<'src> {
     // lhs can be NotEq, rhs cannot (enforces left-associativity and precedence)
     #[subenum(CmpLhs)]
     NotEq {
+        lhs: Box<CmpLhs<'src>>,
+        rhs: Box<CmpRhs<'src>>,
+        span: Span,
+    },
+
+    // Less Than - in CmpLhs only
+    // lhs can be Lt, rhs cannot (enforces left-associativity and precedence)
+    #[subenum(CmpLhs)]
+    Lt {
+        lhs: Box<CmpLhs<'src>>,
+        rhs: Box<CmpRhs<'src>>,
+        span: Span,
+    },
+
+    // Greater Than - in CmpLhs only
+    // lhs can be Gt, rhs cannot (enforces left-associativity and precedence)
+    #[subenum(CmpLhs)]
+    Gt {
+        lhs: Box<CmpLhs<'src>>,
+        rhs: Box<CmpRhs<'src>>,
+        span: Span,
+    },
+
+    // Less Than or Equal - in CmpLhs only
+    // lhs can be LtEq, rhs cannot (enforces left-associativity and precedence)
+    #[subenum(CmpLhs)]
+    LtEq {
+        lhs: Box<CmpLhs<'src>>,
+        rhs: Box<CmpRhs<'src>>,
+        span: Span,
+    },
+
+    // Greater Than or Equal - in CmpLhs only
+    // lhs can be GtEq, rhs cannot (enforces left-associativity and precedence)
+    #[subenum(CmpLhs)]
+    GtEq {
         lhs: Box<CmpLhs<'src>>,
         rhs: Box<CmpRhs<'src>>,
         span: Span,
@@ -192,7 +258,7 @@ pub enum Expr<'src> {
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
     StructLit {
         name: &'src str,
-        fields: Vec<(&'src str, Expr<'src>)>,
+        fields: Vec<StructLitField<'src>>,
         span: Span,
     },
 
@@ -232,6 +298,10 @@ impl<'src> HasSpan for Expr<'src> {
             Expr::Or { span, .. } => *span,
             Expr::Eq { span, .. } => *span,
             Expr::NotEq { span, .. } => *span,
+            Expr::Lt { span, .. } => *span,
+            Expr::Gt { span, .. } => *span,
+            Expr::LtEq { span, .. } => *span,
+            Expr::GtEq { span, .. } => *span,
             Expr::Add { span, .. } => *span,
             Expr::Sub { span, .. } => *span,
             Expr::Paren { span, .. } => *span,
@@ -265,6 +335,10 @@ impl<'src> HasSpan for CmpLhs<'src> {
             CmpLhs::Or { span, .. } => *span,
             CmpLhs::Eq { span, .. } => *span,
             CmpLhs::NotEq { span, .. } => *span,
+            CmpLhs::Lt { span, .. } => *span,
+            CmpLhs::Gt { span, .. } => *span,
+            CmpLhs::LtEq { span, .. } => *span,
+            CmpLhs::GtEq { span, .. } => *span,
             CmpLhs::Add { span, .. } => *span,
             CmpLhs::Sub { span, .. } => *span,
             CmpLhs::Paren { span, .. } => *span,

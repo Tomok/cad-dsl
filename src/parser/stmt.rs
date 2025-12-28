@@ -151,6 +151,77 @@ pub fn let_stmt<'src>(
 }
 
 // ============================================================================
+// For Loop Parser
+// ============================================================================
+
+/// Parse a for loop
+///
+/// Syntax:
+///   for <var> in <expr> { <statements> }
+///
+/// Examples:
+///   for i in 0..10 { ... }
+///   for elem in array { ... }
+///
+/// Note: Pass a recursive statement parser for nested for loops.
+/// Use `recursive(|stmt| choice((let_stmt(...), for_stmt(..., stmt))))` for full statement support.
+pub fn for_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone
+    + 'src,
+    stmt_parser: impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone + 'src,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::lexer::Span;
+
+    let left_brace = select! { Token::LeftBrace(_) => () };
+    let right_brace = select! { Token::RightBrace(t) => t.position };
+
+    select! {
+        Token::For(t) => t.position,
+    }
+    .then(
+        select! {
+            Token::Identifier(t) => (t.name, t.span),
+        }
+        .labelled("loop variable"),
+    )
+    .then_ignore(select! {
+        Token::In(_) => (),
+    })
+    .then(expr_parser.labelled("iterator expression"))
+    .then_ignore(left_brace)
+    .then(stmt_parser.repeated().collect::<Vec<_>>())
+    .then(right_brace)
+    .map(
+        |((((for_pos, (loop_var, loop_var_span)), iterator), body), brace_pos)| {
+            // Construct span from for keyword to closing brace
+            let span = if for_pos.line == brace_pos.line {
+                Span {
+                    start: for_pos,
+                    lines: 0,
+                    end_column: brace_pos.column + 1,
+                }
+            } else {
+                Span {
+                    start: for_pos,
+                    lines: brace_pos.line - for_pos.line,
+                    end_column: brace_pos.column + 1,
+                }
+            };
+
+            Stmt::For {
+                loop_var,
+                loop_var_span,
+                iterator,
+                body,
+                span,
+            }
+        },
+    )
+    .labelled("for loop")
+}
+
+// ============================================================================
 // Function Definition Parser
 // ============================================================================
 
@@ -211,9 +282,14 @@ pub fn function_def<'src>(
     let left_brace = select! { Token::LeftBrace(_) => () };
     let right_brace = select! { Token::RightBrace(t) => t.position };
 
-    // For now, function bodies only contain let statements
-    // (nested function definitions will be added later if needed)
-    let stmt_parser = let_stmt(expr_parser.clone());
+    // Function bodies can contain let statements and for loops
+    // Use recursive parser to support nested for loops
+    let stmt_parser = recursive(|stmt_rec| {
+        choice((
+            let_stmt(expr_parser.clone()),
+            for_stmt(expr_parser.clone(), stmt_rec),
+        ))
+    });
 
     select! {
         Token::Fn(t) => t.position,

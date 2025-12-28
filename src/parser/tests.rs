@@ -1,7 +1,7 @@
 use super::*;
 use crate::ast::{Stmt, Type};
 use crate::lexer;
-use crate::parser::stmt::{function_def, struct_def, type_annotation};
+use crate::parser::stmt::{for_stmt, function_def, let_stmt, struct_def, type_annotation};
 use assert_matches::assert_matches;
 use std::time::Duration;
 
@@ -32,6 +32,13 @@ fn parse_with_timeout<T: Send + 'static>(
     rx.recv_timeout(timeout)
         .map_err(|_| "Test timeout - possible infinite recursion".to_string())
         .and_then(|r| r.map_err(|e| format!("Parse error: {:?}", e)))
+}
+
+/// Helper to create a recursive statement parser for testing for loops
+/// Supports both let statements and nested for loops
+fn stmt_parser_for_tests<'src>()
+-> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    recursive(|stmt_rec| choice((let_stmt(expr_inner()), for_stmt(expr_inner(), stmt_rec))))
 }
 
 #[test]
@@ -472,6 +479,182 @@ fn test_expr_mixed_eq_neq() {
             assert_matches!(*rhs, CmpRhs::IntLit { value: 3, .. });
         }
         other => panic!("Expected Expr::NotEq, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expr_simple_lt() {
+    // Test: 1 < 2
+    let result = parse_with_timeout(
+        "1 < 2",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Lt { lhs, rhs, .. } => {
+            assert_matches!(*lhs, CmpLhs::IntLit { value: 1, .. });
+            assert_matches!(*rhs, CmpRhs::IntLit { value: 2, .. });
+        }
+        other => panic!("Expected Expr::Lt, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expr_simple_gt() {
+    // Test: 2 > 1
+    let result = parse_with_timeout(
+        "2 > 1",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Gt { lhs, rhs, .. } => {
+            assert_matches!(*lhs, CmpLhs::IntLit { value: 2, .. });
+            assert_matches!(*rhs, CmpRhs::IntLit { value: 1, .. });
+        }
+        other => panic!("Expected Expr::Gt, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expr_simple_lteq() {
+    // Test: 1 <= 2
+    let result = parse_with_timeout(
+        "1 <= 2",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::LtEq { lhs, rhs, .. } => {
+            assert_matches!(*lhs, CmpLhs::IntLit { value: 1, .. });
+            assert_matches!(*rhs, CmpRhs::IntLit { value: 2, .. });
+        }
+        other => panic!("Expected Expr::LtEq, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expr_simple_gteq() {
+    // Test: 2 >= 1
+    let result = parse_with_timeout(
+        "2 >= 1",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::GtEq { lhs, rhs, .. } => {
+            assert_matches!(*lhs, CmpLhs::IntLit { value: 2, .. });
+            assert_matches!(*rhs, CmpRhs::IntLit { value: 1, .. });
+        }
+        other => panic!("Expected Expr::GtEq, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expr_lt_with_addition() {
+    // Test: 1 + 2 < 3 + 4
+    let result = parse_with_timeout(
+        "1 + 2 < 3 + 4",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Lt { lhs, rhs, .. } => {
+            match *lhs {
+                CmpLhs::Add {
+                    lhs: ref add_lhs,
+                    rhs: ref add_rhs,
+                    ..
+                } => {
+                    assert_matches!(**add_lhs, AddLhs::IntLit { value: 1, .. });
+                    assert_matches!(**add_rhs, AddRhs::IntLit { value: 2, .. });
+                }
+                ref other => panic!("Expected CmpLhs::Add, got {:?}", other),
+            }
+            match *rhs {
+                CmpRhs::Add {
+                    lhs: ref add_lhs,
+                    rhs: ref add_rhs,
+                    ..
+                } => {
+                    assert_matches!(**add_lhs, AddLhs::IntLit { value: 3, .. });
+                    assert_matches!(**add_rhs, AddRhs::IntLit { value: 4, .. });
+                }
+                ref other => panic!("Expected CmpRhs::Add, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Expr::Lt, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expr_comparison_left_associative() {
+    // Test: 1 < 2 < 3 should be (1 < 2) < 3
+    let result = parse_with_timeout(
+        "1 < 2 < 3",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Lt { lhs, rhs, .. } => {
+            match *lhs {
+                CmpLhs::Lt {
+                    lhs: ref inner_lhs,
+                    rhs: ref inner_rhs,
+                    ..
+                } => {
+                    assert_matches!(**inner_lhs, CmpLhs::IntLit { value: 1, .. });
+                    assert_matches!(**inner_rhs, CmpRhs::IntLit { value: 2, .. });
+                }
+                ref other => panic!("Expected CmpLhs::Lt, got {:?}", other),
+            }
+            assert_matches!(*rhs, CmpRhs::IntLit { value: 3, .. });
+        }
+        other => panic!("Expected Expr::Lt, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_expr_mixed_comparisons() {
+    // Test: 1 < 2 == 3 > 4 should be ((1 < 2) == 3) > 4
+    let result = parse_with_timeout(
+        "1 < 2 == 3 > 4",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::Gt { lhs, rhs, .. } => {
+            match *lhs {
+                CmpLhs::Eq {
+                    lhs: ref eq_lhs,
+                    rhs: ref eq_rhs,
+                    ..
+                } => {
+                    match **eq_lhs {
+                        CmpLhs::Lt {
+                            lhs: ref lt_lhs,
+                            rhs: ref lt_rhs,
+                            ..
+                        } => {
+                            assert_matches!(**lt_lhs, CmpLhs::IntLit { value: 1, .. });
+                            assert_matches!(**lt_rhs, CmpRhs::IntLit { value: 2, .. });
+                        }
+                        ref other => panic!("Expected CmpLhs::Lt, got {:?}", other),
+                    }
+                    assert_matches!(**eq_rhs, CmpRhs::IntLit { value: 3, .. });
+                }
+                ref other => panic!("Expected CmpLhs::Eq, got {:?}", other),
+            }
+            assert_matches!(*rhs, CmpRhs::IntLit { value: 4, .. });
+        }
+        other => panic!("Expected Expr::Gt, got {:?}", other),
     }
 }
 
@@ -1553,6 +1736,7 @@ fn test_let_with_type_and_init() {
             assert_matches!(type_annotation, Some(Type::I32 { .. }));
             assert_matches!(init, Some(Expr::IntLit { value: 42, .. }));
         }
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
     }
@@ -1579,6 +1763,7 @@ fn test_let_with_type_only() {
             assert!(init.is_none());
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
     }
 }
@@ -1604,6 +1789,7 @@ fn test_let_with_init_only() {
             assert_matches!(init, Some(Expr::FloatLit { value, .. }) if value == 3.14);
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
     }
 }
@@ -1629,6 +1815,7 @@ fn test_let_no_type_no_init() {
             assert!(init.is_none());
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
     }
 }
@@ -1670,6 +1857,7 @@ fn test_let_with_expression() {
             }
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
     }
 }
@@ -1868,6 +2056,7 @@ fn test_span_let_statement() {
             assert_eq!(span.end_column, 12); // Ends after ';'
         }
         Stmt::FunctionDef { .. } => panic!("Expected Stmt::Let, got FunctionDef"),
+        Stmt::For { .. } => panic!("Expected Stmt::Let, got For"),
         Stmt::StructDef { .. } => panic!("Expected Stmt::Let, got StructDef"),
     }
 }
@@ -2771,8 +2960,14 @@ fn test_struct_literal_single_field() {
         Expr::StructLit { name, fields, .. } => {
             assert_eq!(name, "Point");
             assert_eq!(fields.len(), 1);
-            assert_eq!(fields[0].0, "x");
-            assert_matches!(fields[0].1, Expr::IntLit { value: 10, .. });
+            assert_matches!(
+                &fields[0],
+                StructLitField::Field {
+                    name: "x",
+                    value: Expr::IntLit { value: 10, .. },
+                    ..
+                }
+            );
         }
         other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
@@ -2790,10 +2985,22 @@ fn test_struct_literal_multiple_fields() {
         Expr::StructLit { name, fields, .. } => {
             assert_eq!(name, "Point");
             assert_eq!(fields.len(), 2);
-            assert_eq!(fields[0].0, "x");
-            assert_eq!(fields[1].0, "y");
-            assert_matches!(fields[0].1, Expr::IntLit { value: 10, .. });
-            assert_matches!(fields[1].1, Expr::IntLit { value: 20, .. });
+            assert_matches!(
+                &fields[0],
+                StructLitField::Field {
+                    name: "x",
+                    value: Expr::IntLit { value: 10, .. },
+                    ..
+                }
+            );
+            assert_matches!(
+                &fields[1],
+                StructLitField::Field {
+                    name: "y",
+                    value: Expr::IntLit { value: 20, .. },
+                    ..
+                }
+            );
         }
         other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
@@ -2811,10 +3018,22 @@ fn test_struct_literal_with_expressions() {
         Expr::StructLit { name, fields, .. } => {
             assert_eq!(name, "Circle");
             assert_eq!(fields.len(), 2);
-            assert_eq!(fields[0].0, "center");
-            assert_eq!(fields[1].0, "radius");
-            assert_matches!(fields[0].1, Expr::Call { .. });
-            assert_matches!(fields[1].1, Expr::Mul { .. });
+            assert_matches!(
+                &fields[0],
+                StructLitField::Field {
+                    name: "center",
+                    value: Expr::Call { .. },
+                    ..
+                }
+            );
+            assert_matches!(
+                &fields[1],
+                StructLitField::Field {
+                    name: "radius",
+                    value: Expr::Mul { .. },
+                    ..
+                }
+            );
         }
         other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
@@ -2849,10 +3068,22 @@ fn test_nested_struct_literal() {
         Expr::StructLit { name, fields, .. } => {
             assert_eq!(name, "Line");
             assert_eq!(fields.len(), 2);
-            assert_eq!(fields[0].0, "start");
-            assert_eq!(fields[1].0, "end");
-            assert_matches!(fields[0].1, Expr::StructLit { .. });
-            assert_matches!(fields[1].1, Expr::StructLit { .. });
+            assert_matches!(
+                &fields[0],
+                StructLitField::Field {
+                    name: "start",
+                    value: Expr::StructLit { .. },
+                    ..
+                }
+            );
+            assert_matches!(
+                &fields[1],
+                StructLitField::Field {
+                    name: "end",
+                    value: Expr::StructLit { .. },
+                    ..
+                }
+            );
         }
         other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
@@ -2873,6 +3104,105 @@ fn test_array_of_struct_literals() {
             assert_matches!(elements[1], Expr::StructLit { .. });
         }
         other => panic!("Expected Expr::ArrayLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_struct_literal_computed_property() {
+    let result = parse_with_timeout(
+        "Rect { area() = 500 }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::StructLit { name, fields, .. } => {
+            assert_eq!(name, "Rect");
+            assert_eq!(fields.len(), 1);
+            assert_matches!(
+                &fields[0],
+                StructLitField::ComputedProperty {
+                    name: "area",
+                    value: Expr::IntLit { value: 500, .. },
+                    ..
+                }
+            );
+        }
+        other => panic!("Expected Expr::StructLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_struct_literal_mixed_fields_and_computed() {
+    let result = parse_with_timeout(
+        "Rect { width: 100, area() = 500, height: 50 }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::StructLit { name, fields, .. } => {
+            assert_eq!(name, "Rect");
+            assert_eq!(fields.len(), 3);
+            assert_matches!(
+                &fields[0],
+                StructLitField::Field {
+                    name: "width",
+                    value: Expr::IntLit { value: 100, .. },
+                    ..
+                }
+            );
+            assert_matches!(
+                &fields[1],
+                StructLitField::ComputedProperty {
+                    name: "area",
+                    value: Expr::IntLit { value: 500, .. },
+                    ..
+                }
+            );
+            assert_matches!(
+                &fields[2],
+                StructLitField::Field {
+                    name: "height",
+                    value: Expr::IntLit { value: 50, .. },
+                    ..
+                }
+            );
+        }
+        other => panic!("Expected Expr::StructLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_struct_literal_computed_property_expression() {
+    let result = parse_with_timeout(
+        "Circle { center: point(0, 0), circumference() = 2 * 3.14 * r }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Expr::StructLit { name, fields, .. } => {
+            assert_eq!(name, "Circle");
+            assert_eq!(fields.len(), 2);
+            assert_matches!(
+                &fields[0],
+                StructLitField::Field {
+                    name: "center",
+                    value: Expr::Call { .. },
+                    ..
+                }
+            );
+            assert_matches!(
+                &fields[1],
+                StructLitField::ComputedProperty {
+                    name: "circumference",
+                    value: Expr::Mul { .. },
+                    ..
+                }
+            );
+        }
+        other => panic!("Expected Expr::StructLit, got {:?}", other),
     }
 }
 
@@ -3471,5 +3801,237 @@ fn test_struct_def_multiline() {
             assert_eq!(fields[1].name, "y");
         }
         other => panic!("Expected Stmt::StructDef, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// For Loop Tests
+// ============================================================================
+
+#[test]
+fn test_for_loop_range() {
+    // for i in 0..10 { }
+    let input = "for i in 0..10 { }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "i");
+            assert_matches!(iterator, Expr::Range { .. });
+            assert_eq!(body.len(), 0);
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_with_body() {
+    // for i in 0..5 { let x: i32 = i; }
+    let input = "for i in 0..5 { let x: i32 = i; }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "i");
+            assert_matches!(iterator, Expr::Range { .. });
+            assert_eq!(body.len(), 1);
+            assert_matches!(body[0], Stmt::Let { .. });
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_over_variable() {
+    // for elem in (items) { }
+    // Note: Parentheses disambiguate from empty struct literal "items {}"
+    let input = "for elem in (items) { }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "elem");
+            // Parentheses create a Paren expression wrapping the variable
+            match iterator {
+                Expr::Paren { inner, .. } => match inner.as_ref() {
+                    Expr::Var { name, .. } if *name == "items" => {} // OK
+                    other => panic!("Expected Var inside Paren, got {:?}", other),
+                },
+                other => panic!("Expected Paren, got {:?}", other),
+            }
+            assert_eq!(body.len(), 0);
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_nested() {
+    // for i in 0..3 { for j in 0..2 { } }
+    let input = "for i in 0..3 { for j in 0..2 { } }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "i");
+            assert_matches!(iterator, Expr::Range { .. });
+            assert_eq!(body.len(), 1);
+
+            // Check inner for loop
+            match &body[0] {
+                Stmt::For {
+                    loop_var: inner_var,
+                    iterator: inner_iter,
+                    body: inner_body,
+                    ..
+                } => {
+                    assert_eq!(*inner_var, "j");
+                    assert_matches!(inner_iter, Expr::Range { .. });
+                    assert_eq!(inner_body.len(), 0);
+                }
+                other => panic!("Expected inner Stmt::For, got {:?}", other),
+            }
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_with_multiple_statements() {
+    // for i in 0..5 { let x: i32 = i; let y: i32 = x + 1; }
+    let input = "for i in 0..5 { let x: i32 = i; let y: i32 = x + 1; }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "i");
+            assert_matches!(iterator, Expr::Range { .. });
+            assert_eq!(body.len(), 2);
+            assert_matches!(body[0], Stmt::Let { .. });
+            assert_matches!(body[1], Stmt::Let { .. });
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_over_expression() {
+    // for item in obj.items { }
+    let input = "for item in obj.items { }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "item");
+            assert_matches!(iterator, Expr::FieldAccess { .. });
+            assert_eq!(body.len(), 0);
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_multiline() {
+    let input = "for i in 0..10 {
+    let x: i32 = i;
+    let y: i32 = x + 1;
+}";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "i");
+            assert_matches!(iterator, Expr::Range { .. });
+            assert_eq!(body.len(), 2);
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_for_loop_over_array_literal() {
+    // for x in [1, 2, 3] { }
+    let input = "for x in [1, 2, 3] { }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| stmt_parser_for_tests().parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::For {
+            loop_var,
+            iterator,
+            body,
+            ..
+        } => {
+            assert_eq!(loop_var, "x");
+            assert_matches!(iterator, Expr::ArrayLit { .. });
+            assert_eq!(body.len(), 0);
+        }
+        other => panic!("Expected Stmt::For, got {:?}", other),
     }
 }

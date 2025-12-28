@@ -4,6 +4,17 @@ use crate::ast::expr::*;
 // Display Implementations
 // ============================================================================
 
+impl<'src> std::fmt::Display for StructLitField<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StructLitField::Field { name, value, .. } => write!(f, "{}: {}", name, value),
+            StructLitField::ComputedProperty { name, value, .. } => {
+                write!(f, "{}() = {}", name, value)
+            }
+        }
+    }
+}
+
 impl<'src> std::fmt::Display for Expr<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -11,6 +22,10 @@ impl<'src> std::fmt::Display for Expr<'src> {
             Expr::Or { lhs, rhs, .. } => write!(f, "({} or {})", lhs, rhs),
             Expr::Eq { lhs, rhs, .. } => write!(f, "({} == {})", lhs, rhs),
             Expr::NotEq { lhs, rhs, .. } => write!(f, "({} != {})", lhs, rhs),
+            Expr::Lt { lhs, rhs, .. } => write!(f, "({} < {})", lhs, rhs),
+            Expr::Gt { lhs, rhs, .. } => write!(f, "({} > {})", lhs, rhs),
+            Expr::LtEq { lhs, rhs, .. } => write!(f, "({} <= {})", lhs, rhs),
+            Expr::GtEq { lhs, rhs, .. } => write!(f, "({} >= {})", lhs, rhs),
             Expr::Add { lhs, rhs, .. } => write!(f, "({} + {})", lhs, rhs),
             Expr::Sub { lhs, rhs, .. } => write!(f, "({} - {})", lhs, rhs),
             Expr::Paren { inner, .. } => write!(f, "({})", inner),
@@ -64,11 +79,11 @@ impl<'src> std::fmt::Display for Expr<'src> {
             }
             Expr::StructLit { name, fields, .. } => {
                 write!(f, "{} {{ ", name)?;
-                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                for (i, field) in fields.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}: {}", field_name, field_value)?;
+                    write!(f, "{}", field)?;
                 }
                 write!(f, " }}")
             }
@@ -99,6 +114,10 @@ impl<'src> std::fmt::Display for CmpLhs<'src> {
             CmpLhs::Or { lhs, rhs, .. } => write!(f, "({} or {})", lhs, rhs),
             CmpLhs::Eq { lhs, rhs, .. } => write!(f, "({} == {})", lhs, rhs),
             CmpLhs::NotEq { lhs, rhs, .. } => write!(f, "({} != {})", lhs, rhs),
+            CmpLhs::Lt { lhs, rhs, .. } => write!(f, "({} < {})", lhs, rhs),
+            CmpLhs::Gt { lhs, rhs, .. } => write!(f, "({} > {})", lhs, rhs),
+            CmpLhs::LtEq { lhs, rhs, .. } => write!(f, "({} <= {})", lhs, rhs),
+            CmpLhs::GtEq { lhs, rhs, .. } => write!(f, "({} >= {})", lhs, rhs),
             CmpLhs::Add { lhs, rhs, .. } => write!(f, "({} + {})", lhs, rhs),
             CmpLhs::Sub { lhs, rhs, .. } => write!(f, "({} - {})", lhs, rhs),
             CmpLhs::Paren { inner, .. } => write!(f, "({})", inner),
@@ -152,11 +171,11 @@ impl<'src> std::fmt::Display for CmpLhs<'src> {
             }
             CmpLhs::StructLit { name, fields, .. } => {
                 write!(f, "{} {{ ", name)?;
-                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                for (i, field) in fields.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}: {}", field_name, field_value)?;
+                    write!(f, "{}", field)?;
                 }
                 write!(f, " }}")
             }
@@ -237,11 +256,11 @@ impl<'src> std::fmt::Display for CmpRhs<'src> {
             }
             CmpRhs::StructLit { name, fields, .. } => {
                 write!(f, "{} {{ ", name)?;
-                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                for (i, field) in fields.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}: {}", field_name, field_value)?;
+                    write!(f, "{}", field)?;
                 }
                 write!(f, " }}")
             }
@@ -322,11 +341,11 @@ impl<'src> std::fmt::Display for AddLhs<'src> {
             }
             AddLhs::StructLit { name, fields, .. } => {
                 write!(f, "{} {{ ", name)?;
-                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                for (i, field) in fields.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}: {}", field_name, field_value)?;
+                    write!(f, "{}", field)?;
                 }
                 write!(f, " }}")
             }
@@ -405,11 +424,11 @@ impl<'src> std::fmt::Display for AddRhs<'src> {
             }
             AddRhs::StructLit { name, fields, .. } => {
                 write!(f, "{} {{ ", name)?;
-                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                for (i, field) in fields.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}: {}", field_name, field_value)?;
+                    write!(f, "{}", field)?;
                 }
                 write!(f, " }}")
             }
@@ -488,11 +507,11 @@ impl<'src> std::fmt::Display for MulLhs<'src> {
             }
             MulLhs::StructLit { name, fields, .. } => {
                 write!(f, "{} {{ ", name)?;
-                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                for (i, field) in fields.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}: {}", field_name, field_value)?;
+                    write!(f, "{}", field)?;
                 }
                 write!(f, " }}")
             }
@@ -568,11 +587,11 @@ impl<'src> std::fmt::Display for MulRhs<'src> {
             }
             MulRhs::StructLit { name, fields, .. } => {
                 write!(f, "{} {{ ", name)?;
-                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                for (i, field) in fields.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}: {}", field_name, field_value)?;
+                    write!(f, "{}", field)?;
                 }
                 write!(f, " }}")
             }
@@ -647,11 +666,11 @@ impl<'src> std::fmt::Display for PowLhs<'src> {
             }
             PowLhs::StructLit { name, fields, .. } => {
                 write!(f, "{} {{ ", name)?;
-                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                for (i, field) in fields.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}: {}", field_name, field_value)?;
+                    write!(f, "{}", field)?;
                 }
                 write!(f, " }}")
             }
@@ -727,11 +746,11 @@ impl<'src> std::fmt::Display for PowRhs<'src> {
             }
             PowRhs::StructLit { name, fields, .. } => {
                 write!(f, "{} {{ ", name)?;
-                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                for (i, field) in fields.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}: {}", field_name, field_value)?;
+                    write!(f, "{}", field)?;
                 }
                 write!(f, " }}")
             }
@@ -803,11 +822,11 @@ impl<'src> std::fmt::Display for Atom<'src> {
             }
             Atom::StructLit { name, fields, .. } => {
                 write!(f, "{} {{ ", name)?;
-                for (i, (field_name, field_value)) in fields.iter().enumerate() {
+                for (i, field) in fields.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}: {}", field_name, field_value)?;
+                    write!(f, "{}", field)?;
                 }
                 write!(f, " }}")
             }
