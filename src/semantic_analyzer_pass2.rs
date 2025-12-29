@@ -1326,8 +1326,6 @@ mod tests {
         let source = "for i in 0..10 { }";
         let mut ctx = AnalyzerContext::new(&arena, source);
 
-        use crate::ast::expr::{PowLhs, PowRhs};
-
         let for_stmt = Stmt::For {
             loop_var: "i",
             loop_var_span: make_span(1, 5),
@@ -1422,5 +1420,1311 @@ mod tests {
         let found = ctx.scope_stack.lookup_variable("x");
         assert!(found.is_some());
         assert!(std::ptr::eq(found.unwrap(), outer_x));
+    }
+
+    // ========================================================================
+    // Literal Expression Tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_float_literal() {
+        let arena = Bump::new();
+        let source = "3.14";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let expr = Expr::FloatLit {
+            value: 3.14,
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::FloatLit { value } if (value - 3.14).abs() < 0.001);
+        assert_matches!(resolved.ty, ResolvedType::F64 { .. });
+    }
+
+    #[test]
+    fn test_resolve_bool_literal_true() {
+        let arena = Bump::new();
+        let source = "true";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let expr = Expr::BoolLit {
+            value: true,
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::BoolLit { value: true });
+        assert_matches!(resolved.ty, ResolvedType::Bool { .. });
+    }
+
+    #[test]
+    fn test_resolve_bool_literal_false() {
+        let arena = Bump::new();
+        let source = "false";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let expr = Expr::BoolLit {
+            value: false,
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::BoolLit { value: false });
+        assert_matches!(resolved.ty, ResolvedType::Bool { .. });
+    }
+
+    // ========================================================================
+    // Comparison Operator Tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_eq() {
+        let arena = Bump::new();
+        let source = "1 == 2";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{CmpLhs, CmpRhs};
+
+        let expr = Expr::Eq {
+            lhs: Box::new(CmpLhs::IntLit {
+                value: 1,
+                span: make_span(1, 1),
+            }),
+            rhs: Box::new(CmpRhs::IntLit {
+                value: 2,
+                span: make_span(1, 6),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Eq { .. });
+        assert_matches!(resolved.ty, ResolvedType::Bool { .. });
+    }
+
+    #[test]
+    fn test_resolve_not_eq() {
+        let arena = Bump::new();
+        let source = "1 != 2";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{CmpLhs, CmpRhs};
+
+        let expr = Expr::NotEq {
+            lhs: Box::new(CmpLhs::IntLit {
+                value: 1,
+                span: make_span(1, 1),
+            }),
+            rhs: Box::new(CmpRhs::IntLit {
+                value: 2,
+                span: make_span(1, 6),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::NotEq { .. });
+        assert_matches!(resolved.ty, ResolvedType::Bool { .. });
+    }
+
+    #[test]
+    fn test_resolve_lt() {
+        let arena = Bump::new();
+        let source = "1 < 2";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{CmpLhs, CmpRhs};
+
+        let expr = Expr::Lt {
+            lhs: Box::new(CmpLhs::IntLit {
+                value: 1,
+                span: make_span(1, 1),
+            }),
+            rhs: Box::new(CmpRhs::IntLit {
+                value: 2,
+                span: make_span(1, 5),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Lt { .. });
+        assert_matches!(resolved.ty, ResolvedType::Bool { .. });
+    }
+
+    #[test]
+    fn test_resolve_gt() {
+        let arena = Bump::new();
+        let source = "1 > 2";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{CmpLhs, CmpRhs};
+
+        let expr = Expr::Gt {
+            lhs: Box::new(CmpLhs::IntLit {
+                value: 1,
+                span: make_span(1, 1),
+            }),
+            rhs: Box::new(CmpRhs::IntLit {
+                value: 2,
+                span: make_span(1, 5),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Gt { .. });
+        assert_matches!(resolved.ty, ResolvedType::Bool { .. });
+    }
+
+    #[test]
+    fn test_resolve_lt_eq() {
+        let arena = Bump::new();
+        let source = "1 <= 2";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{CmpLhs, CmpRhs};
+
+        let expr = Expr::LtEq {
+            lhs: Box::new(CmpLhs::IntLit {
+                value: 1,
+                span: make_span(1, 1),
+            }),
+            rhs: Box::new(CmpRhs::IntLit {
+                value: 2,
+                span: make_span(1, 6),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::LtEq { .. });
+        assert_matches!(resolved.ty, ResolvedType::Bool { .. });
+    }
+
+    #[test]
+    fn test_resolve_gt_eq() {
+        let arena = Bump::new();
+        let source = "1 >= 2";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{CmpLhs, CmpRhs};
+
+        let expr = Expr::GtEq {
+            lhs: Box::new(CmpLhs::IntLit {
+                value: 1,
+                span: make_span(1, 1),
+            }),
+            rhs: Box::new(CmpRhs::IntLit {
+                value: 2,
+                span: make_span(1, 6),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::GtEq { .. });
+        assert_matches!(resolved.ty, ResolvedType::Bool { .. });
+    }
+
+    // ========================================================================
+    // Logical Operator Tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_and() {
+        let arena = Bump::new();
+        let source = "true && false";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{CmpLhs, CmpRhs};
+
+        let expr = Expr::And {
+            lhs: Box::new(CmpLhs::BoolLit {
+                value: true,
+                span: make_span(1, 1),
+            }),
+            rhs: Box::new(CmpRhs::BoolLit {
+                value: false,
+                span: make_span(1, 9),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::And { .. });
+        assert_matches!(resolved.ty, ResolvedType::Bool { .. });
+    }
+
+    #[test]
+    fn test_resolve_or() {
+        let arena = Bump::new();
+        let source = "true || false";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{CmpLhs, CmpRhs};
+
+        let expr = Expr::Or {
+            lhs: Box::new(CmpLhs::BoolLit {
+                value: true,
+                span: make_span(1, 1),
+            }),
+            rhs: Box::new(CmpRhs::BoolLit {
+                value: false,
+                span: make_span(1, 9),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Or { .. });
+        assert_matches!(resolved.ty, ResolvedType::Bool { .. });
+    }
+
+    // ========================================================================
+    // Arithmetic Operator Tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_sub() {
+        let arena = Bump::new();
+        let source = "5 - 3";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{AddLhs, AddRhs};
+
+        let expr = Expr::Sub {
+            lhs: Box::new(AddLhs::IntLit {
+                value: 5,
+                span: make_span(1, 1),
+            }),
+            rhs: Box::new(AddRhs::IntLit {
+                value: 3,
+                span: make_span(1, 5),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Sub { .. });
+    }
+
+    #[test]
+    fn test_resolve_mul() {
+        let arena = Bump::new();
+        let source = "3 * 4";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{MulLhs, MulRhs};
+
+        let expr = Expr::Mul {
+            lhs: Box::new(MulLhs::IntLit {
+                value: 3,
+                span: make_span(1, 1),
+            }),
+            rhs: Box::new(MulRhs::IntLit {
+                value: 4,
+                span: make_span(1, 5),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Mul { .. });
+    }
+
+    #[test]
+    fn test_resolve_div() {
+        let arena = Bump::new();
+        let source = "10 / 2";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{MulLhs, MulRhs};
+
+        let expr = Expr::Div {
+            lhs: Box::new(MulLhs::IntLit {
+                value: 10,
+                span: make_span(1, 1),
+            }),
+            rhs: Box::new(MulRhs::IntLit {
+                value: 2,
+                span: make_span(1, 6),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Div { .. });
+    }
+
+    #[test]
+    fn test_resolve_mod() {
+        let arena = Bump::new();
+        let source = "10 % 3";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{MulLhs, MulRhs};
+
+        let expr = Expr::Mod {
+            lhs: Box::new(MulLhs::IntLit {
+                value: 10,
+                span: make_span(1, 1),
+            }),
+            rhs: Box::new(MulRhs::IntLit {
+                value: 3,
+                span: make_span(1, 6),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Mod { .. });
+    }
+
+    #[test]
+    fn test_resolve_pow() {
+        let arena = Bump::new();
+        let source = "2 ^ 3";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{PowLhs, PowRhs};
+
+        let expr = Expr::Pow {
+            lhs: Box::new(PowLhs::IntLit {
+                value: 2,
+                span: make_span(1, 1),
+            }),
+            rhs: Box::new(PowRhs::IntLit {
+                value: 3,
+                span: make_span(1, 5),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Pow { .. });
+    }
+
+    // ========================================================================
+    // Unary Operator Tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_neg() {
+        let arena = Bump::new();
+        let source = "-42";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::PowLhs;
+
+        let expr = Expr::Neg {
+            inner: Box::new(PowLhs::IntLit {
+                value: 42,
+                span: make_span(1, 2),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Neg { .. });
+    }
+
+    #[test]
+    fn test_resolve_ref() {
+        let arena = Bump::new();
+        let source = "&42";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::PowLhs;
+
+        let expr = Expr::Ref {
+            inner: Box::new(PowLhs::IntLit {
+                value: 42,
+                span: make_span(1, 2),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Ref { .. });
+        assert_matches!(resolved.ty, ResolvedType::Reference { .. });
+    }
+
+    // ========================================================================
+    // Complex Expression Tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_paren() {
+        let arena = Bump::new();
+        let source = "(42)";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let expr = Expr::Paren {
+            inner: Box::new(Expr::IntLit {
+                value: 42,
+                span: make_span(1, 2),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Paren { .. });
+    }
+
+    #[test]
+    fn test_resolve_array_lit() {
+        let arena = Bump::new();
+        let source = "[1, 2, 3]";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let expr = Expr::ArrayLit {
+            elements: vec![
+                Expr::IntLit {
+                    value: 1,
+                    span: make_span(1, 2),
+                },
+                Expr::IntLit {
+                    value: 2,
+                    span: make_span(1, 5),
+                },
+                Expr::IntLit {
+                    value: 3,
+                    span: make_span(1, 8),
+                },
+            ],
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::ArrayLit { .. });
+    }
+
+    #[test]
+    fn test_resolve_index() {
+        let arena = Bump::new();
+        let source = "arr[0]";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Define array variable
+        let arr_def = arena.alloc(VarDefinition::new(
+            "arr",
+            make_span(1, 1),
+            None,
+            None,
+            0,
+            make_span(1, 1),
+        ));
+        ctx.scope_stack.declare_variable("arr", arr_def);
+
+        let expr = Expr::Index {
+            array: Box::new(Expr::Var {
+                name: "arr",
+                span: make_span(1, 1),
+            }),
+            index: Box::new(Expr::IntLit {
+                value: 0,
+                span: make_span(1, 5),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Index { .. });
+    }
+
+    #[test]
+    fn test_resolve_range() {
+        let arena = Bump::new();
+        let source = "1..10";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let expr = Expr::Range {
+            start: Box::new(Expr::IntLit {
+                value: 1,
+                span: make_span(1, 1),
+            }),
+            end: Box::new(Expr::IntLit {
+                value: 10,
+                span: make_span(1, 4),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Range { .. });
+    }
+
+    #[test]
+    fn test_resolve_closure() {
+        let arena = Bump::new();
+        let source = "|x| x + 1";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let expr = Expr::Closure {
+            params: vec!["x"],
+            body: Box::new(Expr::IntLit {
+                value: 1,
+                span: make_span(1, 9),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::Closure { .. });
+    }
+
+    #[test]
+    fn test_resolve_struct_lit() {
+        let arena = Bump::new();
+        let source = "Point { x: 1, y: 2 }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::hir_definitions::{FieldDefinition, StructDefinition};
+        use crate::hir_types::ResolvedType;
+
+        // Create struct definition
+        let field_x = arena.alloc(FieldDefinition::new(
+            "x",
+            make_span(1, 9),
+            ResolvedType::I32 {
+                span: make_span(1, 9),
+            },
+            make_span(1, 9),
+        ));
+        let field_y = arena.alloc(FieldDefinition::new(
+            "y",
+            make_span(1, 15),
+            ResolvedType::I32 {
+                span: make_span(1, 15),
+            },
+            make_span(1, 15),
+        ));
+        let struct_def = arena.alloc(StructDefinition::new(
+            "Point",
+            make_span(1, 1),
+            vec![field_x, field_y],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        ctx.register_struct("Point", struct_def).unwrap();
+
+        use crate::ast::StructLitField;
+        let expr = Expr::StructLit {
+            name: "Point",
+            fields: vec![
+                StructLitField::Field {
+                    name: "x",
+                    value: Expr::IntLit {
+                        value: 1,
+                        span: make_span(1, 12),
+                    },
+                    span: make_span(1, 9),
+                },
+                StructLitField::Field {
+                    name: "y",
+                    value: Expr::IntLit {
+                        value: 2,
+                        span: make_span(1, 18),
+                    },
+                    span: make_span(1, 15),
+                },
+            ],
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::StructLit { .. });
+        assert_matches!(resolved.ty, ResolvedType::UserDefined { .. });
+    }
+
+    #[test]
+    fn test_resolve_struct_lit_undefined_field() {
+        let arena = Bump::new();
+        let source = "Point { z: 1 }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::hir_definitions::{FieldDefinition, StructDefinition};
+        use crate::hir_types::ResolvedType;
+
+        // Create struct definition without field z
+        let field_x = arena.alloc(FieldDefinition::new(
+            "x",
+            make_span(1, 9),
+            ResolvedType::I32 {
+                span: make_span(1, 9),
+            },
+            make_span(1, 9),
+        ));
+        let struct_def = arena.alloc(StructDefinition::new(
+            "Point",
+            make_span(1, 1),
+            vec![field_x],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        ctx.register_struct("Point", struct_def).unwrap();
+
+        use crate::ast::StructLitField;
+        let expr = Expr::StructLit {
+            name: "Point",
+            fields: vec![StructLitField::Field {
+                name: "z",
+                value: Expr::IntLit {
+                    value: 1,
+                    span: make_span(1, 12),
+                },
+                span: make_span(1, 9),
+            }],
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        // The struct literal resolves, but one field fails
+        assert!(resolved.is_some());
+        assert!(ctx.has_errors());
+
+        let errors = ctx.take_errors();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(&errors[0], SemanticError::UndefinedField { .. });
+    }
+
+    #[test]
+    fn test_resolve_field_access() {
+        let arena = Bump::new();
+        let source = "p.x";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Define variable p
+        let p_def = arena.alloc(VarDefinition::new(
+            "p",
+            make_span(1, 1),
+            None,
+            None,
+            0,
+            make_span(1, 1),
+        ));
+        ctx.scope_stack.declare_variable("p", p_def);
+
+        let expr = Expr::FieldAccess {
+            receiver: Box::new(Expr::Var {
+                name: "p",
+                span: make_span(1, 1),
+            }),
+            field: "x",
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+    }
+
+    #[test]
+    fn test_resolve_container_field_access_in_with() {
+        let arena = Bump::new();
+        let source = "with obj { .field }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Create a variable for the with context
+        let obj_def = arena.alloc(VarDefinition::new(
+            "obj",
+            make_span(1, 6),
+            None,
+            None,
+            0,
+            make_span(1, 6),
+        ));
+        ctx.scope_stack.declare_variable("obj", obj_def);
+
+        // Create with context expression
+        let context_expr = Expr::Var {
+            name: "obj",
+            span: make_span(1, 6),
+        };
+
+        let resolved_context = resolve_expression(&mut ctx, &context_expr).unwrap();
+
+        use crate::hir_context::WithContext;
+        let with_ctx = ctx
+            .arena
+            .alloc(WithContext::new_transform(resolved_context, vec![]));
+
+        // Enter with context
+        ctx.scope_stack.enter_with_context(with_ctx);
+
+        // Now resolve container field access
+        let expr = Expr::ContainerFieldAccess {
+            field_path: vec!["field"],
+            span: make_span(1, 12),
+        };
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::ContainerFieldAccess { .. });
+
+        ctx.scope_stack.exit_with_context();
+    }
+
+    // ========================================================================
+    // Statement Tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_assignment_success() {
+        let arena = Bump::new();
+        let source = "let x = 1; x = 2;";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Define variable x
+        let x_def = arena.alloc(VarDefinition::new(
+            "x",
+            make_span(1, 5),
+            None,
+            None,
+            0,
+            make_span(1, 1),
+        ));
+        ctx.scope_stack.declare_variable("x", x_def);
+
+        let stmt = Stmt::Assignment {
+            name: "x",
+            name_span: make_span(1, 12),
+            value: Expr::IntLit {
+                value: 2,
+                span: make_span(1, 16),
+            },
+            span: make_span(1, 12),
+        };
+
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+    }
+
+    #[test]
+    fn test_resolve_field_assignment_regular() {
+        let arena = Bump::new();
+        let source = "obj.field = 42;";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let stmt = Stmt::FieldAssignment {
+            dot_prefix: false,
+            field_path: vec![("obj", make_span(1, 1)), ("field", make_span(1, 5))],
+            value: Expr::IntLit {
+                value: 42,
+                span: make_span(1, 13),
+            },
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+    }
+
+    #[test]
+    fn test_resolve_field_assignment_dot_prefix() {
+        let arena = Bump::new();
+        let source = "with obj { .field = 42; }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Create a variable for the with context
+        let obj_def = arena.alloc(VarDefinition::new(
+            "obj",
+            make_span(1, 6),
+            None,
+            None,
+            0,
+            make_span(1, 6),
+        ));
+        ctx.scope_stack.declare_variable("obj", obj_def);
+
+        let context_expr = Expr::Var {
+            name: "obj",
+            span: make_span(1, 6),
+        };
+
+        let resolved_context = resolve_expression(&mut ctx, &context_expr).unwrap();
+
+        use crate::hir_context::WithContext;
+        let with_ctx = ctx
+            .arena
+            .alloc(WithContext::new_transform(resolved_context, vec![]));
+
+        ctx.scope_stack.enter_with_context(with_ctx);
+
+        let stmt = Stmt::FieldAssignment {
+            dot_prefix: true,
+            field_path: vec![("field", make_span(1, 13))],
+            value: Expr::IntLit {
+                value: 42,
+                span: make_span(1, 21),
+            },
+            span: make_span(1, 12),
+        };
+
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        ctx.scope_stack.exit_with_context();
+    }
+
+    #[test]
+    fn test_resolve_function_body_with_params() {
+        let arena = Bump::new();
+        let source = "fn add(a: i32, b: i32) -> i32 { a + b }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::expr::{AddLhs, AddRhs};
+        use crate::ast::{FunctionParam, Type};
+
+        let params = vec![
+            FunctionParam {
+                name: "a".to_string(),
+                name_span: make_span(1, 8),
+                type_annotation: Type::I32 {
+                    span: make_span(1, 11),
+                },
+                span: make_span(1, 8),
+            },
+            FunctionParam {
+                name: "b".to_string(),
+                name_span: make_span(1, 16),
+                type_annotation: Type::I32 {
+                    span: make_span(1, 19),
+                },
+                span: make_span(1, 16),
+            },
+        ];
+
+        let return_expr = Expr::Add {
+            lhs: Box::new(AddLhs::Var {
+                name: "a",
+                span: make_span(1, 33),
+            }),
+            rhs: Box::new(AddRhs::Var {
+                name: "b",
+                span: make_span(1, 37),
+            }),
+            span: make_span(1, 33),
+        };
+
+        let stmt = Stmt::FunctionDef {
+            name: "add".to_string(),
+            name_span: make_span(1, 4),
+            params,
+            return_type: Type::I32 {
+                span: make_span(1, 27),
+            },
+            body: vec![],
+            return_expr: Some(return_expr),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+    }
+
+    #[test]
+    fn test_resolve_with_statement_success() {
+        let arena = Bump::new();
+        let source = "with obj { let x = 1; }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Create a variable for the with context
+        let obj_def = arena.alloc(VarDefinition::new(
+            "obj",
+            make_span(1, 6),
+            None,
+            None,
+            0,
+            make_span(1, 6),
+        ));
+        ctx.scope_stack.declare_variable("obj", obj_def);
+
+        let stmt = Stmt::With {
+            context_expr: Expr::Var {
+                name: "obj",
+                span: make_span(1, 6),
+            },
+            body: vec![Stmt::Let {
+                dot_prefix: false,
+                name_path: vec![("x", make_span(1, 16))],
+                type_annotation: None,
+                init: Some(Expr::IntLit {
+                    value: 1,
+                    span: make_span(1, 20),
+                }),
+                span: make_span(1, 12),
+            }],
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+    }
+
+    #[test]
+    fn test_resolve_if_statement_then_only() {
+        let arena = Bump::new();
+        let source = "if true { let x = 1; }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let stmt = Stmt::If {
+            condition: Expr::BoolLit {
+                value: true,
+                span: make_span(1, 4),
+            },
+            then_branch: vec![Stmt::Let {
+                dot_prefix: false,
+                name_path: vec![("x", make_span(1, 15))],
+                type_annotation: None,
+                init: Some(Expr::IntLit {
+                    value: 1,
+                    span: make_span(1, 19),
+                }),
+                span: make_span(1, 11),
+            }],
+            else_branch: None,
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+    }
+
+    #[test]
+    fn test_resolve_if_statement_with_else() {
+        let arena = Bump::new();
+        let source = "if true { let x = 1; } else { let y = 2; }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let stmt = Stmt::If {
+            condition: Expr::BoolLit {
+                value: true,
+                span: make_span(1, 4),
+            },
+            then_branch: vec![Stmt::Let {
+                dot_prefix: false,
+                name_path: vec![("x", make_span(1, 15))],
+                type_annotation: None,
+                init: Some(Expr::IntLit {
+                    value: 1,
+                    span: make_span(1, 19),
+                }),
+                span: make_span(1, 11),
+            }],
+            else_branch: Some(vec![Stmt::Let {
+                dot_prefix: false,
+                name_path: vec![("y", make_span(1, 35))],
+                type_annotation: None,
+                init: Some(Expr::IntLit {
+                    value: 2,
+                    span: make_span(1, 39),
+                }),
+                span: make_span(1, 31),
+            }]),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+    }
+
+    #[test]
+    fn test_resolve_return_statement_with_value() {
+        let arena = Bump::new();
+        let source = "return 42;";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let stmt = Stmt::Return {
+            value: Some(Expr::IntLit {
+                value: 42,
+                span: make_span(1, 8),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+    }
+
+    #[test]
+    fn test_resolve_return_statement_no_value() {
+        let arena = Bump::new();
+        let source = "return;";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let stmt = Stmt::Return {
+            value: None,
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+    }
+
+    // ========================================================================
+    // Type Resolution Tests
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_type_bool() {
+        let arena = Bump::new();
+        let source = "bool";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::Type;
+        let ast_type = Type::Bool {
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_type(&mut ctx, &ast_type);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved, ResolvedType::Bool { .. });
+    }
+
+    #[test]
+    fn test_resolve_type_i32() {
+        let arena = Bump::new();
+        let source = "i32";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::Type;
+        let ast_type = Type::I32 {
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_type(&mut ctx, &ast_type);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved, ResolvedType::I32 { .. });
+    }
+
+    #[test]
+    fn test_resolve_type_f64() {
+        let arena = Bump::new();
+        let source = "f64";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::Type;
+        let ast_type = Type::F64 {
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_type(&mut ctx, &ast_type);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved, ResolvedType::F64 { .. });
+    }
+
+    #[test]
+    fn test_resolve_type_real() {
+        let arena = Bump::new();
+        let source = "real";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::Type;
+        let ast_type = Type::Real {
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_type(&mut ctx, &ast_type);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved, ResolvedType::Real { .. });
+    }
+
+    #[test]
+    fn test_resolve_type_algebraic() {
+        let arena = Bump::new();
+        let source = "algebraic";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::Type;
+        let ast_type = Type::Algebraic {
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_type(&mut ctx, &ast_type);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved, ResolvedType::Algebraic { .. });
+    }
+
+    #[test]
+    fn test_resolve_type_reference() {
+        let arena = Bump::new();
+        let source = "&i32";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::ast::Type;
+        let ast_type = Type::Reference {
+            inner: Box::new(Type::I32 {
+                span: make_span(1, 2),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_type(&mut ctx, &ast_type);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved, ResolvedType::Reference { .. });
+    }
+
+    #[test]
+    fn test_resolve_type_user_defined() {
+        let arena = Bump::new();
+        let source = "Point";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::hir_definitions::StructDefinition;
+
+        // Create and register a struct definition
+        let struct_def = arena.alloc(StructDefinition::new(
+            "Point",
+            make_span(1, 1),
+            vec![],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        ctx.register_struct("Point", struct_def).unwrap();
+
+        use crate::ast::Type;
+        let ast_type = Type::UserDefined {
+            name: "Point".to_string(),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_type(&mut ctx, &ast_type);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved, ResolvedType::UserDefined { .. });
     }
 }
