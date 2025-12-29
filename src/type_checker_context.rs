@@ -55,6 +55,7 @@ pub struct TypeCheckContext<'src, 'arena> {
 
 impl<'src, 'arena> TypeCheckContext<'src, 'arena> {
     /// Create a new type checking context
+    #[allow(dead_code)] // Used in tests and will be used when type_check is re-enabled
     pub fn new(arena: &'arena Bump, source: &'src str) -> Self {
         Self {
             arena,
@@ -71,16 +72,19 @@ impl<'src, 'arena> TypeCheckContext<'src, 'arena> {
     }
 
     /// Add a type checking error to the context
+    #[allow(dead_code)] // Used in tests and will be used when type_check is re-enabled
     pub fn add_error(&mut self, error: TypeCheckError) {
         self.errors.push(error);
     }
 
     /// Check if any errors have been collected
+    #[allow(dead_code)] // Used in tests and will be used when type_check is re-enabled
     pub fn has_errors(&self) -> bool {
         !self.errors.is_empty()
     }
 
     /// Take all collected errors, leaving the error list empty
+    #[allow(dead_code)] // Used in tests and will be used when type_check is re-enabled
     pub fn take_errors(&mut self) -> Vec<TypeCheckError> {
         std::mem::take(&mut self.errors)
     }

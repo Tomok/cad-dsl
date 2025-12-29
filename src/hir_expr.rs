@@ -798,7 +798,12 @@ mod tests {
         let func_def = arena.alloc(FunctionDefinition {
             name: "foo",
             name_span: test_span(),
-            params: vec![FunctionParam::new("x", test_span(), test_type(), test_span())],
+            params: vec![FunctionParam::new(
+                "x",
+                test_span(),
+                test_type(),
+                test_span(),
+            )],
             return_type: test_type(),
             body: vec![],
             parent_struct: None,
