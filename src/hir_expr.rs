@@ -44,7 +44,9 @@
 
 use crate::ast::HasSpan;
 use crate::hir_context::WithContext;
-use crate::hir_definitions::{FieldDefinition, FunctionDefinition, VarDefinition};
+use crate::hir_definitions::{
+    FieldDefinition, FunctionDefinition, StructDefinition, VarDefinition,
+};
 use crate::hir_types::ResolvedType;
 use crate::lexer::Span;
 
@@ -372,5 +374,635 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
     /// Get the kind of this expression
     pub fn kind(&self) -> &ResolvedExprKind<'src, 'arena> {
         &self.kind
+    }
+}
+
+// ============================================================================
+// Resolved Statement Types
+// ============================================================================
+
+/// A resolved statement in the HIR
+///
+/// Statements in the HIR are similar to expressions but represent actions
+/// rather than values. Each statement has:
+/// - A span for error reporting
+/// - A kind (the actual statement variant)
+///
+/// Unlike expressions, statements don't have an associated type.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedStmt<'src, 'arena> {
+    /// Source location for error reporting
+    pub span: Span,
+
+    /// The kind of statement
+    pub kind: ResolvedStmtKind<'src, 'arena>,
+}
+
+impl<'src, 'arena> HasSpan for ResolvedStmt<'src, 'arena> {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+/// The kind of a resolved statement
+///
+/// This enum represents all statement types in the HIR, with all names
+/// and types resolved to their definitions.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedStmtKind<'src, 'arena> {
+    // ========================================================================
+    // Variable Declarations and Assignments
+    // ========================================================================
+    /// Variable declaration with optional initializer
+    ///
+    /// Example: `let x = 5;` or `let Point p;`
+    Let {
+        /// Whether the variable name starts with a dot (for container fields)
+        dot_prefix: bool,
+        /// The path to the variable name (for nested declarations)
+        name_path: Vec<(&'src str, Span)>,
+        /// Reference to the variable's definition
+        var_def: &'arena VarDefinition<'src, 'arena>,
+        /// Optional initializer expression
+        init: Option<&'arena ResolvedExpr<'src, 'arena>>,
+        /// Span for the entire statement
+        span: Span,
+    },
+
+    /// Assignment to an existing variable
+    ///
+    /// Example: `x = 10;`
+    Assignment {
+        /// Reference to the variable being assigned
+        var_def: &'arena VarDefinition<'src, 'arena>,
+        /// The value expression
+        value: &'arena ResolvedExpr<'src, 'arena>,
+        /// Span for the entire statement
+        span: Span,
+    },
+
+    /// Assignment to a field
+    ///
+    /// Example: `point.x = 5;`
+    FieldAssignment {
+        /// The target field expression (resolved)
+        target: &'arena ResolvedExpr<'src, 'arena>,
+        /// The value expression
+        value: &'arena ResolvedExpr<'src, 'arena>,
+        /// Span for the entire statement
+        span: Span,
+    },
+
+    // ========================================================================
+    // Control Flow
+    // ========================================================================
+    /// Conditional statement
+    ///
+    /// Example: `if x > 0 { ... } else { ... }`
+    If {
+        /// The condition expression
+        condition: &'arena ResolvedExpr<'src, 'arena>,
+        /// The statements in the then branch
+        then_branch: Vec<&'arena ResolvedStmt<'src, 'arena>>,
+        /// Optional else branch statements
+        else_branch: Option<Vec<&'arena ResolvedStmt<'src, 'arena>>>,
+        /// Span for the entire statement
+        span: Span,
+    },
+
+    /// Loop statement
+    ///
+    /// Example: `for i in 0..10 { ... }`
+    For {
+        /// The loop variable definition
+        loop_var_def: &'arena VarDefinition<'src, 'arena>,
+        /// The iterator expression
+        iterator: &'arena ResolvedExpr<'src, 'arena>,
+        /// The loop body statements
+        body: Vec<&'arena ResolvedStmt<'src, 'arena>>,
+        /// Span for the entire statement
+        span: Span,
+    },
+
+    /// Return statement
+    ///
+    /// Example: `return x;` or `return;`
+    Return {
+        /// Optional return value expression
+        value: Option<&'arena ResolvedExpr<'src, 'arena>>,
+        /// Span for the entire statement
+        span: Span,
+    },
+
+    // ========================================================================
+    // Definitions
+    // ========================================================================
+    /// Function definition
+    ///
+    /// Example: `fn add(x: i32, y: i32) -> i32 { return x + y; }`
+    FunctionDef {
+        /// Reference to the function's definition
+        func_def: &'arena FunctionDefinition<'src, 'arena>,
+        /// The function body statements
+        body: Vec<&'arena ResolvedStmt<'src, 'arena>>,
+        /// Optional return expression (implicit return)
+        return_expr: Option<&'arena ResolvedExpr<'src, 'arena>>,
+        /// Span for the entire statement
+        span: Span,
+    },
+
+    /// Struct definition
+    ///
+    /// Example: `struct Point { x: f64, y: f64 }`
+    StructDef {
+        /// Reference to the struct's definition
+        struct_def: &'arena StructDefinition<'src, 'arena>,
+        /// The method definitions (functions defined within the struct)
+        methods: Vec<&'arena ResolvedStmt<'src, 'arena>>,
+        /// Span for the entire statement
+        span: Span,
+    },
+
+    // ========================================================================
+    // Other Statements
+    // ========================================================================
+    /// Expression statement
+    ///
+    /// Example: `foo();` (a function call as a statement)
+    Expression {
+        /// The expression being evaluated
+        expr: &'arena ResolvedExpr<'src, 'arena>,
+        /// Span for the entire statement
+        span: Span,
+    },
+
+    /// Block of statements
+    ///
+    /// Example: `{ let x = 5; foo(x); }`
+    Block {
+        /// The statements in the block
+        statements: Vec<&'arena ResolvedStmt<'src, 'arena>>,
+        /// Span for the entire statement
+        span: Span,
+    },
+
+    /// With-context statement for constraint blocks
+    ///
+    /// Example: `with container { .field = value; }`
+    With {
+        /// Reference to the with-context
+        with_context: &'arena WithContext<'src, 'arena>,
+        /// The statements in the with block
+        body: Vec<&'arena ResolvedStmt<'src, 'arena>>,
+        /// Span for the entire statement
+        span: Span,
+    },
+}
+
+// ============================================================================
+// Helper Methods
+// ============================================================================
+
+impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
+    /// Create a new resolved statement
+    pub fn new(span: Span, kind: ResolvedStmtKind<'src, 'arena>) -> Self {
+        Self { span, kind }
+    }
+
+    /// Get the kind of this statement
+    pub fn kind(&self) -> &ResolvedStmtKind<'src, 'arena> {
+        &self.kind
+    }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hir_definitions::{
+        FieldDefinition, FunctionDefinition, FunctionParam, StructDefinition, VarDefinition,
+    };
+    use crate::hir_types::ResolvedType;
+    use crate::lexer::LineColumn;
+    use bumpalo::Bump;
+
+    /// Helper to create a test span
+    fn test_span() -> Span {
+        Span {
+            start: LineColumn { line: 1, column: 0 },
+            lines: 0,
+            end_column: 10,
+        }
+    }
+
+    /// Helper to create a test type
+    fn test_type() -> ResolvedType<'static, 'static> {
+        ResolvedType::I32 { span: test_span() }
+    }
+
+    /// Helper to create a test expression
+    fn test_expr<'src, 'arena>(
+        arena: &'arena Bump,
+        ty: &'arena ResolvedType<'src, 'arena>,
+    ) -> &'arena ResolvedExpr<'src, 'arena> {
+        arena.alloc(ResolvedExpr {
+            span: test_span(),
+            kind: ResolvedExprKind::IntLit { value: 42 },
+            ty,
+        })
+    }
+
+    /// Helper to create a test statement
+    fn test_stmt<'src, 'arena>(
+        arena: &'arena Bump,
+        kind: ResolvedStmtKind<'src, 'arena>,
+    ) -> &'arena ResolvedStmt<'src, 'arena> {
+        arena.alloc(ResolvedStmt {
+            span: test_span(),
+            kind,
+        })
+    }
+
+    #[test]
+    fn test_let_stmt_construction() {
+        let arena = Bump::new();
+        let var_type = arena.alloc(test_type());
+        let init_expr = test_expr(&arena, var_type);
+        let var_def = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(test_type()),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let stmt = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::Let {
+                dot_prefix: false,
+                name_path: vec![("x", test_span())],
+                var_def,
+                init: Some(init_expr),
+                span: test_span(),
+            },
+        );
+
+        assert_eq!(stmt.span(), test_span());
+        assert!(matches!(stmt.kind, ResolvedStmtKind::Let { .. }));
+    }
+
+    #[test]
+    fn test_assignment_stmt_construction() {
+        let arena = Bump::new();
+        let var_type = arena.alloc(test_type());
+        let value_expr = test_expr(&arena, var_type);
+        let var_def = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(test_type()),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let stmt = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::Assignment {
+                var_def,
+                value: value_expr,
+                span: test_span(),
+            },
+        );
+
+        assert_eq!(stmt.span(), test_span());
+        assert!(matches!(stmt.kind, ResolvedStmtKind::Assignment { .. }));
+    }
+
+    #[test]
+    fn test_field_assignment_stmt_construction() {
+        let arena = Bump::new();
+        let var_type = arena.alloc(test_type());
+        let target = test_expr(&arena, var_type);
+        let value = test_expr(&arena, var_type);
+
+        let stmt = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::FieldAssignment {
+                target,
+                value,
+                span: test_span(),
+            },
+        );
+
+        assert_eq!(stmt.span(), test_span());
+        assert!(matches!(
+            stmt.kind,
+            ResolvedStmtKind::FieldAssignment { .. }
+        ));
+    }
+
+    #[test]
+    fn test_if_stmt_construction() {
+        let arena = Bump::new();
+        let bool_type = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let condition = test_expr(&arena, bool_type);
+        let then_stmt = test_stmt(
+            &arena,
+            ResolvedStmtKind::Return {
+                value: None,
+                span: test_span(),
+            },
+        );
+        let else_stmt = test_stmt(
+            &arena,
+            ResolvedStmtKind::Return {
+                value: None,
+                span: test_span(),
+            },
+        );
+
+        let stmt = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::If {
+                condition,
+                then_branch: vec![then_stmt],
+                else_branch: Some(vec![else_stmt]),
+                span: test_span(),
+            },
+        );
+
+        assert_eq!(stmt.span(), test_span());
+        assert!(matches!(stmt.kind, ResolvedStmtKind::If { .. }));
+    }
+
+    #[test]
+    fn test_for_stmt_construction() {
+        let arena = Bump::new();
+        let loop_var_def = arena.alloc(VarDefinition {
+            name: "i",
+            name_span: test_span(),
+            var_type: Some(test_type()),
+            init: None,
+            scope_level: 1,
+            span: test_span(),
+        });
+        let iter_type = arena.alloc(test_type());
+        let iterator = test_expr(&arena, iter_type);
+        let body_stmt = test_stmt(
+            &arena,
+            ResolvedStmtKind::Return {
+                value: None,
+                span: test_span(),
+            },
+        );
+
+        let stmt = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::For {
+                loop_var_def,
+                iterator,
+                body: vec![body_stmt],
+                span: test_span(),
+            },
+        );
+
+        assert_eq!(stmt.span(), test_span());
+        assert!(matches!(stmt.kind, ResolvedStmtKind::For { .. }));
+    }
+
+    #[test]
+    fn test_return_stmt_construction() {
+        let arena = Bump::new();
+        let var_type = arena.alloc(test_type());
+        let value = test_expr(&arena, var_type);
+
+        let stmt = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::Return {
+                value: Some(value),
+                span: test_span(),
+            },
+        );
+
+        assert_eq!(stmt.span(), test_span());
+        assert!(matches!(stmt.kind, ResolvedStmtKind::Return { .. }));
+    }
+
+    #[test]
+    fn test_function_def_stmt_construction() {
+        let arena = Bump::new();
+        let func_def = arena.alloc(FunctionDefinition {
+            name: "foo",
+            name_span: test_span(),
+            params: vec![FunctionParam::new("x", test_span(), test_type(), test_span())],
+            return_type: test_type(),
+            body: vec![],
+            parent_struct: None,
+            span: test_span(),
+        });
+        let body_stmt = test_stmt(
+            &arena,
+            ResolvedStmtKind::Return {
+                value: None,
+                span: test_span(),
+            },
+        );
+        let var_type = arena.alloc(test_type());
+        let return_expr = test_expr(&arena, var_type);
+
+        let stmt = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::FunctionDef {
+                func_def,
+                body: vec![body_stmt],
+                return_expr: Some(return_expr),
+                span: test_span(),
+            },
+        );
+
+        assert_eq!(stmt.span(), test_span());
+        assert!(matches!(stmt.kind, ResolvedStmtKind::FunctionDef { .. }));
+    }
+
+    #[test]
+    fn test_struct_def_stmt_construction() {
+        let arena = Bump::new();
+        let field_def = arena.alloc(FieldDefinition::new(
+            "x",
+            test_span(),
+            ResolvedType::F64 { span: test_span() },
+            test_span(),
+        ));
+        let struct_def = arena.alloc(StructDefinition {
+            name: "Point",
+            name_span: test_span(),
+            fields: vec![field_def],
+            methods: vec![],
+            container_field: None,
+            span: test_span(),
+        });
+        let method_stmt = test_stmt(
+            &arena,
+            ResolvedStmtKind::Return {
+                value: None,
+                span: test_span(),
+            },
+        );
+
+        let stmt = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::StructDef {
+                struct_def,
+                methods: vec![method_stmt],
+                span: test_span(),
+            },
+        );
+
+        assert_eq!(stmt.span(), test_span());
+        assert!(matches!(stmt.kind, ResolvedStmtKind::StructDef { .. }));
+    }
+
+    #[test]
+    fn test_expression_stmt_construction() {
+        let arena = Bump::new();
+        let var_type = arena.alloc(test_type());
+        let expr = test_expr(&arena, var_type);
+
+        let stmt = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::Expression {
+                expr,
+                span: test_span(),
+            },
+        );
+
+        assert_eq!(stmt.span(), test_span());
+        assert!(matches!(stmt.kind, ResolvedStmtKind::Expression { .. }));
+    }
+
+    #[test]
+    fn test_block_stmt_construction() {
+        let arena = Bump::new();
+        let inner_stmt = test_stmt(
+            &arena,
+            ResolvedStmtKind::Return {
+                value: None,
+                span: test_span(),
+            },
+        );
+
+        let stmt = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::Block {
+                statements: vec![inner_stmt],
+                span: test_span(),
+            },
+        );
+
+        assert_eq!(stmt.span(), test_span());
+        assert!(matches!(stmt.kind, ResolvedStmtKind::Block { .. }));
+    }
+
+    #[test]
+    fn test_with_stmt_construction() {
+        let arena = Bump::new();
+        let var_type = arena.alloc(test_type());
+        let context_expr = test_expr(&arena, var_type);
+        let with_context = arena.alloc(WithContext {
+            context_expr,
+            container_field: None,
+            transforms: vec![],
+        });
+        let body_stmt = test_stmt(
+            &arena,
+            ResolvedStmtKind::Return {
+                value: None,
+                span: test_span(),
+            },
+        );
+
+        let stmt = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::With {
+                with_context,
+                body: vec![body_stmt],
+                span: test_span(),
+            },
+        );
+
+        assert_eq!(stmt.span(), test_span());
+        assert!(matches!(stmt.kind, ResolvedStmtKind::With { .. }));
+    }
+
+    #[test]
+    fn test_has_span_implementation() {
+        let custom_span = Span {
+            start: LineColumn { line: 2, column: 5 },
+            lines: 0,
+            end_column: 15,
+        };
+        let stmt = ResolvedStmt::new(
+            custom_span,
+            ResolvedStmtKind::Return {
+                value: None,
+                span: test_span(),
+            },
+        );
+
+        assert_eq!(stmt.span(), custom_span);
+    }
+
+    #[test]
+    fn test_clone_implementation() {
+        let stmt = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::Return {
+                value: None,
+                span: test_span(),
+            },
+        );
+
+        let cloned = stmt.clone();
+        assert_eq!(stmt, cloned);
+    }
+
+    #[test]
+    fn test_partial_eq_implementation() {
+        let stmt1 = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::Return {
+                value: None,
+                span: test_span(),
+            },
+        );
+        let stmt2 = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::Return {
+                value: None,
+                span: test_span(),
+            },
+        );
+
+        assert_eq!(stmt1, stmt2);
+    }
+
+    #[test]
+    fn test_stmt_helper_methods() {
+        let stmt = ResolvedStmt::new(
+            test_span(),
+            ResolvedStmtKind::Return {
+                value: None,
+                span: test_span(),
+            },
+        );
+
+        assert!(matches!(
+            stmt.kind(),
+            ResolvedStmtKind::Return { value: None, .. }
+        ));
     }
 }
