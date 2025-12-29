@@ -4,8 +4,9 @@
 //! information during semantic analysis of CAD-DSL programs. It uses arena allocation
 //! for efficient memory management and safe cross-references.
 
-// Allow dead code for now since this module is not yet fully integrated
 #![allow(dead_code)]
+// Public API for scope management in future phases
+// Allow dead code for now since this module is not yet fully integrated
 //!
 //! # Scope Management Overview
 //!

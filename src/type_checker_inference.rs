@@ -4,7 +4,7 @@
 //! of expressions based on their structure and the types of their sub-expressions.
 
 // Allow dead code for now since this module is not yet fully integrated
-#![allow(dead_code)]
+#![allow(dead_code)] // Planned for future type inference implementation
 
 use crate::hir_expr::{ResolvedExpr, ResolvedExprKind};
 use crate::hir_types::ResolvedType;

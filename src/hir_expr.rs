@@ -106,7 +106,7 @@ pub enum ResolvedExprKind<'src, 'arena> {
     },
 
     /// Method call - resolved to method definition
-    #[allow(dead_code)] // Will be implemented in future expression resolution
+    #[allow(dead_code)] // Planned for method resolution in future phases
     MethodCall {
         /// The receiver expression (what the method is called on)
         receiver: &'arena ResolvedExpr<'src, 'arena>,
@@ -122,7 +122,7 @@ pub enum ResolvedExprKind<'src, 'arena> {
     // Field Access
     // ========================================================================
     /// Field access - resolved to field definition
-    #[allow(dead_code)] // Will be implemented in future expression resolution
+    #[allow(dead_code)] // Planned for field access resolution in future phases
     FieldAccess {
         /// The receiver expression (struct/object being accessed)
         receiver: &'arena ResolvedExpr<'src, 'arena>,
@@ -366,13 +366,13 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
     }
 
     /// Get the type of this expression
-    #[allow(dead_code)] // Used by type checker and future passes
+    #[allow(dead_code)] // Public API for future compiler phases
     pub fn ty(&self) -> &'arena ResolvedType<'src, 'arena> {
         self.ty
     }
 
     /// Get the kind of this expression
-    #[allow(dead_code)] // Used by type checker and future passes
+    #[allow(dead_code)] // Public API for future compiler phases
     pub fn kind(&self) -> &ResolvedExprKind<'src, 'arena> {
         &self.kind
     }
@@ -571,7 +571,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
     }
 
     /// Get the kind of this statement
-    #[allow(dead_code)] // Used by type checker and future passes
+    #[allow(dead_code)] // Public API for future compiler phases
     pub fn kind(&self) -> &ResolvedStmtKind<'src, 'arena> {
         &self.kind
     }

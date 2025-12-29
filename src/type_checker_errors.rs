@@ -1,9 +1,10 @@
+#![allow(dead_code)] // Error types for future type checker phases
+
 use crate::lexer::Span;
 use std::fmt;
 
 /// Type checking errors for the CAD-DSL language
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Some variants not yet used but planned for full type checker implementation
 pub enum TypeCheckError {
     /// Type mismatch between expected and found types
     TypeMismatch {

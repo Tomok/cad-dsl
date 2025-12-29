@@ -513,7 +513,7 @@ fn resolve_field_assignment<'src, 'arena>(
 }
 
 /// Resolve a function body
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // Function signature matches AST structure
 fn resolve_function_body<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
     name: &str,

@@ -1,11 +1,9 @@
 //! Type validation for statements in the CAD-DSL type checker
+#![allow(dead_code)] // Validation functions for future phases
 //!
 //! This module provides validation functionality that checks types in statements,
 //! ensuring type consistency and compatibility across variable declarations,
 //! assignments, control flow, and function calls.
-
-// Allow dead code for now since this module is not yet fully integrated
-#![allow(dead_code)]
 
 use crate::hir_expr::{ResolvedStmt, ResolvedStmtKind};
 use crate::hir_types::ResolvedType;

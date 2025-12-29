@@ -258,7 +258,6 @@ use bumpalo::Bump;
 /// The semantic analyzer resolves all names before type checking begins, so the
 /// type checker can assume all references are valid. This separation of concerns
 /// makes both phases simpler and more maintainable.
-#[allow(dead_code)] // Temporarily disabled until semantic analyzer produces ResolvedStmt
 pub fn type_check<'src, 'arena>(
     arena: &'arena Bump,
     source: &'src str,
