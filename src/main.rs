@@ -17,6 +17,9 @@ mod semantic_analyzer_errors;
 mod semantic_analyzer_pass1;
 mod semantic_analyzer_pass2;
 
+// Type checking modules
+mod type_checker_errors;
+
 use chumsky::Parser as _;
 use clap::{Parser, Subcommand};
 use lexer::TokenTrait;
