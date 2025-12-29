@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CAD-DSL is a constraint-based domain-specific language for 2D geometric design. The project implements a complete frontend pipeline (lexer, parser, semantic analyzer) for a declarative CAD language using Rust. The language specification is documented in `docs/TEXTCAD_LANGUAGE_SPEC.md`.
+CAD-DSL is a constraint-based domain-specific language for 2D geometric design. The project implements a complete frontend pipeline (lexer, parser, semantic analyzer, type checker) for a declarative CAD language using Rust. The language specification is documented in `docs/TEXTCAD_LANGUAGE_SPEC.md`.
 
 ## Development Environment
 
@@ -132,6 +132,20 @@ Before committing, always:
 - `semantic_analyzer_pass1.rs` - Declaration collection with two-phase type resolution
 - `semantic_analyzer_pass2.rs` - AST to HIR transformation with name resolution
 
+**Type Checker (`src/type_checker.rs`)**
+- Performs type inference and validation on HIR expressions
+- Ensures type safety across the program
+- Hindley-Milner inspired type inference algorithm
+- Type validation for assignments, function calls, and operators
+- Numeric type promotion (i32 → f64, bool → i32, etc.)
+- Comprehensive error reporting with span tracking
+
+**Type Checker Submodules:**
+- `type_checker_errors.rs` - Type-specific errors (8 error variants)
+- `type_checker_context.rs` - Type checking context with constraint management
+- `type_checker_inference.rs` - Type inference algorithm with unification
+- `type_checker_validation.rs` - Type validation and compatibility checks
+
 **HIR (High-level IR) Modules:**
 - `hir_types.rs` - Resolved types with struct definition references
 - `hir_definitions.rs` - Definitions for variables, functions, structs, and fields
@@ -175,15 +189,22 @@ The project has comprehensive test suites for each component:
   - Declaration collection with duplicates (11 tests)
   - Resolution and HIR construction (9 tests)
   - Full pipeline integration tests (17 tests)
+- **Type Checker tests**:
+  - Error type formatting (11 tests in type_checker_errors)
+  - Context operations (17 tests in type_checker_context)
+  - Type inference (25 tests in type_checker_inference)
+  - Type validation (25 tests in type_checker_validation)
+  - Integration tests (6 tests in type_checker)
 
-Tests use timeout mechanisms to prevent infinite loops during development. The semantic analyzer has 60 comprehensive tests covering declaration collection, name resolution, scoping, error cases, and the complete analysis pipeline.
+Tests use timeout mechanisms to prevent infinite loops during development. The semantic analyzer has 60 comprehensive tests covering declaration collection, name resolution, scoping, error cases, and the complete analysis pipeline. The type checker has 84 comprehensive tests covering type inference, validation, numeric promotion, error cases, and the complete type checking pipeline.
 
 ## Language Implementation Status
 
 Currently implements:
 - **Complete lexical analysis** for TextCAD syntax (lexer)
 - **Syntactic analysis** with proper operator precedence (parser)
-- **Semantic analysis** with name resolution and type checking (semantic analyzer)
+- **Semantic analysis** with name resolution (semantic analyzer)
+- **Type checking** with inference and validation (type checker)
 - **HIR construction** for further compilation stages
 - **Comprehensive error reporting** infrastructure across all stages
 
@@ -191,14 +212,14 @@ Currently implements:
 - Lexer: All tokens, comments, position tracking
 - Parser: Expressions, statements, declarations
 - Semantic Analyzer: Two-pass analysis, forward references, scope management
+- Type Checker: Type inference, validation, numeric promotion
 - HIR: Type-safe intermediate representation with arena allocation
 
 ### Next Steps:
-- Type inference and type checking
 - Constraint solving integration (Z3)
 - Code generation or interpretation
 
-The language specification in `docs/TEXTCAD_LANGUAGE_SPEC.md` defines the full TextCAD language, including constraints, structs, transforms, and the standard library. The current implementation covers the complete frontend pipeline from source code to HIR.
+The language specification in `docs/TEXTCAD_LANGUAGE_SPEC.md` defines the full TextCAD language, including constraints, structs, transforms, and the standard library. The current implementation covers the complete frontend pipeline from source code to typed HIR.
 
 ## Dependencies
 
