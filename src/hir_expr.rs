@@ -2,9 +2,6 @@
 //!
 //! This module defines the resolved expression types for the HIR, which differ from
 //! the AST in several key ways:
-
-// Allow dead code for now since this module is not yet fully integrated
-#![allow(dead_code)]
 //!
 //! # Differences from AST
 //!
@@ -109,6 +106,7 @@ pub enum ResolvedExprKind<'src, 'arena> {
     },
 
     /// Method call - resolved to method definition
+    #[allow(dead_code)] // Will be implemented in future expression resolution
     MethodCall {
         /// The receiver expression (what the method is called on)
         receiver: &'arena ResolvedExpr<'src, 'arena>,
@@ -124,6 +122,7 @@ pub enum ResolvedExprKind<'src, 'arena> {
     // Field Access
     // ========================================================================
     /// Field access - resolved to field definition
+    #[allow(dead_code)] // Will be implemented in future expression resolution
     FieldAccess {
         /// The receiver expression (struct/object being accessed)
         receiver: &'arena ResolvedExpr<'src, 'arena>,
@@ -367,11 +366,13 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
     }
 
     /// Get the type of this expression
+    #[allow(dead_code)] // Used by type checker and future passes
     pub fn ty(&self) -> &'arena ResolvedType<'src, 'arena> {
         self.ty
     }
 
     /// Get the kind of this expression
+    #[allow(dead_code)] // Used by type checker and future passes
     pub fn kind(&self) -> &ResolvedExprKind<'src, 'arena> {
         &self.kind
     }
@@ -570,6 +571,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
     }
 
     /// Get the kind of this statement
+    #[allow(dead_code)] // Used by type checker and future passes
     pub fn kind(&self) -> &ResolvedStmtKind<'src, 'arena> {
         &self.kind
     }

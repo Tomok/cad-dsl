@@ -79,7 +79,6 @@ fn report_semantic_errors(filename: &str, source: &str, errors: Vec<SemanticErro
 }
 
 /// Report type checking errors with Ariadne formatting
-#[allow(dead_code)] // Temporarily disabled until semantic analyzer produces ResolvedStmt
 fn report_type_errors(filename: &str, source: &str, errors: Vec<TypeCheckError>) {
     for error in errors {
         // Extract span from error
@@ -186,7 +185,7 @@ fn main() {
 
             // Step 3: Semantic Analysis
             let arena = Bump::new();
-            let _hir = match semantic_analyzer::analyze(&arena, &content, &ast) {
+            let hir = match semantic_analyzer::analyze(&arena, &content, &ast) {
                 Ok(hir) => {
                     println!("✓ Semantic analysis successful");
                     hir
@@ -199,23 +198,17 @@ fn main() {
             };
 
             // Step 4: Type Checking
-            // TODO: Temporarily disabled until semantic analyzer produces ResolvedStmt (Step 3)
-            // The type checker has been updated to use ResolvedStmt from HIR, but the
-            // semantic analyzer still returns AST statements. This will be fixed in Step 3.
-            println!("\n✓ Type checking skipped (semantic analyzer integration pending)");
-            println!("\nParsing and semantic analysis passed!");
-
-            // match type_checker::type_check(&arena, &content, &hir[..]) {
-            //     Ok(()) => {
-            //         println!("✓ Type checking successful");
-            //         println!("\nAll checks passed! Program is well-typed.");
-            //     }
-            //     Err(errors) => {
-            //         eprintln!("\nType errors:");
-            //         report_type_errors(file, &content, errors);
-            //         std::process::exit(1);
-            //     }
-            // }
+            match type_checker::type_check(&arena, &content, &hir[..]) {
+                Ok(()) => {
+                    println!("✓ Type checking successful");
+                    println!("\nAll checks passed! Program is well-typed.");
+                }
+                Err(errors) => {
+                    eprintln!("\nType errors:");
+                    report_type_errors(file, &content, errors);
+                    std::process::exit(1);
+                }
+            }
         }
     }
 }

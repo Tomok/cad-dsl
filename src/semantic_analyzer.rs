@@ -225,12 +225,11 @@ pub use crate::semantic_analyzer_errors::SemanticError;
 ///     }
 /// }
 /// ```
-#[allow(dead_code)] // Will be used when integrated with main CLI
 pub fn analyze<'src, 'arena>(
     arena: &'arena Bump,
     source: &'src str,
     ast: &[ast::Stmt<'src>],
-) -> Result<Vec<&'arena ast::Stmt<'src>>, Vec<SemanticError>> {
+) -> Result<Vec<&'arena crate::hir_expr::ResolvedStmt<'src, 'arena>>, Vec<SemanticError>> {
     // Create analyzer context
     let mut ctx = AnalyzerContext::new(arena, source);
 
