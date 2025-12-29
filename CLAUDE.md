@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CAD-DSL is a constraint-based domain-specific language for 2D geometric design. The project implements a lexer and parser for a declarative CAD language using Rust. The language specification is documented in `docs/TEXTCAD_LANGUAGE_SPEC.md`.
+CAD-DSL is a constraint-based domain-specific language for 2D geometric design. The project implements a complete frontend pipeline (lexer, parser, semantic analyzer) for a declarative CAD language using Rust. The language specification is documented in `docs/TEXTCAD_LANGUAGE_SPEC.md`.
 
 ## Development Environment
 
@@ -118,6 +118,27 @@ Before committing, always:
 - Rich error reporting with Ariadne integration
 - Handles parentheses and operator precedence correctly
 
+**Semantic Analyzer (`src/semantic_analyzer.rs`)**
+- Transforms AST to High-level Intermediate Representation (HIR)
+- Two-pass analysis to support forward references
+- Pass 1: Declaration collection (structs, functions, top-level variables)
+- Pass 2: Name resolution and HIR construction
+- Arena-based allocation for cross-references
+- Comprehensive error reporting with span tracking
+
+**Semantic Analyzer Submodules:**
+- `semantic_analyzer_errors.rs` - Error types for semantic analysis (9 error variants)
+- `semantic_analyzer_context.rs` - Analyzer context with symbol tables and scope management
+- `semantic_analyzer_pass1.rs` - Declaration collection with two-phase type resolution
+- `semantic_analyzer_pass2.rs` - AST to HIR transformation with name resolution
+
+**HIR (High-level IR) Modules:**
+- `hir_types.rs` - Resolved types with struct definition references
+- `hir_definitions.rs` - Definitions for variables, functions, structs, and fields
+- `hir_expr.rs` - Resolved expressions with type information (30+ expression kinds)
+- `hir_context.rs` - With-context support for container field resolution
+- `hir_scope.rs` - Scope management with lexical scoping and shadowing
+
 **CLI (`src/main.rs`)**
 - Simple CLI with `lex` and `parse` subcommands
 - File input handling and error reporting
@@ -126,9 +147,20 @@ Before committing, always:
 
 **Type-Safe Precedence**: The AST uses Rust's type system to enforce operator precedence, making it impossible to construct invalid expression trees.
 
-**Rich Error Reporting**: Parser errors include position information and expected vs. found tokens, formatted with Ariadne for user-friendly output.
+**Rich Error Reporting**: Parser and semantic analyzer errors include position information and expected vs. found tokens, formatted with Ariadne for user-friendly output.
 
-**Separation of Concerns**: Clear separation between lexical analysis, syntactic analysis, and CLI interface.
+**Two-Pass Semantic Analysis**: The semantic analyzer uses a two-pass approach to support forward references in CAD-DSL:
+- Pass 1 collects all declarations (struct, function, variable names)
+- Pass 2 resolves all references and constructs HIR
+- This allows variables to reference types or functions defined later in the source
+
+**Arena Allocation**: The HIR uses arena allocation (bumpalo) for memory management:
+- All HIR nodes are allocated in a single arena with lifetime `'arena`
+- Cross-references use `&'arena T` pointers (no Rc/Arc needed)
+- String slices use `&'src str` directly from source code
+- Clean separation between source lifetime and arena lifetime
+
+**Separation of Concerns**: Clear separation between lexical analysis, syntactic analysis, semantic analysis, and CLI interface.
 
 ## Testing
 
@@ -137,17 +169,36 @@ The project has comprehensive test suites for each component:
 - **Lexer tests**: Token recognition, position tracking, comment handling
 - **Parser tests**: Expression parsing, precedence, error cases with timeout protection
 - **AST tests**: Type conversions and display formatting
+- **Semantic Analyzer tests**:
+  - Error type formatting (12 tests)
+  - Context operations and symbol tables (11 tests)
+  - Declaration collection with duplicates (11 tests)
+  - Resolution and HIR construction (9 tests)
+  - Full pipeline integration tests (17 tests)
 
-Tests use timeout mechanisms to prevent infinite loops during development.
+Tests use timeout mechanisms to prevent infinite loops during development. The semantic analyzer has 60 comprehensive tests covering declaration collection, name resolution, scoping, error cases, and the complete analysis pipeline.
 
 ## Language Implementation Status
 
 Currently implements:
-- Complete lexical analysis for TextCAD syntax
-- Expression parsing with proper operator precedence
-- Error reporting infrastructure
+- **Complete lexical analysis** for TextCAD syntax (lexer)
+- **Syntactic analysis** with proper operator precedence (parser)
+- **Semantic analysis** with name resolution and type checking (semantic analyzer)
+- **HIR construction** for further compilation stages
+- **Comprehensive error reporting** infrastructure across all stages
 
-The language specification in `docs/TEXTCAD_LANGUAGE_SPEC.md` defines the full TextCAD language, including constraints, structs, transforms, and the standard library. The current implementation focuses on the foundational parsing infrastructure.
+### Completed Features:
+- Lexer: All tokens, comments, position tracking
+- Parser: Expressions, statements, declarations
+- Semantic Analyzer: Two-pass analysis, forward references, scope management
+- HIR: Type-safe intermediate representation with arena allocation
+
+### Next Steps:
+- Type inference and type checking
+- Constraint solving integration (Z3)
+- Code generation or interpretation
+
+The language specification in `docs/TEXTCAD_LANGUAGE_SPEC.md` defines the full TextCAD language, including constraints, structs, transforms, and the standard library. The current implementation covers the complete frontend pipeline from source code to HIR.
 
 ## Dependencies
 
@@ -157,5 +208,7 @@ Key dependencies:
 - `ariadne` - Error reporting
 - `clap` - CLI interface
 - `subenum` - Type-safe enum subsets
+- `bumpalo` - Arena allocator for HIR nodes
+- `assert_matches` - Pattern matching assertions in tests
 
 Z3 constraint solver is included as a system dependency for future constraint solving implementation.
