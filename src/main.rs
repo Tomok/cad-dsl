@@ -21,6 +21,7 @@ mod semantic_analyzer_pass2;
 mod type_checker_context;
 mod type_checker_errors;
 mod type_checker_inference;
+mod type_checker_validation;
 
 use chumsky::Parser as _;
 use clap::{Parser, Subcommand};
