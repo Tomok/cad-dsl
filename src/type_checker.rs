@@ -185,8 +185,7 @@ use bumpalo::Bump;
 ///
 /// This type alias makes it easy to replace with a proper `ResolvedStmt` type
 /// when the HIR is extended with statement types.
-#[allow(dead_code)]
-pub type ResolvedStmt<'src, 'arena> = Stmt<'src>;
+pub type ResolvedStmt<'src, 'arena> = &'arena Stmt<'src>;
 
 /// Type check a CAD-DSL program
 ///
@@ -269,7 +268,6 @@ pub type ResolvedStmt<'src, 'arena> = Stmt<'src>;
 /// The semantic analyzer resolves all names before type checking begins, so the
 /// type checker can assume all references are valid. This separation of concerns
 /// makes both phases simpler and more maintainable.
-#[allow(dead_code)]
 pub fn type_check<'src, 'arena>(
     arena: &'arena Bump,
     source: &'src str,
@@ -311,7 +309,7 @@ mod tests {
     fn test_type_check_empty_program() {
         let arena = Bump::new();
         let source = "";
-        let hir: Vec<Stmt> = vec![];
+        let hir: Vec<&Stmt> = vec![];
 
         let result = type_check(&arena, source, &hir);
         assert!(
@@ -325,7 +323,7 @@ mod tests {
         let arena = Bump::new();
         let source = "let x: i32 = 42;";
 
-        let hir = vec![Stmt::Let {
+        let stmt: &Stmt = arena.alloc(Stmt::Let {
             dot_prefix: false,
             name_path: vec![("x", test_span())],
             type_annotation: Some(Type::I32 { span: test_span() }),
@@ -334,7 +332,8 @@ mod tests {
                 span: test_span(),
             }),
             span: test_span(),
-        }];
+        });
+        let hir = vec![stmt];
 
         let result = type_check(&arena, source, &hir);
         // Currently validation is not fully implemented, so this should pass
@@ -349,13 +348,14 @@ mod tests {
         let arena = Bump::new();
         let source = "let x: i32;";
 
-        let hir = vec![Stmt::Let {
+        let stmt: &Stmt = arena.alloc(Stmt::Let {
             dot_prefix: false,
             name_path: vec![("x", test_span())],
             type_annotation: Some(Type::I32 { span: test_span() }),
             init: None,
             span: test_span(),
-        }];
+        });
+        let hir = vec![stmt];
 
         let result = type_check(&arena, source, &hir);
         assert!(result.is_ok(), "Let without init should type check");
@@ -366,28 +366,27 @@ mod tests {
         let arena = Bump::new();
         let source = "let x: i32 = 42;\nlet y: f64 = 3.14;";
 
-        let hir = vec![
-            Stmt::Let {
-                dot_prefix: false,
-                name_path: vec![("x", test_span())],
-                type_annotation: Some(Type::I32 { span: test_span() }),
-                init: Some(Expr::IntLit {
-                    value: 42,
-                    span: test_span(),
-                }),
+        let stmt1: &Stmt = arena.alloc(Stmt::Let {
+            dot_prefix: false,
+            name_path: vec![("x", test_span())],
+            type_annotation: Some(Type::I32 { span: test_span() }),
+            init: Some(Expr::IntLit {
+                value: 42,
                 span: test_span(),
-            },
-            Stmt::Let {
-                dot_prefix: false,
-                name_path: vec![("y", test_span())],
-                type_annotation: Some(Type::F64 { span: test_span() }),
-                init: Some(Expr::FloatLit {
-                    value: 3.14,
-                    span: test_span(),
-                }),
+            }),
+            span: test_span(),
+        });
+        let stmt2: &Stmt = arena.alloc(Stmt::Let {
+            dot_prefix: false,
+            name_path: vec![("y", test_span())],
+            type_annotation: Some(Type::F64 { span: test_span() }),
+            init: Some(Expr::FloatLit {
+                value: 3.14,
                 span: test_span(),
-            },
-        ];
+            }),
+            span: test_span(),
+        });
+        let hir = vec![stmt1, stmt2];
 
         let result = type_check(&arena, source, &hir);
         assert!(
@@ -401,13 +400,14 @@ mod tests {
         let arena = Bump::new();
         let source = "42;";
 
-        let hir = vec![Stmt::Expression {
+        let stmt: &Stmt = arena.alloc(Stmt::Expression {
             expr: Expr::IntLit {
                 value: 42,
                 span: test_span(),
             },
             span: test_span(),
-        }];
+        });
+        let hir = vec![stmt];
 
         let result = type_check(&arena, source, &hir);
         assert!(
@@ -421,7 +421,7 @@ mod tests {
         let arena = Bump::new();
         let source = "{ let x: i32 = 42; }";
 
-        let hir = vec![Stmt::Block {
+        let stmt: &Stmt = arena.alloc(Stmt::Block {
             statements: vec![Stmt::Let {
                 dot_prefix: false,
                 name_path: vec![("x", test_span())],
@@ -433,7 +433,8 @@ mod tests {
                 span: test_span(),
             }],
             span: test_span(),
-        }];
+        });
+        let hir = vec![stmt];
 
         let result = type_check(&arena, source, &hir);
         assert!(
