@@ -18,6 +18,7 @@ mod semantic_analyzer_pass1;
 mod semantic_analyzer_pass2;
 
 // Type checking modules
+mod type_checker;
 mod type_checker_context;
 mod type_checker_errors;
 mod type_checker_inference;
