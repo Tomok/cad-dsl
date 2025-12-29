@@ -1,0 +1,4 @@
+// Test 5: For Loop
+for i in 0..10 {
+    let x = i * 2;
+}

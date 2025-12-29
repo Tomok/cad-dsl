@@ -1,0 +1,16 @@
+// Test 8: Complex Program (Combined Features)
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn double_x(p: Point) -> i32 {
+    return p.x * 2;
+}
+
+fn main() {
+    let p = Point { x: 10, y: 20 };
+    if p.x > 5 {
+        let doubled = double_x(p);
+    }
+}
