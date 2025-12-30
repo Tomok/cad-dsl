@@ -2626,7 +2626,7 @@ mod tests {
             parent_struct: None,
             span: make_span(1, 1),
         });
-        ctx.register_function("add", func_def);
+        let _ = ctx.register_function("add", func_def);
 
         let return_expr = Expr::Add {
             lhs: Box::new(AddLhs::Var {
