@@ -1,9 +1,10 @@
+#![allow(dead_code)] // Error types for semantic analysis
+
 use crate::lexer::Span;
 use std::fmt;
 
 /// Semantic analysis errors for the CAD-DSL language
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum SemanticError {
     /// Reference to an undefined variable
     UndefinedVariable { name: String, span: Span },

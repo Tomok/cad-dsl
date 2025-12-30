@@ -38,13 +38,12 @@
 //! and reporting of multiple errors at once. When a resolution failure occurs,
 //! the function returns `None` and an error is added to the context.
 
-// Allow dead code for now since this module is not yet fully integrated
-#![allow(dead_code)]
-
 use crate::ast::{Expr, Stmt, StructLitField as AstStructLitField};
 use crate::hir_context::WithContext;
 use crate::hir_definitions::{ScopeLevel, VarDefinition};
-use crate::hir_expr::{ResolvedExpr, ResolvedExprKind, ResolvedStructLitField};
+use crate::hir_expr::{
+    ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind, ResolvedStructLitField,
+};
 use crate::hir_types::ResolvedType;
 use crate::lexer::Span;
 use crate::semantic_analyzer_context::AnalyzerContext;
@@ -66,7 +65,7 @@ use crate::semantic_analyzer_errors::SemanticError;
 ///
 /// # Returns
 ///
-/// A vector of resolved HIR statements (currently using AST as placeholder)
+/// A vector of resolved HIR statements
 ///
 /// # Error Handling
 ///
@@ -75,7 +74,7 @@ use crate::semantic_analyzer_errors::SemanticError;
 pub fn resolve_statements<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
     stmts: &[Stmt<'src>],
-) -> Vec<&'arena Stmt<'src>> {
+) -> Vec<&'arena ResolvedStmt<'src, 'arena>> {
     let mut resolved = Vec::new();
 
     for stmt in stmts {
@@ -103,7 +102,7 @@ pub fn resolve_statements<'src, 'arena>(
 pub fn resolve_statement<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
     stmt: &Stmt<'src>,
-) -> Option<&'arena Stmt<'src>> {
+) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
     match stmt {
         Stmt::Let {
             dot_prefix,
@@ -153,10 +152,37 @@ pub fn resolve_statement<'src, 'arena>(
             *span,
         ),
 
-        Stmt::StructDef { .. } => {
-            // Struct definitions are already processed in Pass 1
-            // Return the statement as-is (arena-allocated)
-            Some(ctx.arena.alloc(stmt.clone()))
+        Stmt::StructDef {
+            name,
+            name_span,
+            container: _,
+            fields: _,
+            methods,
+            span,
+        } => {
+            // Look up the struct definition from Pass 1
+            let struct_def = ctx.lookup_struct(name);
+            if struct_def.is_none() {
+                ctx.add_error(SemanticError::UndefinedType {
+                    name: name.clone(),
+                    span: *name_span,
+                });
+                return None;
+            }
+            let struct_def = struct_def.unwrap();
+
+            // Resolve method bodies
+            let resolved_methods = resolve_statements(ctx, methods);
+
+            // Create the HIR statement
+            Some(ctx.arena.alloc(ResolvedStmt::new(
+                *span,
+                ResolvedStmtKind::StructDef {
+                    struct_def,
+                    methods: resolved_methods,
+                    span: *span,
+                },
+            )))
         }
 
         Stmt::With {
@@ -200,7 +226,7 @@ fn resolve_let_statement<'src, 'arena>(
     type_annotation: Option<&crate::ast::Type>,
     init: Option<&Expr<'src>>,
     span: Span,
-) -> Option<&'arena Stmt<'src>> {
+) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
     // Simple let statement (no dot prefix, single name)
     if !dot_prefix && name_path.len() == 1 {
         let (name, name_span) = name_path[0];
@@ -214,25 +240,36 @@ fn resolve_let_statement<'src, 'arena>(
         // Get current scope level
         let scope_level: ScopeLevel = ctx.scope_stack.current_scope_level();
 
-        // Check if the variable was already declared in Pass 1 (top-level, scope 0)
-        if scope_level == 0 {
-            // Top-level let statement - was already collected in Pass 1
-            // Just resolve the initializer, don't re-declare
-            // The variable is already in the scope from Pass 1
+        // Look up or create the variable definition
+        let var_def = if scope_level == 0 {
+            // Top-level let statement - should already exist from Pass 1
+            let existing = ctx.scope_stack.lookup_variable(name);
+            if let Some(existing) = existing {
+                existing
+            } else {
+                // If not found, create it now (shouldn't happen normally)
+                let new_def = VarDefinition::new(
+                    name,
+                    name_span,
+                    resolved_type,
+                    init_expr,
+                    scope_level,
+                    span,
+                );
+                let new_def_ref: &'arena VarDefinition<'src, 'arena> = ctx.arena.alloc(new_def);
+                let result = new_def_ref;
+                ctx.scope_stack.declare_variable(name, new_def_ref);
+                result
+            }
         } else {
             // Non-top-level let statement - declare it now
-            // Create variable definition
-            let var_def = ctx.arena.alloc(VarDefinition::new(
-                name,
-                name_span,
-                resolved_type,
-                init_expr,
-                scope_level,
-                span,
-            ));
+            let new_def =
+                VarDefinition::new(name, name_span, resolved_type, init_expr, scope_level, span);
+            let new_def_ref: &'arena VarDefinition<'src, 'arena> = ctx.arena.alloc(new_def);
+            let result = new_def_ref;
 
             // Declare the variable in the current scope
-            if let Some(old_def) = ctx.scope_stack.declare_variable(name, var_def) {
+            if let Some(old_def) = ctx.scope_stack.declare_variable(name, new_def_ref) {
                 // Duplicate variable definition in the same scope
                 ctx.add_error(SemanticError::DuplicateDefinition {
                     name: name.to_string(),
@@ -240,16 +277,22 @@ fn resolve_let_statement<'src, 'arena>(
                     second_span: name_span,
                 });
             }
-        }
+            result
+        };
 
-        // Return the statement (for now, just clone the AST)
-        Some(ctx.arena.alloc(Stmt::Let {
-            dot_prefix,
-            name_path: name_path.to_vec(),
-            type_annotation: type_annotation.cloned(),
-            init: init.cloned(),
+        // Create the HIR statement
+        let stmt = ctx.arena.alloc(ResolvedStmt::new(
             span,
-        }))
+            ResolvedStmtKind::Let {
+                dot_prefix,
+                name_path: name_path.to_vec(),
+                var_def,
+                init: init_expr,
+                span,
+            },
+        ));
+
+        Some(stmt)
     } else if dot_prefix {
         // Dot-prefix let (e.g., `let .field = value;`)
         // Check if we're in a with-context
@@ -259,31 +302,76 @@ fn resolve_let_statement<'src, 'arena>(
         }
 
         // Resolve the initializer
-        let _init_expr = init.and_then(|expr| resolve_expression(ctx, expr));
+        let init_expr = init.and_then(|expr| resolve_expression(ctx, expr));
 
-        // TODO: Handle dot-prefix let statements properly
-        // For now, just return the statement
-        Some(ctx.arena.alloc(Stmt::Let {
-            dot_prefix,
-            name_path: name_path.to_vec(),
-            type_annotation: type_annotation.cloned(),
-            init: init.cloned(),
+        // For dot-prefix lets, we need to create a variable definition
+        // The variable is implicitly scoped to the with-context
+        let (name, name_span) = name_path[0];
+        let resolved_type = type_annotation.and_then(|ty| resolve_type(ctx, ty));
+        let scope_level = ctx.scope_stack.current_scope_level();
+
+        let var_def = ctx.arena.alloc(VarDefinition::new(
+            name,
+            name_span,
+            resolved_type,
+            init_expr,
+            scope_level,
             span,
-        }))
+        ));
+
+        // Create the HIR statement
+        let stmt = ctx.arena.alloc(ResolvedStmt::new(
+            span,
+            ResolvedStmtKind::Let {
+                dot_prefix,
+                name_path: name_path.to_vec(),
+                var_def,
+                init: init_expr,
+                span,
+            },
+        ));
+
+        Some(stmt)
     } else {
         // Path let (e.g., `let container.field = value;`)
         // Resolve the initializer
-        let _init_expr = init.and_then(|expr| resolve_expression(ctx, expr));
+        let init_expr = init.and_then(|expr| resolve_expression(ctx, expr));
 
-        // TODO: Handle container field let statements properly
-        // For now, just return the statement
-        Some(ctx.arena.alloc(Stmt::Let {
-            dot_prefix,
-            name_path: name_path.to_vec(),
-            type_annotation: type_annotation.cloned(),
-            init: init.cloned(),
+        // For path lets, we create a variable for the last element in the path
+        if name_path.is_empty() {
+            ctx.add_error(SemanticError::UndefinedVariable {
+                name: "<empty path>".to_string(),
+                span,
+            });
+            return None;
+        }
+
+        let (name, name_span) = name_path[name_path.len() - 1];
+        let resolved_type = type_annotation.and_then(|ty| resolve_type(ctx, ty));
+        let scope_level = ctx.scope_stack.current_scope_level();
+
+        let var_def = ctx.arena.alloc(VarDefinition::new(
+            name,
+            name_span,
+            resolved_type,
+            init_expr,
+            scope_level,
             span,
-        }))
+        ));
+
+        // Create the HIR statement
+        let stmt = ctx.arena.alloc(ResolvedStmt::new(
+            span,
+            ResolvedStmtKind::Let {
+                dot_prefix,
+                name_path: name_path.to_vec(),
+                var_def,
+                init: init_expr,
+                span,
+            },
+        ));
+
+        Some(stmt)
     }
 }
 
@@ -294,25 +382,32 @@ fn resolve_assignment<'src, 'arena>(
     name_span: Span,
     value: &Expr<'src>,
     span: Span,
-) -> Option<&'arena Stmt<'src>> {
+) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
     // Lookup the variable
-    if ctx.scope_stack.lookup_variable(name).is_none() {
+    let var_def = ctx.scope_stack.lookup_variable(name);
+    if var_def.is_none() {
         ctx.add_error(SemanticError::UndefinedVariable {
             name: name.to_string(),
             span: name_span,
         });
+        return None;
     }
+    let var_def = var_def.unwrap();
 
     // Resolve the value expression
-    let _value_expr = resolve_expression(ctx, value);
+    let value_expr = resolve_expression(ctx, value)?;
 
-    // Return the statement (for now, just clone the AST)
-    Some(ctx.arena.alloc(Stmt::Assignment {
-        name,
-        name_span,
-        value: value.clone(),
+    // Create the HIR statement
+    let stmt = ctx.arena.alloc(ResolvedStmt::new(
         span,
-    }))
+        ResolvedStmtKind::Assignment {
+            var_def,
+            value: value_expr,
+            span,
+        },
+    ));
+
+    Some(stmt)
 }
 
 /// Resolve a field assignment statement
@@ -322,47 +417,123 @@ fn resolve_field_assignment<'src, 'arena>(
     field_path: &[(&'src str, Span)],
     value: &Expr<'src>,
     span: Span,
-) -> Option<&'arena Stmt<'src>> {
-    if dot_prefix {
+) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
+    // Resolve the target field expression
+    let target = if dot_prefix {
         // Dot-prefix field assignment (e.g., `.field = value;`)
         // Check if we're in a with-context
-        if ctx.scope_stack.current_with_context().is_none() {
+        let with_ctx = ctx.scope_stack.current_with_context();
+        if with_ctx.is_none() {
             ctx.add_error(SemanticError::NotInWithContext { span });
             return None;
         }
+        let with_ctx = with_ctx.unwrap();
 
-        // TODO: Resolve field path using with-context
+        // Create ContainerFieldAccess expression
+        // For now, use a simple type (we'll infer the actual type during type checking)
+        let ty = &*ctx.arena.alloc(ResolvedType::I32 { span });
+        let kind = ResolvedExprKind::ContainerFieldAccess {
+            resolved_path: field_path.iter().map(|(name, _)| *name).collect(),
+            with_context: with_ctx,
+            transform: None,
+        };
+        ctx.arena.alloc(ResolvedExpr::new(span, kind, ty))
     } else {
         // Regular field assignment (e.g., `obj.field = value;`)
-        // TODO: Resolve field path
-    }
+        // Build nested field access expression
+        if field_path.is_empty() {
+            ctx.add_error(SemanticError::UndefinedVariable {
+                name: "<empty path>".to_string(),
+                span,
+            });
+            return None;
+        }
+
+        // Start with the first element (must be a variable)
+        let (first_name, first_span) = field_path[0];
+        let var_def = ctx.scope_stack.lookup_variable(first_name);
+        if var_def.is_none() {
+            ctx.add_error(SemanticError::UndefinedVariable {
+                name: first_name.to_string(),
+                span: first_span,
+            });
+            return None;
+        }
+        let var_def = var_def.unwrap();
+
+        let var_ty: &'arena ResolvedType = if let Some(ty) = var_def.var_type {
+            ctx.arena.alloc(ty)
+        } else {
+            let default_type = ResolvedType::I32 { span: first_span };
+            ctx.arena.alloc(default_type)
+        };
+
+        let mut current_expr = ctx.arena.alloc(ResolvedExpr::new(
+            first_span,
+            ResolvedExprKind::Var {
+                name: first_name,
+                definition: var_def,
+            },
+            var_ty,
+        ));
+
+        // Build nested field accesses for the rest of the path
+        for &(_field_name, field_span) in &field_path[1..] {
+            // For now, we don't have full struct type information during resolution
+            // Type checking will validate the field access later
+            // Create a placeholder field access
+            let field_ty = &*ctx.arena.alloc(ResolvedType::I32 { span: field_span });
+
+            // We need a field definition, but we don't have it yet
+            // For now, create a temporary placeholder
+            // The type checker will validate this later
+            let kind = ResolvedExprKind::IntLit { value: 0 }; // Placeholder
+            current_expr = ctx
+                .arena
+                .alloc(ResolvedExpr::new(field_span, kind, field_ty));
+        }
+
+        current_expr
+    };
 
     // Resolve the value expression
-    let _value_expr = resolve_expression(ctx, value);
+    let value_expr = resolve_expression(ctx, value)?;
 
-    // Return the statement (for now, just clone the AST)
-    Some(ctx.arena.alloc(Stmt::FieldAssignment {
-        dot_prefix,
-        field_path: field_path.to_vec(),
-        value: value.clone(),
+    // Create the HIR statement
+    let stmt = ctx.arena.alloc(ResolvedStmt::new(
         span,
-    }))
+        ResolvedStmtKind::FieldAssignment {
+            target,
+            value: value_expr,
+            span,
+        },
+    ));
+
+    Some(stmt)
 }
 
 /// Resolve a function body
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // Function signature matches AST structure
 fn resolve_function_body<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
     name: &str,
-    _name_span: Span,
+    name_span: Span,
     params: &[crate::ast::FunctionParam],
     _return_type: &crate::ast::Type,
     body: &[Stmt<'src>],
     return_expr: Option<&Expr<'src>>,
     span: Span,
-) -> Option<&'arena Stmt<'src>> {
-    // Function definition is already in the symbol table from Pass 1
-    // Now we resolve the body
+) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
+    // Look up the function definition from Pass 1
+    let func_def = ctx.lookup_function(name);
+    if func_def.is_none() {
+        ctx.add_error(SemanticError::UndefinedFunction {
+            name: name.to_string(),
+            span: name_span,
+        });
+        return None;
+    }
+    let func_def = func_def.unwrap();
 
     // Push a new scope for the function body
     ctx.scope_stack.push_scope();
@@ -387,25 +558,25 @@ fn resolve_function_body<'src, 'arena>(
     }
 
     // Resolve body statements
-    let _resolved_body = resolve_statements(ctx, body);
+    let resolved_body = resolve_statements(ctx, body);
 
     // Resolve return expression if present
-    let _resolved_return = return_expr.and_then(|expr| resolve_expression(ctx, expr));
+    let resolved_return = return_expr.and_then(|expr| resolve_expression(ctx, expr));
 
     // Pop the function scope
     ctx.scope_stack.pop_scope();
 
-    // Return the statement (for now, just clone the AST)
-    // In a full implementation, we would update the function definition with the resolved body
-    let stmt = ctx.arena.alloc(Stmt::FunctionDef {
-        name: name.to_string(),
-        name_span: _name_span,
-        params: params.to_vec(),
-        return_type: _return_type.clone(),
-        body: body.to_vec(),
-        return_expr: return_expr.cloned(),
+    // Create the HIR statement
+    let stmt = ctx.arena.alloc(ResolvedStmt::new(
         span,
-    });
+        ResolvedStmtKind::FunctionDef {
+            func_def,
+            body: resolved_body,
+            return_expr: resolved_return,
+            span,
+        },
+    ));
+
     Some(stmt)
 }
 
@@ -415,7 +586,7 @@ fn resolve_with_statement<'src, 'arena>(
     context_expr: &Expr<'src>,
     body: &[Stmt<'src>],
     span: Span,
-) -> Option<&'arena Stmt<'src>> {
+) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
     // Resolve the context expression
     let resolved_context = resolve_expression(ctx, context_expr)?;
 
@@ -430,17 +601,22 @@ fn resolve_with_statement<'src, 'arena>(
     ctx.scope_stack.enter_with_context(with_ctx);
 
     // Resolve body statements
-    let _resolved_body = resolve_statements(ctx, body);
+    let resolved_body = resolve_statements(ctx, body);
 
     // Exit the with-context
     ctx.scope_stack.exit_with_context();
 
-    // Return the statement (for now, just clone the AST)
-    Some(ctx.arena.alloc(Stmt::With {
-        context_expr: context_expr.clone(),
-        body: body.to_vec(),
+    // Create the HIR statement
+    let stmt = ctx.arena.alloc(ResolvedStmt::new(
         span,
-    }))
+        ResolvedStmtKind::With {
+            with_context: with_ctx,
+            body: resolved_body,
+            span,
+        },
+    ));
+
+    Some(stmt)
 }
 
 /// Resolve a for statement
@@ -451,9 +627,9 @@ fn resolve_for_statement<'src, 'arena>(
     iterator: &Expr<'src>,
     body: &[Stmt<'src>],
     span: Span,
-) -> Option<&'arena Stmt<'src>> {
+) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
     // Resolve the iterator expression
-    let _iterator_expr = resolve_expression(ctx, iterator);
+    let iterator_expr = resolve_expression(ctx, iterator)?;
 
     // Push a new scope for the loop body
     ctx.scope_stack.push_scope();
@@ -474,19 +650,23 @@ fn resolve_for_statement<'src, 'arena>(
     ctx.scope_stack.declare_variable(loop_var, loop_var_def);
 
     // Resolve body statements
-    let _resolved_body = resolve_statements(ctx, body);
+    let resolved_body = resolve_statements(ctx, body);
 
     // Pop the loop scope
     ctx.scope_stack.pop_scope();
 
-    // Return the statement (for now, just clone the AST)
-    Some(ctx.arena.alloc(Stmt::For {
-        loop_var,
-        loop_var_span,
-        iterator: iterator.clone(),
-        body: body.to_vec(),
+    // Create the HIR statement
+    let stmt = ctx.arena.alloc(ResolvedStmt::new(
         span,
-    }))
+        ResolvedStmtKind::For {
+            loop_var_def,
+            iterator: iterator_expr,
+            body: resolved_body,
+            span,
+        },
+    ));
+
+    Some(stmt)
 }
 
 /// Resolve an if statement
@@ -496,23 +676,28 @@ fn resolve_if_statement<'src, 'arena>(
     then_branch: &[Stmt<'src>],
     else_branch: Option<&Vec<Stmt<'src>>>,
     span: Span,
-) -> Option<&'arena Stmt<'src>> {
+) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
     // Resolve the condition
-    let _condition_expr = resolve_expression(ctx, condition);
+    let condition_expr = resolve_expression(ctx, condition)?;
 
     // Resolve then branch
-    let _resolved_then = resolve_statements(ctx, then_branch);
+    let resolved_then = resolve_statements(ctx, then_branch);
 
     // Resolve else branch if present
-    let _resolved_else = else_branch.map(|stmts| resolve_statements(ctx, stmts));
+    let resolved_else = else_branch.map(|stmts| resolve_statements(ctx, stmts));
 
-    // Return the statement (for now, just clone the AST)
-    Some(ctx.arena.alloc(Stmt::If {
-        condition: condition.clone(),
-        then_branch: then_branch.to_vec(),
-        else_branch: else_branch.cloned(),
+    // Create the HIR statement
+    let stmt = ctx.arena.alloc(ResolvedStmt::new(
         span,
-    }))
+        ResolvedStmtKind::If {
+            condition: condition_expr,
+            then_branch: resolved_then,
+            else_branch: resolved_else,
+            span,
+        },
+    ));
+
+    Some(stmt)
 }
 
 /// Resolve a block statement
@@ -520,21 +705,26 @@ fn resolve_block_statement<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
     statements: &[Stmt<'src>],
     span: Span,
-) -> Option<&'arena Stmt<'src>> {
+) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
     // Push a new scope for the block
     ctx.scope_stack.push_scope();
 
     // Resolve statements in the block
-    let _resolved = resolve_statements(ctx, statements);
+    let resolved = resolve_statements(ctx, statements);
 
     // Pop the block scope
     ctx.scope_stack.pop_scope();
 
-    // Return the statement (for now, just clone the AST)
-    Some(ctx.arena.alloc(Stmt::Block {
-        statements: statements.to_vec(),
+    // Create the HIR statement
+    let stmt = ctx.arena.alloc(ResolvedStmt::new(
         span,
-    }))
+        ResolvedStmtKind::Block {
+            statements: resolved,
+            span,
+        },
+    ));
+
+    Some(stmt)
 }
 
 /// Resolve a return statement
@@ -542,15 +732,20 @@ fn resolve_return_statement<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
     value: Option<&Expr<'src>>,
     span: Span,
-) -> Option<&'arena Stmt<'src>> {
+) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
     // Resolve the return value if present
-    let _value_expr = value.and_then(|expr| resolve_expression(ctx, expr));
+    let value_expr = value.and_then(|expr| resolve_expression(ctx, expr));
 
-    // Return the statement (for now, just clone the AST)
-    Some(ctx.arena.alloc(Stmt::Return {
-        value: value.cloned(),
+    // Create the HIR statement
+    let stmt = ctx.arena.alloc(ResolvedStmt::new(
         span,
-    }))
+        ResolvedStmtKind::Return {
+            value: value_expr,
+            span,
+        },
+    ));
+
+    Some(stmt)
 }
 
 /// Resolve an expression statement
@@ -558,15 +753,20 @@ fn resolve_expression_statement<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
     expr: &Expr<'src>,
     span: Span,
-) -> Option<&'arena Stmt<'src>> {
+) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
     // Resolve the expression
-    let _resolved_expr = resolve_expression(ctx, expr);
+    let resolved_expr = resolve_expression(ctx, expr)?;
 
-    // Return the statement (for now, just clone the AST)
-    Some(ctx.arena.alloc(Stmt::Expression {
-        expr: expr.clone(),
+    // Create the HIR statement
+    let stmt = ctx.arena.alloc(ResolvedStmt::new(
         span,
-    }))
+        ResolvedStmtKind::Expression {
+            expr: resolved_expr,
+            span,
+        },
+    ));
+
+    Some(stmt)
 }
 
 // ============================================================================
@@ -2310,6 +2510,17 @@ mod tests {
         let source = "obj.field = 42;";
         let mut ctx = AnalyzerContext::new(&arena, source);
 
+        // Declare the obj variable first
+        let obj_def = arena.alloc(VarDefinition::new(
+            "obj",
+            make_span(1, 1),
+            None,
+            None,
+            0,
+            make_span(1, 1),
+        ));
+        ctx.scope_stack.declare_variable("obj", obj_def);
+
         let stmt = Stmt::FieldAssignment {
             dot_prefix: false,
             field_path: vec![("obj", make_span(1, 1)), ("field", make_span(1, 5))],
@@ -2381,6 +2592,8 @@ mod tests {
 
         use crate::ast::expr::{AddLhs, AddRhs};
         use crate::ast::{FunctionParam, Type};
+        use crate::hir_definitions::FunctionDefinition;
+        use crate::hir_types::ResolvedType;
 
         let params = vec![
             FunctionParam {
@@ -2400,6 +2613,20 @@ mod tests {
                 span: make_span(1, 16),
             },
         ];
+
+        // Declare the function first (simulating Pass 1)
+        let func_def = arena.alloc(FunctionDefinition {
+            name: "add",
+            name_span: make_span(1, 4),
+            params: vec![],
+            return_type: ResolvedType::I32 {
+                span: make_span(1, 27),
+            },
+            body: vec![],
+            parent_struct: None,
+            span: make_span(1, 1),
+        });
+        ctx.register_function("add", func_def);
 
         let return_expr = Expr::Add {
             lhs: Box::new(AddLhs::Var {

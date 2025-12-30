@@ -8,7 +8,6 @@
 //! - Error collection
 
 // Allow dead code for now since this module is not yet fully integrated
-#![allow(dead_code)]
 
 use crate::hir_definitions::{FunctionDefinition, StructDefinition};
 use crate::hir_scope::ScopeStack;

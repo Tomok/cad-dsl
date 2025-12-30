@@ -2,10 +2,8 @@
 //!
 //! This module defines the type system for the HIR, which represents types after
 //! name resolution and type checking have been performed.
-
-// Allow dead code for now since this module is not yet fully integrated
-#![allow(dead_code)]
 //!
+#![allow(dead_code)] // Public API for type system in future phases
 //! # Arena Allocation
 //!
 //! The HIR uses arena allocation via `bumpalo::Bump` for memory management. This

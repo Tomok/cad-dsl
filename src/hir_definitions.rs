@@ -3,10 +3,8 @@
 //! This module defines the core definition types for the HIR, including variables,
 //! functions, structs, and fields. All nodes use arena allocation for efficient
 //! memory management and to enable safe cross-references using lifetimes.
-
-// Allow dead code for now since this module is not yet fully integrated
-#![allow(dead_code)]
 //!
+#![allow(dead_code)] // Public API with methods for future compiler phases
 //! # Arena Allocation
 //!
 //! All HIR nodes are allocated in a `bumpalo::Bump` arena allocator, providing:

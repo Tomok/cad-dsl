@@ -3,8 +3,7 @@
 //! This module provides types for tracking context information in CAD-DSL's `with` statements,
 //! which are used for both transform contexts and container field initialization contexts.
 
-// Allow dead code for now since this module is not yet fully integrated
-#![allow(dead_code)]
+#![allow(dead_code)] // Planned for constraint generation phase
 //!
 //! # With-Context Semantics
 //!

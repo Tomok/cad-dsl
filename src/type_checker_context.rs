@@ -1,3 +1,5 @@
+#![allow(dead_code)] // Planned for constraint-based type inference
+
 use crate::lexer::Span;
 use crate::type_checker_errors::TypeCheckError;
 use bumpalo::Bump;
@@ -8,13 +10,11 @@ pub struct TypeId(usize);
 
 impl TypeId {
     /// Create a new TypeId from a usize
-    #[allow(dead_code)] // Planned for future use in type variable generation
     pub fn new(id: usize) -> Self {
         Self(id)
     }
 
     /// Get the underlying usize value
-    #[allow(dead_code)] // Planned for future use in type variable resolution
     pub fn as_usize(&self) -> usize {
         self.0
     }
@@ -22,7 +22,6 @@ impl TypeId {
 
 /// Type constraints collected during type checking
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Planned for future use in constraint-based type inference
 pub enum TypeConstraint {
     /// Two types must be equal
     Equal {
@@ -41,13 +40,10 @@ pub enum TypeConstraint {
 /// Context for type checking, including arena allocator, source code, and error collection
 pub struct TypeCheckContext<'src, 'arena> {
     /// Arena allocator for type checking data structures
-    #[allow(dead_code)] // Planned for future use in type variable allocation
     arena: &'arena Bump,
     /// Source code being type checked
-    #[allow(dead_code)] // Planned for future use in enhanced error reporting
     source: &'src str,
     /// Collected type constraints
-    #[allow(dead_code)] // Planned for future use in constraint-based type inference
     type_constraints: Vec<TypeConstraint>,
     /// Collected type checking errors
     errors: Vec<TypeCheckError>,
@@ -65,7 +61,6 @@ impl<'src, 'arena> TypeCheckContext<'src, 'arena> {
     }
 
     /// Add a type constraint to the context
-    #[allow(dead_code)] // Planned for future use in constraint-based type inference
     pub fn add_constraint(&mut self, constraint: TypeConstraint) {
         self.type_constraints.push(constraint);
     }

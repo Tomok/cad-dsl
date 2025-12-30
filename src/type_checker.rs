@@ -169,29 +169,19 @@
 //! - **Error Recovery**: Continue type checking after errors for better IDE support
 
 // Re-exports for convenient access
+pub use crate::hir_expr::ResolvedStmt;
 pub use crate::type_checker_context::TypeCheckContext;
 pub use crate::type_checker_errors::TypeCheckError;
 
 // Imports
-use crate::ast::types::Stmt;
 use crate::type_checker_validation;
 use bumpalo::Bump;
-
-/// Temporary type alias for ResolvedStmt until full HIR statements are implemented.
-///
-/// Currently, the HIR only includes resolved expressions (`ResolvedExpr`), not
-/// resolved statements. The semantic analyzer returns AST statements, so we use
-/// those for type checking.
-///
-/// This type alias makes it easy to replace with a proper `ResolvedStmt` type
-/// when the HIR is extended with statement types.
-pub type ResolvedStmt<'src, 'arena> = &'arena Stmt<'src>;
 
 /// Type check a CAD-DSL program
 ///
 /// This is the main entry point for type checking. It takes a slice of resolved
-/// statements (currently AST statements) and validates that all types are used
-/// correctly throughout the program.
+/// statements from the HIR and validates that all types are used correctly
+/// throughout the program.
 ///
 /// # Type Checking Process
 ///
@@ -219,7 +209,7 @@ pub type ResolvedStmt<'src, 'arena> = &'arena Stmt<'src>;
 ///
 /// - `arena`: Arena allocator for type checking data structures
 /// - `source`: Source code string for error reporting
-/// - `hir`: Slice of resolved statements to type check (currently AST statements)
+/// - `hir`: Slice of resolved statements from the HIR to type check
 ///
 /// # Returns
 ///
@@ -271,7 +261,7 @@ pub type ResolvedStmt<'src, 'arena> = &'arena Stmt<'src>;
 pub fn type_check<'src, 'arena>(
     arena: &'arena Bump,
     source: &'src str,
-    hir: &[ResolvedStmt<'src, 'arena>],
+    hir: &[&'arena ResolvedStmt<'src, 'arena>],
 ) -> Result<(), Vec<TypeCheckError>> {
     // Create type checking context
     let mut ctx = TypeCheckContext::new(arena, source);
@@ -292,8 +282,9 @@ pub fn type_check<'src, 'arena>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::expr::Expr;
-    use crate::ast::types::Type;
+    use crate::hir_definitions::VarDefinition;
+    use crate::hir_expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmtKind};
+    use crate::hir_types::ResolvedType;
     use crate::lexer::{LineColumn, Span};
 
     /// Helper to create a span for testing
@@ -309,9 +300,9 @@ mod tests {
     fn test_type_check_empty_program() {
         let arena = Bump::new();
         let source = "";
-        let hir: Vec<&Stmt> = vec![];
+        let hir: &[&ResolvedStmt] = &[];
 
-        let result = type_check(&arena, source, &hir);
+        let result = type_check(&arena, source, hir);
         assert!(
             result.is_ok(),
             "Empty program should type check successfully"
@@ -323,20 +314,34 @@ mod tests {
         let arena = Bump::new();
         let source = "let x: i32 = 42;";
 
-        let stmt: &Stmt = arena.alloc(Stmt::Let {
-            dot_prefix: false,
-            name_path: vec![("x", test_span())],
-            type_annotation: Some(Type::I32 { span: test_span() }),
-            init: Some(Expr::IntLit {
-                value: 42,
-                span: test_span(),
-            }),
+        let var_type = arena.alloc(ResolvedType::I32 { span: test_span() });
+        let var_def = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(ResolvedType::I32 { span: test_span() }),
+            init: None,
+            scope_level: 0,
             span: test_span(),
         });
-        let hir = vec![stmt];
+        let init_expr = arena.alloc(ResolvedExpr {
+            span: test_span(),
+            kind: ResolvedExprKind::IntLit { value: 42 },
+            ty: var_type,
+        });
 
-        let result = type_check(&arena, source, &hir);
-        // Currently validation is not fully implemented, so this should pass
+        let stmt: &ResolvedStmt = arena.alloc(ResolvedStmt {
+            span: test_span(),
+            kind: ResolvedStmtKind::Let {
+                dot_prefix: false,
+                name_path: vec![("x", test_span())],
+                var_def,
+                init: Some(init_expr),
+                span: test_span(),
+            },
+        });
+        let hir = &[stmt];
+
+        let result = type_check(&arena, source, hir);
         assert!(
             result.is_ok(),
             "Simple let with annotation should type check"
@@ -348,16 +353,28 @@ mod tests {
         let arena = Bump::new();
         let source = "let x: i32;";
 
-        let stmt: &Stmt = arena.alloc(Stmt::Let {
-            dot_prefix: false,
-            name_path: vec![("x", test_span())],
-            type_annotation: Some(Type::I32 { span: test_span() }),
+        let var_def = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(ResolvedType::I32 { span: test_span() }),
             init: None,
+            scope_level: 0,
             span: test_span(),
         });
-        let hir = vec![stmt];
 
-        let result = type_check(&arena, source, &hir);
+        let stmt: &ResolvedStmt = arena.alloc(ResolvedStmt {
+            span: test_span(),
+            kind: ResolvedStmtKind::Let {
+                dot_prefix: false,
+                name_path: vec![("x", test_span())],
+                var_def,
+                init: None,
+                span: test_span(),
+            },
+        });
+        let hir = &[stmt];
+
+        let result = type_check(&arena, source, hir);
         assert!(result.is_ok(), "Let without init should type check");
     }
 
@@ -366,29 +383,61 @@ mod tests {
         let arena = Bump::new();
         let source = "let x: i32 = 42;\nlet y: f64 = 3.14;";
 
-        let stmt1: &Stmt = arena.alloc(Stmt::Let {
-            dot_prefix: false,
-            name_path: vec![("x", test_span())],
-            type_annotation: Some(Type::I32 { span: test_span() }),
-            init: Some(Expr::IntLit {
-                value: 42,
-                span: test_span(),
-            }),
+        // First statement: let x: i32 = 42;
+        let i32_type = arena.alloc(ResolvedType::I32 { span: test_span() });
+        let var_def1 = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(ResolvedType::I32 { span: test_span() }),
+            init: None,
+            scope_level: 0,
             span: test_span(),
         });
-        let stmt2: &Stmt = arena.alloc(Stmt::Let {
-            dot_prefix: false,
-            name_path: vec![("y", test_span())],
-            type_annotation: Some(Type::F64 { span: test_span() }),
-            init: Some(Expr::FloatLit {
-                value: 3.14,
-                span: test_span(),
-            }),
+        let init_expr1 = arena.alloc(ResolvedExpr {
             span: test_span(),
+            kind: ResolvedExprKind::IntLit { value: 42 },
+            ty: i32_type,
         });
-        let hir = vec![stmt1, stmt2];
+        let stmt1: &ResolvedStmt = arena.alloc(ResolvedStmt {
+            span: test_span(),
+            kind: ResolvedStmtKind::Let {
+                dot_prefix: false,
+                name_path: vec![("x", test_span())],
+                var_def: var_def1,
+                init: Some(init_expr1),
+                span: test_span(),
+            },
+        });
 
-        let result = type_check(&arena, source, &hir);
+        // Second statement: let y: f64 = 3.14;
+        let f64_type = arena.alloc(ResolvedType::F64 { span: test_span() });
+        let var_def2 = arena.alloc(VarDefinition {
+            name: "y",
+            name_span: test_span(),
+            var_type: Some(ResolvedType::F64 { span: test_span() }),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+        let init_expr2 = arena.alloc(ResolvedExpr {
+            span: test_span(),
+            kind: ResolvedExprKind::FloatLit { value: 3.14 },
+            ty: f64_type,
+        });
+        let stmt2: &ResolvedStmt = arena.alloc(ResolvedStmt {
+            span: test_span(),
+            kind: ResolvedStmtKind::Let {
+                dot_prefix: false,
+                name_path: vec![("y", test_span())],
+                var_def: var_def2,
+                init: Some(init_expr2),
+                span: test_span(),
+            },
+        });
+
+        let hir = &[stmt1, stmt2];
+
+        let result = type_check(&arena, source, hir);
         assert!(
             result.is_ok(),
             "Multiple let statements should type check successfully"
@@ -400,16 +449,23 @@ mod tests {
         let arena = Bump::new();
         let source = "42;";
 
-        let stmt: &Stmt = arena.alloc(Stmt::Expression {
-            expr: Expr::IntLit {
-                value: 42,
+        let i32_type = arena.alloc(ResolvedType::I32 { span: test_span() });
+        let expr = arena.alloc(ResolvedExpr {
+            span: test_span(),
+            kind: ResolvedExprKind::IntLit { value: 42 },
+            ty: i32_type,
+        });
+
+        let stmt: &ResolvedStmt = arena.alloc(ResolvedStmt {
+            span: test_span(),
+            kind: ResolvedStmtKind::Expression {
+                expr,
                 span: test_span(),
             },
-            span: test_span(),
         });
-        let hir = vec![stmt];
+        let hir = &[stmt];
 
-        let result = type_check(&arena, source, &hir);
+        let result = type_check(&arena, source, hir);
         assert!(
             result.is_ok(),
             "Expression statement should type check successfully"
@@ -421,22 +477,42 @@ mod tests {
         let arena = Bump::new();
         let source = "{ let x: i32 = 42; }";
 
-        let stmt: &Stmt = arena.alloc(Stmt::Block {
-            statements: vec![Stmt::Let {
-                dot_prefix: false,
-                name_path: vec![("x", test_span())],
-                type_annotation: Some(Type::I32 { span: test_span() }),
-                init: Some(Expr::IntLit {
-                    value: 42,
-                    span: test_span(),
-                }),
-                span: test_span(),
-            }],
+        let i32_type = arena.alloc(ResolvedType::I32 { span: test_span() });
+        let var_def = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(ResolvedType::I32 { span: test_span() }),
+            init: None,
+            scope_level: 1,
             span: test_span(),
         });
-        let hir = vec![stmt];
+        let init_expr = arena.alloc(ResolvedExpr {
+            span: test_span(),
+            kind: ResolvedExprKind::IntLit { value: 42 },
+            ty: i32_type,
+        });
 
-        let result = type_check(&arena, source, &hir);
+        let inner_stmt = arena.alloc(ResolvedStmt {
+            span: test_span(),
+            kind: ResolvedStmtKind::Let {
+                dot_prefix: false,
+                name_path: vec![("x", test_span())],
+                var_def,
+                init: Some(init_expr),
+                span: test_span(),
+            },
+        });
+
+        let stmt: &ResolvedStmt = arena.alloc(ResolvedStmt {
+            span: test_span(),
+            kind: ResolvedStmtKind::Block {
+                statements: vec![inner_stmt],
+                span: test_span(),
+            },
+        });
+        let hir = &[stmt];
+
+        let result = type_check(&arena, source, hir);
         assert!(
             result.is_ok(),
             "Block statement should type check successfully"

@@ -1,0 +1,2 @@
+// Test 1: Simple Let Statement
+let x: i32 = 42;

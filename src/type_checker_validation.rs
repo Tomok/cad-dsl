@@ -1,13 +1,11 @@
 //! Type validation for statements in the CAD-DSL type checker
+#![allow(dead_code)] // Validation functions for future phases
 //!
 //! This module provides validation functionality that checks types in statements,
 //! ensuring type consistency and compatibility across variable declarations,
 //! assignments, control flow, and function calls.
 
-// Allow dead code for now since this module is not yet fully integrated
-#![allow(dead_code)]
-
-use crate::ast::types::Stmt;
+use crate::hir_expr::{ResolvedStmt, ResolvedStmtKind};
 use crate::hir_types::ResolvedType;
 use crate::type_checker_context::TypeCheckContext;
 
@@ -21,91 +19,69 @@ use crate::type_checker_context::TypeCheckContext;
 /// - Control flow structures are well-typed
 ///
 /// Errors are added to the context and this function returns nothing.
-pub fn validate_stmt<'src, 'arena>(_ctx: &mut TypeCheckContext<'src, 'arena>, stmt: &Stmt<'src>) {
-    match stmt {
+pub fn validate_stmt<'src, 'arena>(
+    _ctx: &mut TypeCheckContext<'src, 'arena>,
+    stmt: &'arena ResolvedStmt<'src, 'arena>,
+) {
+    match &stmt.kind {
         // ====================================================================
         // Let Statements
         // ====================================================================
-        Stmt::Let {
-            type_annotation,
-            init,
-            span,
-            ..
-        } => {
+        ResolvedStmtKind::Let { var_def, init, .. } => {
             // If there's both a type annotation and an initializer, check compatibility
-            if let (Some(type_ann), Some(init_expr)) = (type_annotation, init) {
-                // Try to infer the type of the initializer
-                // Note: We need to convert the AST expression to a ResolvedExpr first
-                // For now, we'll skip this validation as it requires resolved expressions
-                // This would be implemented once we have full HIR with resolved statements
-
-                // TODO: Once ResolvedStmt exists with ResolvedExpr, implement this:
-                // if let Some(init_type) = infer_expr_type(ctx, resolved_init_expr) {
-                //     if !types_compatible(&expected_type, &init_type) {
-                //         ctx.add_error(TypeCheckError::TypeMismatch {
-                //             expected: type_name(&expected_type),
-                //             found: type_name(&init_type),
-                //             span: init_expr.span(),
-                //         });
-                //     }
-                // }
-
-                // Placeholder: mark as used to avoid warnings
-                let _ = (type_ann, init_expr, span);
+            if let (Some(var_type), Some(init_expr)) = (&var_def.var_type, init) {
+                // Check if the initializer type is compatible with the variable type
+                let init_type = init_expr.ty;
+                if !types_compatible(var_type, init_type) {
+                    // TODO: Add error to context
+                    // For now, we'll skip error reporting as the type checker is still being integrated
+                    let _ = (var_type, init_type);
+                }
             }
         }
 
         // ====================================================================
         // Assignment Statements
         // ====================================================================
-        Stmt::Assignment {
-            name, value, span, ..
-        } => {
+        ResolvedStmtKind::Assignment { var_def, value, .. } => {
             // Validate that the value type is compatible with the variable type
-            // This requires looking up the variable definition and checking types
-
-            // TODO: Once ResolvedStmt exists, implement this:
-            // 1. Look up variable definition
-            // 2. Infer type of value expression
-            // 3. Check compatibility
-
-            // Placeholder
-            let _ = (name, value, span);
+            if let Some(var_type) = &var_def.var_type {
+                let value_type = value.ty;
+                if !types_compatible(var_type, value_type) {
+                    // TODO: Add error to context
+                    let _ = (var_type, value_type);
+                }
+            }
         }
 
         // ====================================================================
         // Field Assignment Statements
         // ====================================================================
-        Stmt::FieldAssignment {
-            field_path,
-            value,
-            span,
-            ..
-        } => {
-            // Similar to Assignment but for field access
-            // TODO: Implement once ResolvedStmt exists
-            let _ = (field_path, value, span);
+        ResolvedStmtKind::FieldAssignment { target, value, .. } => {
+            // Validate that the value type is compatible with the field type
+            let target_type = target.ty;
+            let value_type = value.ty;
+            if !types_compatible(target_type, value_type) {
+                // TODO: Add error to context
+                let _ = (target_type, value_type);
+            }
         }
 
         // ====================================================================
         // If Statements
         // ====================================================================
-        Stmt::If {
+        ResolvedStmtKind::If {
             condition,
             then_branch,
             else_branch,
             ..
         } => {
             // Validate that the condition is a boolean
-            // TODO: Once ResolvedStmt exists with ResolvedExpr:
-            // if let Some(cond_type) = infer_expr_type(ctx, resolved_condition) {
-            //     if !matches!(cond_type, ResolvedType::Bool { .. }) {
-            //         ctx.add_error(TypeCheckError::NonBooleanCondition {
-            //             found_type: type_name(&cond_type),
-            //             span: condition.span(),
-            //         });
-            //     }
-            // }
+            let cond_type = condition.ty;
+            if !matches!(cond_type, ResolvedType::Bool { .. }) {
+                // TODO: Add error to context
+                let _ = cond_type;
+            }
 
             // Recursively validate branches
             for stmt in then_branch {
@@ -117,50 +93,45 @@ pub fn validate_stmt<'src, 'arena>(_ctx: &mut TypeCheckContext<'src, 'arena>, st
                     validate_stmt(_ctx, stmt);
                 }
             }
-
-            // Placeholder
-            let _ = condition;
         }
 
         // ====================================================================
         // For Loops
         // ====================================================================
-        Stmt::For { iterator, body, .. } => {
+        ResolvedStmtKind::For { iterator, body, .. } => {
             // Validate that iterator is a Range or Array type
-            // TODO: Implement once ResolvedStmt exists
+            // TODO: Implement proper iterator type validation
+            let _ = iterator;
 
             // Recursively validate body
             for stmt in body {
                 validate_stmt(_ctx, stmt);
             }
-
-            // Placeholder
-            let _ = iterator;
         }
 
         // ====================================================================
         // Return Statements
         // ====================================================================
-        Stmt::Return { value, span } => {
+        ResolvedStmtKind::Return { value, .. } => {
             // Validate that return value type matches function return type
             // This requires function context which we don't have yet
             // TODO: Implement once we have function context in TypeCheckContext
-            let _ = (value, span);
+            let _ = value;
         }
 
         // ====================================================================
         // Expression Statements
         // ====================================================================
-        Stmt::Expression { expr, .. } => {
+        ResolvedStmtKind::Expression { expr, .. } => {
             // Validate the expression
-            // TODO: Once ResolvedStmt exists, call infer_expr_type on resolved expression
+            // The expression already has a resolved type from semantic analysis
             let _ = expr;
         }
 
         // ====================================================================
         // Block Statements
         // ====================================================================
-        Stmt::Block { statements, .. } => {
+        ResolvedStmtKind::Block { statements, .. } => {
             // Recursively validate all statements in the block
             for stmt in statements {
                 validate_stmt(_ctx, stmt);
@@ -170,7 +141,7 @@ pub fn validate_stmt<'src, 'arena>(_ctx: &mut TypeCheckContext<'src, 'arena>, st
         // ====================================================================
         // With Statements
         // ====================================================================
-        Stmt::With { body, .. } => {
+        ResolvedStmtKind::With { body, .. } => {
             // Recursively validate all statements in the with body
             for stmt in body {
                 validate_stmt(_ctx, stmt);
@@ -180,7 +151,7 @@ pub fn validate_stmt<'src, 'arena>(_ctx: &mut TypeCheckContext<'src, 'arena>, st
         // ====================================================================
         // Function Definitions
         // ====================================================================
-        Stmt::FunctionDef { body, .. } => {
+        ResolvedStmtKind::FunctionDef { body, .. } => {
             // Recursively validate function body
             for stmt in body {
                 validate_stmt(_ctx, stmt);
@@ -190,7 +161,7 @@ pub fn validate_stmt<'src, 'arena>(_ctx: &mut TypeCheckContext<'src, 'arena>, st
         // ====================================================================
         // Struct Definitions
         // ====================================================================
-        Stmt::StructDef { methods, .. } => {
+        ResolvedStmtKind::StructDef { methods, .. } => {
             // Recursively validate method definitions
             for method in methods {
                 validate_stmt(_ctx, method);
@@ -276,7 +247,8 @@ fn type_name(ty: &ResolvedType) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir_definitions::StructDefinition;
+    use crate::hir_definitions::{StructDefinition, VarDefinition};
+    use crate::hir_expr::{ResolvedExpr, ResolvedExprKind};
     use crate::lexer::{LineColumn, Span};
     use bumpalo::Bump;
 
@@ -595,12 +567,15 @@ mod tests {
         let mut ctx = TypeCheckContext::new(&arena, source);
         let span = make_span(1, 1);
 
-        let stmt = Stmt::Block {
-            statements: vec![],
+        let stmt = arena.alloc(ResolvedStmt {
             span,
-        };
+            kind: ResolvedStmtKind::Block {
+                statements: vec![],
+                span,
+            },
+        });
 
-        validate_stmt(&mut ctx, &stmt);
+        validate_stmt(&mut ctx, stmt);
 
         // Empty block should not generate errors
         assert!(!ctx.has_errors());
@@ -613,14 +588,24 @@ mod tests {
         let mut ctx = TypeCheckContext::new(&arena, source);
         let span = make_span(1, 1);
 
-        let stmt = Stmt::If {
-            condition: crate::ast::expr::Expr::BoolLit { value: true, span },
-            then_branch: vec![],
-            else_branch: Some(vec![]),
+        let bool_type = arena.alloc(ResolvedType::Bool { span });
+        let condition = arena.alloc(ResolvedExpr {
             span,
-        };
+            kind: ResolvedExprKind::BoolLit { value: true },
+            ty: bool_type,
+        });
 
-        validate_stmt(&mut ctx, &stmt);
+        let stmt = arena.alloc(ResolvedStmt {
+            span,
+            kind: ResolvedStmtKind::If {
+                condition,
+                then_branch: vec![],
+                else_branch: Some(vec![]),
+                span,
+            },
+        });
+
+        validate_stmt(&mut ctx, stmt);
 
         // Should recursively validate branches without errors
         assert!(!ctx.has_errors());
@@ -633,15 +618,32 @@ mod tests {
         let mut ctx = TypeCheckContext::new(&arena, source);
         let span = make_span(1, 1);
 
-        let stmt = Stmt::For {
-            loop_var: "i",
-            loop_var_span: span,
-            iterator: crate::ast::expr::Expr::IntLit { value: 0, span },
-            body: vec![],
+        let i32_type = arena.alloc(ResolvedType::I32 { span });
+        let loop_var_def = arena.alloc(VarDefinition {
+            name: "i",
+            name_span: span,
+            var_type: Some(ResolvedType::I32 { span }),
+            init: None,
+            scope_level: 1,
             span,
-        };
+        });
+        let iterator = arena.alloc(ResolvedExpr {
+            span,
+            kind: ResolvedExprKind::IntLit { value: 0 },
+            ty: i32_type,
+        });
 
-        validate_stmt(&mut ctx, &stmt);
+        let stmt = arena.alloc(ResolvedStmt {
+            span,
+            kind: ResolvedStmtKind::For {
+                loop_var_def,
+                iterator,
+                body: vec![],
+                span,
+            },
+        });
+
+        validate_stmt(&mut ctx, stmt);
 
         // Should recursively validate body without errors
         assert!(!ctx.has_errors());
@@ -654,17 +656,27 @@ mod tests {
         let mut ctx = TypeCheckContext::new(&arena, source);
         let span = make_span(1, 1);
 
-        let stmt = Stmt::FunctionDef {
-            name: "foo".to_string(),
+        let func_def = arena.alloc(crate::hir_definitions::FunctionDefinition {
+            name: "foo",
             name_span: span,
             params: vec![],
-            return_type: crate::ast::types::Type::I32 { span },
+            return_type: ResolvedType::I32 { span },
             body: vec![],
-            return_expr: None,
+            parent_struct: None,
             span,
-        };
+        });
 
-        validate_stmt(&mut ctx, &stmt);
+        let stmt = arena.alloc(ResolvedStmt {
+            span,
+            kind: ResolvedStmtKind::FunctionDef {
+                func_def,
+                body: vec![],
+                return_expr: None,
+                span,
+            },
+        });
+
+        validate_stmt(&mut ctx, stmt);
 
         // Should recursively validate body without errors
         assert!(!ctx.has_errors());
@@ -677,13 +689,28 @@ mod tests {
         let mut ctx = TypeCheckContext::new(&arena, source);
         let span = make_span(1, 1);
 
-        let stmt = Stmt::With {
-            context_expr: crate::ast::expr::Expr::IntLit { value: 0, span },
-            body: vec![],
+        let i32_type = arena.alloc(ResolvedType::I32 { span });
+        let context_expr = arena.alloc(ResolvedExpr {
             span,
-        };
+            kind: ResolvedExprKind::IntLit { value: 0 },
+            ty: i32_type,
+        });
+        let with_context = arena.alloc(crate::hir_context::WithContext {
+            context_expr,
+            container_field: None,
+            transforms: vec![],
+        });
 
-        validate_stmt(&mut ctx, &stmt);
+        let stmt = arena.alloc(ResolvedStmt {
+            span,
+            kind: ResolvedStmtKind::With {
+                with_context,
+                body: vec![],
+                span,
+            },
+        });
+
+        validate_stmt(&mut ctx, stmt);
 
         // Should recursively validate body without errors
         assert!(!ctx.has_errors());

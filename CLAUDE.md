@@ -122,9 +122,10 @@ Before committing, always:
 - Transforms AST to High-level Intermediate Representation (HIR)
 - Two-pass analysis to support forward references
 - Pass 1: Declaration collection (structs, functions, top-level variables)
-- Pass 2: Name resolution and HIR construction
+- Pass 2: Name resolution and HIR construction (produces ResolvedStmt and ResolvedExpr)
 - Arena-based allocation for cross-references
 - Comprehensive error reporting with span tracking
+- Output: Complete HIR with no AST nodes
 
 **Semantic Analyzer Submodules:**
 - `semantic_analyzer_errors.rs` - Error types for semantic analysis (9 error variants)
@@ -133,7 +134,8 @@ Before committing, always:
 - `semantic_analyzer_pass2.rs` - AST to HIR transformation with name resolution
 
 **Type Checker (`src/type_checker.rs`)**
-- Performs type inference and validation on HIR expressions
+- Performs type inference and validation on HIR
+- Works with ResolvedStmt and ResolvedExpr (not AST)
 - Ensures type safety across the program
 - Hindley-Milner inspired type inference algorithm
 - Type validation for assignments, function calls, and operators
@@ -149,7 +151,10 @@ Before committing, always:
 **HIR (High-level IR) Modules:**
 - `hir_types.rs` - Resolved types with struct definition references
 - `hir_definitions.rs` - Definitions for variables, functions, structs, and fields
-- `hir_expr.rs` - Resolved expressions with type information (30+ expression kinds)
+- `hir_expr.rs` - Resolved expressions and statements with type information
+  - ResolvedExpr: 30+ expression kinds with type annotations
+  - ResolvedStmt: 11 statement kinds (Let, Assignment, If, For, FunctionDef, StructDef, Return, Expression, Block, With, FieldAssignment)
+  - All HIR nodes use arena allocation with cross-references to definitions
 - `hir_context.rs` - With-context support for container field resolution
 - `hir_scope.rs` - Scope management with lexical scoping and shadowing
 
@@ -165,8 +170,9 @@ Before committing, always:
 
 **Two-Pass Semantic Analysis**: The semantic analyzer uses a two-pass approach to support forward references in CAD-DSL:
 - Pass 1 collects all declarations (struct, function, variable names)
-- Pass 2 resolves all references and constructs HIR
+- Pass 2 resolves all references and constructs HIR (ResolvedStmt and ResolvedExpr)
 - This allows variables to reference types or functions defined later in the source
+- Output is pure HIR with complete type information and cross-references
 
 **Arena Allocation**: The HIR uses arena allocation (bumpalo) for memory management:
 - All HIR nodes are allocated in a single arena with lifetime `'arena`
@@ -183,6 +189,10 @@ The project has comprehensive test suites for each component:
 - **Lexer tests**: Token recognition, position tracking, comment handling
 - **Parser tests**: Expression parsing, precedence, error cases with timeout protection
 - **AST tests**: Type conversions and display formatting
+- **HIR tests**:
+  - ResolvedExpr: Construction and type annotation tests
+  - ResolvedStmt: 16 tests for statement construction and behavior
+  - Integration tests: 17 end-to-end tests covering complete source → HIR → type checker pipeline
 - **Semantic Analyzer tests**:
   - Error type formatting (12 tests)
   - Context operations and symbol tables (11 tests)
@@ -211,9 +221,12 @@ Currently implements:
 ### Completed Features:
 - Lexer: All tokens, comments, position tracking
 - Parser: Expressions, statements, declarations
-- Semantic Analyzer: Two-pass analysis, forward references, scope management
-- Type Checker: Type inference, validation, numeric promotion
-- HIR: Type-safe intermediate representation with arena allocation
+- Semantic Analyzer: Two-pass analysis, forward references, scope management, complete HIR generation
+- Type Checker: Type inference, validation, numeric promotion (works on HIR)
+- HIR: Complete type-safe intermediate representation with arena allocation
+  - ResolvedExpr: 30+ expression kinds with type annotations
+  - ResolvedStmt: 11 statement kinds with cross-references
+  - All AST nodes transformed to HIR in semantic analyzer
 
 ### Next Steps:
 - Constraint solving integration (Z3)
