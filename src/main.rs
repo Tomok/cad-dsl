@@ -24,6 +24,9 @@ mod type_checker_errors;
 mod type_checker_inference;
 mod type_checker_validation;
 
+// Constraint extraction module
+mod constraint_extractor;
+
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use bumpalo::Bump;
 use chumsky::Parser as _;
