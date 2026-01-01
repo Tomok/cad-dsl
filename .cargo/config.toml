@@ -47,3 +47,21 @@ incremental = false
 # ALTERNATIVE: Developers can override locally with CARGO_PROFILE_DEV_DEBUG=2
 # for full debug symbols when doing intensive debugging sessions.
 debug = 1
+
+[target.x86_64-unknown-linux-gnu]
+# Force single-threaded linking to prevent linker OOM crashes
+#
+# RATIONALE: The lld linker uses internal parallelism (llvm::parallelFor) which
+# can cause Bus errors and OOM crashes on CI runners with limited memory.
+# - The --threads=1 flag disables lld's internal parallelism
+# - This is separate from Cargo's job parallelism (jobs = 1 above)
+# - Without this flag, lld may still spawn multiple threads internally
+#
+# IMPACT:
+# - Prevents Bus error crashes during linking phase
+# - Increases link time but ensures build reliability
+# - Critical for CI environments with ~7GB RAM
+#
+# NOTE: This only affects x86_64 Linux targets. Other platforms may need
+# similar configuration if they experience linker crashes.
+rustflags = ["-C", "link-arg=-Wl,--threads=1"]
