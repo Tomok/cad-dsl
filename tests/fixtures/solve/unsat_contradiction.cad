@@ -1,0 +1,6 @@
+// Contradictory constraints (UNSAT)
+// x cannot be both 10 and 20
+// Expected: UNSAT
+let x: i32;
+x == 10;
+x == 20;

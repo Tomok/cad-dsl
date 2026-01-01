@@ -1,0 +1,7 @@
+// System of two equations with two unknowns
+// x + y = 30 and x - y = 10
+// Expected: x = 20, y = 10
+let x: i32;
+let y: i32;
+x + y == 30;
+x - y == 10;

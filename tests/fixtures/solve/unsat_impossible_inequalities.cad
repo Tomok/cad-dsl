@@ -1,0 +1,6 @@
+// Impossible inequalities (UNSAT)
+// x cannot be both less than 5 and greater than 10
+// Expected: UNSAT
+let x: i32;
+x < 5;
+x > 10;

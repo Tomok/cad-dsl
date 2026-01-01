@@ -1,0 +1,8 @@
+// Over-constrained but consistent system
+// Multiple ways to express the same constraints
+// Expected: x = 10
+let x: i32;
+x == 10;
+x + 0 == 10;
+x * 1 == 10;
+x - 0 == 10;

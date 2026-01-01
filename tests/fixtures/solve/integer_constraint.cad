@@ -1,0 +1,4 @@
+// Integer type constraint
+// Expected: x = 42
+let x: i32;
+x == 42;

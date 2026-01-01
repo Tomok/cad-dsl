@@ -1,0 +1,6 @@
+// Boolean contradiction (UNSAT)
+// x cannot be both true and false
+// Expected: UNSAT
+let x: bool;
+x == true;
+x == false;

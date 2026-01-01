@@ -1,0 +1,6 @@
+// Exactly constrained system (unique solution)
+// Expected: x = 10, y = 20
+let x: i32;
+let y: i32;
+x + y == 30;
+x == 10;
