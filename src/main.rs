@@ -33,6 +33,9 @@ mod z3_bridge;
 // Solution formatter
 mod solution_formatter;
 
+// Solver pipeline
+mod solver;
+
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use bumpalo::Bump;
 use chumsky::Parser as _;
