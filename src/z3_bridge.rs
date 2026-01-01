@@ -319,6 +319,11 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
         &self.solver
     }
 
+    /// Get the variables map for solution formatting
+    pub fn variables(&self) -> &HashMap<&'src str, Z3Ast> {
+        &self.variables
+    }
+
     /// Create a Z3 constant based on a ResolvedType
     fn create_z3_constant(
         &self,
