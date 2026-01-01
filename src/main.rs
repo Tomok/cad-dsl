@@ -27,6 +27,9 @@ mod type_checker_validation;
 // Constraint extraction module
 mod constraint_extractor;
 
+// Z3 constraint solver bridge
+mod z3_bridge;
+
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use bumpalo::Bump;
 use chumsky::Parser as _;
