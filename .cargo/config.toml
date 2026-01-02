@@ -33,25 +33,24 @@ jobs = 1
 incremental = false
 
 [profile.dev]
-# Enable minimal debug info for better debugging with mold linker
+# Use default debug info (level 2) with mold linker
 #
-# RATIONALE: With the memory-efficient mold linker, we can safely enable minimal
-# debug information (level 1) without causing OOM crashes on CI runners.
+# RATIONALE: With the memory-efficient mold linker, we can safely use Rust's
+# default debug information level (debug = 2) without causing OOM crashes.
 # - Test binaries are monolithic and include ALL tests + test framework
-# - mold linker handles large binaries more efficiently than lld
-# - debug = 1 provides line numbers in backtraces without full symbol info
-# - Significantly improves debugging experience compared to debug = 0
+# - mold linker handles large binaries with full debug info efficiently
+# - debug = 2 (default) provides complete debug symbols and line numbers
+# - Best debugging experience for development and CI troubleshooting
 #
 # IMPACT:
-# - Enables useful backtraces with line numbers for debugging test failures
-# - Moderate binary size increase (acceptable with mold's efficiency)
-# - Tests run correctly with better error diagnostics
-# - Better developer experience both locally and in CI
+# - Full debug symbols available in backtraces for all test failures
+# - Larger binary size but acceptable with mold's efficiency
+# - Tests run correctly with complete error diagnostics
+# - Optimal developer experience both locally and in CI
 #
-# ALTERNATIVE: Developers can override locally with CARGO_PROFILE_DEV_DEBUG=2
-# for full debug symbols when working locally (local machines have more RAM).
-# If mold still causes issues, fallback to debug = 0.
-debug = 1
+# ALTERNATIVE: If mold causes OOM issues with full debug symbols, revert to
+# debug = 1 (line numbers only) or debug = 0 (no debug info).
+# debug is not set here, so Rust uses its default value of 2 for dev profile
 
 # Reduce code generation units to minimize linker workload
 #
