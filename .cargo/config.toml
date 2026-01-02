@@ -1,53 +1,57 @@
 # Cargo build configuration for CAD-DSL project
 #
-# This configuration enforces serial (non-parallel) linking to prevent memory exhaustion
-# and linker crashes during builds and tests.
+# This configuration uses the mold linker for memory-efficient builds while
+# maintaining debug information for better developer experience.
 
 [build]
 # Limit to 1 concurrent build job (affects linking phase primarily)
 #
-# RATIONALE: Test binaries with full debug info cause memory exhaustion during parallel linking.
-# - Standard CI runners have ~7GB RAM available
-# - Parallel LLVM linker processes can consume 10GB+ combined
-# - Results in Bus errors or OOM killer terminating builds
+# RATIONALE: Even with the memory-efficient mold linker, limiting concurrent jobs
+# ensures build stability on CI runners with limited memory (~7GB RAM).
+# - Test binaries with debug info are large and memory-intensive
+# - mold is more efficient than lld, but serial linking adds extra safety
+# - Prevents OOM issues on memory-constrained CI environments
 #
 # IMPACT:
-# - Prevents linker crashes in CI and on memory-constrained developer machines
-# - Increases build time but ensures build reliability
+# - Ensures build reliability on CI runners
+# - Increases build time but guarantees successful builds
 # - Applies to both `cargo build` and `cargo test` (test binary compilation)
+# - May be relaxed in the future if mold proves stable with parallel builds
 #
 # FUTURE: Consider removing if:
 # - GitHub Actions provides larger runners (16GB+ RAM)
-# - Switching to more memory-efficient linker (e.g., mold)
-# - Reducing debug info level in test builds (trade-off: worse debugging)
+# - mold proves stable with parallel builds and debug = 1
 jobs = 1
 
 # Disable incremental compilation
 #
 # RATIONALE: Incremental compilation adds memory overhead during linking
 # - Incremental metadata increases linker memory pressure
-# - Provides minimal benefit with serial linking anyway
+# - Provides minimal benefit with serial linking (jobs = 1) anyway
 # - Simplifies build process and reduces cache size
+# - Even with mold linker, incremental builds add unnecessary complexity
 incremental = false
 
 [profile.dev]
-# Disable debug info completely to prevent linker OOM crashes
+# Enable minimal debug info for better debugging with mold linker
 #
-# RATIONALE: Even minimal debug info (level 1) causes test binaries to be too large
-# for CI runners with limited memory (~7GB RAM).
+# RATIONALE: With the memory-efficient mold linker, we can safely enable minimal
+# debug information (level 1) without causing OOM crashes on CI runners.
 # - Test binaries are monolithic and include ALL tests + test framework
-# - With debug = 1, linker still crashes with Bus errors on CI
-# - debug = 0 eliminates all debug symbols, drastically reducing binary size
+# - mold linker handles large binaries more efficiently than lld
+# - debug = 1 provides line numbers in backtraces without full symbol info
+# - Significantly improves debugging experience compared to debug = 0
 #
 # IMPACT:
-# - Prevents linker crashes in CI by minimizing binary size
-# - No backtraces with line numbers (basic function names only)
-# - Tests still run correctly, just harder to debug failures
-# - Critical trade-off for CI reliability
+# - Enables useful backtraces with line numbers for debugging test failures
+# - Moderate binary size increase (acceptable with mold's efficiency)
+# - Tests run correctly with better error diagnostics
+# - Better developer experience both locally and in CI
 #
-# ALTERNATIVE: Developers can override locally with CARGO_PROFILE_DEV_DEBUG=1 or =2
-# for debug symbols when working locally (local machines have more RAM).
-debug = 0
+# ALTERNATIVE: Developers can override locally with CARGO_PROFILE_DEV_DEBUG=2
+# for full debug symbols when working locally (local machines have more RAM).
+# If mold still causes issues, fallback to debug = 0.
+debug = 1
 
 # Reduce code generation units to minimize linker workload
 #
@@ -55,28 +59,34 @@ debug = 0
 # - Default is 16 units in dev mode, which creates many object files
 # - Each object file adds to linker memory pressure
 # - Reducing to 1 creates a single object file per crate
+# - Works synergistically with mold linker for efficient builds
 #
 # IMPACT:
-# - Significantly reduces linker memory consumption
-# - Slower initial compilation but much faster linking
-# - Critical for preventing OOM crashes on CI runners
+# - Reduces linker memory consumption (helpful even with efficient mold)
+# - Slower initial compilation but faster linking with mold
+# - Helps prevent OOM crashes on CI runners
 # - Trade-off: Slower incremental builds (but we disabled incremental anyway)
 codegen-units = 1
 
 [target.x86_64-unknown-linux-gnu]
-# Force single-threaded linking to prevent linker OOM crashes
+# Use mold linker for fast, memory-efficient linking
 #
-# RATIONALE: The lld linker uses internal parallelism (llvm::parallelFor) which
-# can cause Bus errors and OOM crashes on CI runners with limited memory.
-# - The --threads=1 flag disables lld's internal parallelism
-# - This is separate from Cargo's job parallelism (jobs = 1 above)
-# - Without this flag, lld may still spawn multiple threads internally
+# RATIONALE: The mold linker is significantly more memory-efficient than lld
+# and allows us to re-enable debug information without OOM crashes.
+# - mold uses less memory than lld, even with parallel linking enabled
+# - This allows debug info (debug = 1) to be enabled for better debugging
+# - Faster link times compared to lld with single-threaded mode
 #
 # IMPACT:
-# - Prevents Bus error crashes during linking phase
-# - Increases link time but ensures build reliability
-# - Critical for CI environments with ~7GB RAM
+# - Prevents linker OOM crashes while maintaining debug capabilities
+# - Faster builds compared to single-threaded lld
+# - Better developer experience with debug symbols available
+# - Works reliably on CI runners with ~7GB RAM
+#
+# REQUIREMENTS:
+# - mold must be installed (provided via nix development environment)
+# - mold is available in nativeBuildInputs in flake.nix
 #
 # NOTE: This only affects x86_64 Linux targets. Other platforms may need
 # similar configuration if they experience linker crashes.
-rustflags = ["-C", "link-arg=-Wl,--threads=1"]
+rustflags = ["-C", "linker=clang", "-C", "link-arg=-fuse-ld=mold"]

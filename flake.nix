@@ -28,6 +28,7 @@
           clang
           libclang.dev
           cargo-llvm-cov  # Code coverage tool
+          mold  # Fast, memory-efficient linker for Rust builds
         ];
 
         buildInputs = with pkgs; [
