@@ -54,9 +54,9 @@
 //! The HIR resolver maintains a stack of `WithContext` objects to track the current
 //! nesting level and available transforms.
 
-use crate::hir_definitions::{ContainerField, FunctionDefinition};
-use crate::hir_expr::ResolvedExpr;
-use crate::hir_types::ResolvedType;
+use super::definitions::{ContainerField, FunctionDefinition};
+use super::expr::ResolvedExpr;
+use super::types::ResolvedType;
 
 /// A with-context tracks the state of a `with` statement during HIR resolution.
 ///

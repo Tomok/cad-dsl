@@ -6,10 +6,10 @@
 // Allow dead code for now since this module is not yet fully integrated
 #![allow(dead_code)] // Planned for future type inference implementation
 
-use crate::hir_expr::{ResolvedExpr, ResolvedExprKind};
-use crate::hir_types::ResolvedType;
-use crate::type_checker_context::TypeCheckContext;
-use crate::type_checker_errors::TypeCheckError;
+use super::context::TypeCheckContext;
+use super::errors::TypeCheckError;
+use crate::hir::expr::{ResolvedExpr, ResolvedExprKind};
+use crate::hir::types::ResolvedType;
 
 /// Infer the type of an expression
 ///
@@ -226,7 +226,7 @@ pub fn infer_expr_type<'src, 'arena>(
             // we try to extract it from one of the field definitions
             if let Some(first_field) = fields.first() {
                 match first_field {
-                    crate::hir_expr::ResolvedStructLitField::Field { .. } => {
+                    crate::hir::expr::ResolvedStructLitField::Field { .. } => {
                         // We need to get the parent struct definition from the field
                         // This is a limitation of the current HIR design
                         // For now, we return an error
@@ -236,7 +236,7 @@ pub fn infer_expr_type<'src, 'arena>(
                         });
                         None
                     }
-                    crate::hir_expr::ResolvedStructLitField::ComputedProperty {
+                    crate::hir::expr::ResolvedStructLitField::ComputedProperty {
                         method_def,
                         ..
                     } => {
@@ -459,8 +459,8 @@ fn types_equal(lhs: &ResolvedType, rhs: &ResolvedType) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir_definitions::{FunctionDefinition, VarDefinition};
-    use crate::hir_expr::ResolvedExpr;
+    use crate::hir::definitions::{FunctionDefinition, VarDefinition};
+    use crate::hir::expr::ResolvedExpr;
     use crate::lexer::{LineColumn, Span};
     use bumpalo::Bump;
 

@@ -2,38 +2,16 @@ mod ast;
 mod lexer;
 mod parser;
 
-// HIR modules
+// HIR module
 mod hir;
-mod hir_context;
-mod hir_definitions;
-mod hir_expr;
-mod hir_scope;
-mod hir_types;
 
-// Semantic analysis modules
+// Semantic analysis module
 mod semantic_analyzer;
-mod semantic_analyzer_context;
-mod semantic_analyzer_errors;
-mod semantic_analyzer_pass1;
-mod semantic_analyzer_pass2;
 
-// Type checking modules
+// Type checking module
 mod type_checker;
-mod type_checker_context;
-mod type_checker_errors;
-mod type_checker_inference;
-mod type_checker_validation;
 
-// Constraint extraction module
-mod constraint_extractor;
-
-// Z3 constraint solver bridge
-mod z3_bridge;
-
-// Solution formatter
-mod solution_formatter;
-
-// Solver pipeline
+// Solver pipeline module
 mod solver;
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
@@ -41,10 +19,10 @@ use bumpalo::Bump;
 use chumsky::Parser as _;
 use clap::{Parser, Subcommand};
 use lexer::TokenTrait;
-use semantic_analyzer_errors::SemanticError;
+use semantic_analyzer::errors::SemanticError;
 use solver::SolverError;
 use std::fs;
-use type_checker_errors::TypeCheckError;
+use type_checker::errors::TypeCheckError;
 
 #[derive(Parser)]
 #[command(name = "cad-dsl")]

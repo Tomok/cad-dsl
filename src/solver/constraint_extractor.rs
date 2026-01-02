@@ -34,8 +34,8 @@
 
 #![allow(dead_code)] // Public API for future constraint solving implementation
 
-use crate::hir_expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind};
-use crate::hir_types::ResolvedType;
+use crate::hir::expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind};
+use crate::hir::types::ResolvedType;
 use crate::lexer::Span;
 use std::fmt;
 
@@ -391,8 +391,8 @@ fn is_comparison_expr<'src, 'arena>(expr: &ResolvedExpr<'src, 'arena>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir_definitions::VarDefinition;
-    use crate::hir_types::ResolvedType;
+    use crate::hir::definitions::VarDefinition;
+    use crate::hir::types::ResolvedType;
     use crate::lexer::LineColumn;
     use assert_matches::assert_matches;
     use bumpalo::Bump;
@@ -805,7 +805,7 @@ mod tests {
     #[test]
     fn test_error_unsupported_struct_def() {
         let arena = Bump::new();
-        let struct_def = arena.alloc(crate::hir_definitions::StructDefinition {
+        let struct_def = arena.alloc(crate::hir::definitions::StructDefinition {
             name: "Point",
             name_span: test_span(),
             fields: vec![],
@@ -838,7 +838,7 @@ mod tests {
     #[test]
     fn test_error_unsupported_function_def() {
         let arena = Bump::new();
-        let func_def = arena.alloc(crate::hir_definitions::FunctionDefinition {
+        let func_def = arena.alloc(crate::hir::definitions::FunctionDefinition {
             name: "foo",
             name_span: test_span(),
             params: vec![],

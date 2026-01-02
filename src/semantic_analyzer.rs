@@ -165,16 +165,25 @@
 // ============================================================================
 
 use crate::ast;
-use crate::semantic_analyzer_pass1;
-use crate::semantic_analyzer_pass2;
 use bumpalo::Bump;
 
 // ============================================================================
-// Re-exports for convenience
+// Submodule Declarations
 // ============================================================================
 
-pub use crate::semantic_analyzer_context::AnalyzerContext;
-pub use crate::semantic_analyzer_errors::SemanticError;
+pub mod context;
+pub mod errors;
+pub mod pass1;
+pub mod pass2;
+
+// ============================================================================
+// Public Re-exports
+// ============================================================================
+
+#[allow(unused_imports)]
+pub use context::AnalyzerContext;
+#[allow(unused_imports)]
+pub use errors::SemanticError;
 
 // ============================================================================
 // Main Entry Point
@@ -229,12 +238,12 @@ pub fn analyze<'src, 'arena>(
     arena: &'arena Bump,
     source: &'src str,
     ast: &[ast::Stmt<'src>],
-) -> Result<Vec<&'arena crate::hir_expr::ResolvedStmt<'src, 'arena>>, Vec<SemanticError>> {
+) -> Result<Vec<&'arena crate::hir::expr::ResolvedStmt<'src, 'arena>>, Vec<SemanticError>> {
     // Create analyzer context
     let mut ctx = AnalyzerContext::new(arena, source);
 
     // Pass 1: Collect all declarations
-    semantic_analyzer_pass1::collect_declarations(&mut ctx, ast);
+    pass1::collect_declarations(&mut ctx, ast);
 
     // Check for errors from Pass 1
     if ctx.has_errors() {
@@ -242,7 +251,7 @@ pub fn analyze<'src, 'arena>(
     }
 
     // Pass 2: Resolve all references and build HIR
-    let resolved = semantic_analyzer_pass2::resolve_statements(&mut ctx, ast);
+    let resolved = pass2::resolve_statements(&mut ctx, ast);
 
     // Check for errors from Pass 2
     if ctx.has_errors() {
@@ -917,7 +926,7 @@ mod tests {
             // Verify HIR structure
             assert_matches!(
                 &hir[0].kind,
-                crate::hir_expr::ResolvedStmtKind::Let {
+                crate::hir::expr::ResolvedStmtKind::Let {
                     var_def,
                     init: Some(_),
                     ..
@@ -972,10 +981,10 @@ mod tests {
             assert_eq!(hir.len(), 2, "Should have 2 HIR statements");
 
             // Verify HIR structure
-            assert_matches!(&hir[0].kind, crate::hir_expr::ResolvedStmtKind::Let { .. });
+            assert_matches!(&hir[0].kind, crate::hir::expr::ResolvedStmtKind::Let { .. });
             assert_matches!(
                 &hir[1].kind,
-                crate::hir_expr::ResolvedStmtKind::Assignment { .. }
+                crate::hir::expr::ResolvedStmtKind::Assignment { .. }
             );
 
             // Test type checking
@@ -1088,7 +1097,7 @@ mod tests {
             // Verify If statement structure
             assert_matches!(
                 &hir[1].kind,
-                crate::hir_expr::ResolvedStmtKind::If {
+                crate::hir::expr::ResolvedStmtKind::If {
                     then_branch,
                     else_branch: None,
                     ..
@@ -1150,7 +1159,7 @@ mod tests {
             // Verify For loop structure
             assert_matches!(
                 &hir[0].kind,
-                crate::hir_expr::ResolvedStmtKind::For {
+                crate::hir::expr::ResolvedStmtKind::For {
                     loop_var_def,
                     body,
                     ..
@@ -1226,7 +1235,7 @@ mod tests {
             // Verify function structure
             assert_matches!(
                 &hir[0].kind,
-                crate::hir_expr::ResolvedStmtKind::FunctionDef {
+                crate::hir::expr::ResolvedStmtKind::FunctionDef {
                     func_def,
                     body,
                     return_expr: Some(_),
@@ -1311,7 +1320,7 @@ mod tests {
             // Verify struct definition
             assert_matches!(
                 &hir[0].kind,
-                crate::hir_expr::ResolvedStmtKind::StructDef {
+                crate::hir::expr::ResolvedStmtKind::StructDef {
                     struct_def,
                     ..
                 } if struct_def.name == "Point"
@@ -1320,7 +1329,7 @@ mod tests {
             // Verify struct instantiation
             assert_matches!(
                 &hir[1].kind,
-                crate::hir_expr::ResolvedStmtKind::Let {
+                crate::hir::expr::ResolvedStmtKind::Let {
                     var_def,
                     init: Some(_),
                     ..
@@ -1473,7 +1482,7 @@ mod tests {
             // Verify block structure
             assert_matches!(
                 &hir[1].kind,
-                crate::hir_expr::ResolvedStmtKind::Block {
+                crate::hir::expr::ResolvedStmtKind::Block {
                     statements,
                     ..
                 } if statements.len() == 2
@@ -1525,7 +1534,7 @@ mod tests {
             // Verify expression statement
             assert_matches!(
                 &hir[1].kind,
-                crate::hir_expr::ResolvedStmtKind::Expression { .. }
+                crate::hir::expr::ResolvedStmtKind::Expression { .. }
             );
 
             // Test type checking
@@ -1634,7 +1643,7 @@ mod tests {
             // Verify if-else structure
             assert_matches!(
                 &hir[1].kind,
-                crate::hir_expr::ResolvedStmtKind::If {
+                crate::hir::expr::ResolvedStmtKind::If {
                     then_branch,
                     else_branch: Some(else_stmts),
                     ..
@@ -1822,7 +1831,7 @@ mod tests {
             // Verify return statement is present
             assert_matches!(
                 &hir[0].kind,
-                crate::hir_expr::ResolvedStmtKind::FunctionDef {
+                crate::hir::expr::ResolvedStmtKind::FunctionDef {
                     return_expr: Some(_),
                     ..
                 }

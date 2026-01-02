@@ -38,16 +38,16 @@
 //! - Duplicate function definitions (same name)
 //! - Duplicate variable definitions (in the same scope)
 
+use super::context::AnalyzerContext;
+use super::errors::SemanticError;
 use crate::ast::{
     FunctionParam as AstFunctionParam, Stmt, StructField as AstStructField, Type as AstType,
 };
-use crate::hir_definitions::{
+use crate::hir::definitions::{
     FieldDefinition, FunctionDefinition, FunctionParam, ScopeLevel, StructDefinition, VarDefinition,
 };
-use crate::hir_types::ResolvedType;
+use crate::hir::types::ResolvedType;
 use crate::lexer::Span;
-use crate::semantic_analyzer_context::AnalyzerContext;
-use crate::semantic_analyzer_errors::SemanticError;
 
 // ============================================================================
 // Main Collection Function
@@ -250,11 +250,12 @@ fn collect_struct_def<'src, 'arena>(
     }
 
     // Handle container field if present
-    let container_field: Option<&'arena crate::hir_definitions::ContainerField<'src, 'arena>> =
+    let container_field: Option<&'arena crate::hir::definitions::ContainerField<'src, 'arena>> =
         container.map(|(container_name, container_span)| {
             let container_name_src = extract_name(ctx.source, container_name);
-            let cf: &'arena crate::hir_definitions::ContainerField<'src, 'arena> =
-                ctx.arena.alloc(crate::hir_definitions::ContainerField::new(
+            let cf: &'arena crate::hir::definitions::ContainerField<'src, 'arena> = ctx
+                .arena
+                .alloc(crate::hir::definitions::ContainerField::new(
                     container_name_src,
                     *container_span,
                     *container_span,

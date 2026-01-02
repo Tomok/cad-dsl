@@ -28,9 +28,9 @@
 //! - Connects related entities (methods to structs, etc.)
 //! - Provides a foundation for type checking and constraint solving
 
+use super::expr::ResolvedExpr;
+use super::types::ResolvedType;
 use crate::ast::span::HasSpan;
-use crate::hir_expr::ResolvedExpr;
-use crate::hir_types::ResolvedType;
 use crate::lexer::Span;
 use std::collections::HashMap;
 

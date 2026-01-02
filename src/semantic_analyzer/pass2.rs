@@ -38,16 +38,16 @@
 //! and reporting of multiple errors at once. When a resolution failure occurs,
 //! the function returns `None` and an error is added to the context.
 
+use super::context::AnalyzerContext;
+use super::errors::SemanticError;
 use crate::ast::{Expr, Stmt, StructLitField as AstStructLitField};
-use crate::hir_context::WithContext;
-use crate::hir_definitions::{ScopeLevel, VarDefinition};
-use crate::hir_expr::{
+use crate::hir::context::WithContext;
+use crate::hir::definitions::{ScopeLevel, VarDefinition};
+use crate::hir::expr::{
     ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind, ResolvedStructLitField,
 };
-use crate::hir_types::ResolvedType;
+use crate::hir::types::ResolvedType;
 use crate::lexer::Span;
-use crate::semantic_analyzer_context::AnalyzerContext;
-use crate::semantic_analyzer_errors::SemanticError;
 
 // ============================================================================
 // Main Resolution Functions
@@ -1227,7 +1227,7 @@ pub fn resolve_expression<'src, 'arena>(
 fn resolve_struct_lit_field<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
     field: &AstStructLitField<'src>,
-    struct_def: &'arena crate::hir_definitions::StructDefinition<'src, 'arena>,
+    struct_def: &'arena crate::hir::definitions::StructDefinition<'src, 'arena>,
 ) -> Option<ResolvedStructLitField<'src, 'arena>> {
     match field {
         AstStructLitField::Field { name, value, span } => {
@@ -2273,8 +2273,8 @@ mod tests {
         let source = "Point { x: 1, y: 2 }";
         let mut ctx = AnalyzerContext::new(&arena, source);
 
-        use crate::hir_definitions::{FieldDefinition, StructDefinition};
-        use crate::hir_types::ResolvedType;
+        use crate::hir::definitions::{FieldDefinition, StructDefinition};
+        use crate::hir::types::ResolvedType;
 
         // Create struct definition
         let field_x = arena.alloc(FieldDefinition::new(
@@ -2342,8 +2342,8 @@ mod tests {
         let source = "Point { z: 1 }";
         let mut ctx = AnalyzerContext::new(&arena, source);
 
-        use crate::hir_definitions::{FieldDefinition, StructDefinition};
-        use crate::hir_types::ResolvedType;
+        use crate::hir::definitions::{FieldDefinition, StructDefinition};
+        use crate::hir::types::ResolvedType;
 
         // Create struct definition without field z
         let field_x = arena.alloc(FieldDefinition::new(
@@ -2444,7 +2444,7 @@ mod tests {
 
         let resolved_context = resolve_expression(&mut ctx, &context_expr).unwrap();
 
-        use crate::hir_context::WithContext;
+        use crate::hir::context::WithContext;
         let with_ctx = ctx
             .arena
             .alloc(WithContext::new_transform(resolved_context, vec![]));
@@ -2560,7 +2560,7 @@ mod tests {
 
         let resolved_context = resolve_expression(&mut ctx, &context_expr).unwrap();
 
-        use crate::hir_context::WithContext;
+        use crate::hir::context::WithContext;
         let with_ctx = ctx
             .arena
             .alloc(WithContext::new_transform(resolved_context, vec![]));
@@ -2592,8 +2592,8 @@ mod tests {
 
         use crate::ast::expr::{AddLhs, AddRhs};
         use crate::ast::{FunctionParam, Type};
-        use crate::hir_definitions::FunctionDefinition;
-        use crate::hir_types::ResolvedType;
+        use crate::hir::definitions::FunctionDefinition;
+        use crate::hir::types::ResolvedType;
 
         let params = vec![
             FunctionParam {
@@ -2928,7 +2928,7 @@ mod tests {
         let source = "Point";
         let mut ctx = AnalyzerContext::new(&arena, source);
 
-        use crate::hir_definitions::StructDefinition;
+        use crate::hir::definitions::StructDefinition;
 
         // Create and register a struct definition
         let struct_def = arena.alloc(StructDefinition::new(

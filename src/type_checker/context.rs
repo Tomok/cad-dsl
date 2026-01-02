@@ -1,7 +1,7 @@
 #![allow(dead_code)] // Planned for constraint-based type inference
 
+use super::errors::TypeCheckError;
 use crate::lexer::Span;
-use crate::type_checker_errors::TypeCheckError;
 use bumpalo::Bump;
 
 /// A unique identifier for a type variable in the type inference system

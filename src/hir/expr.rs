@@ -39,12 +39,10 @@
 //! - `'src`: Lifetime of the source code string (for string slices)
 //! - `'arena`: Lifetime of the arena allocator (for HIR node references)
 
+use super::context::WithContext;
+use super::definitions::{FieldDefinition, FunctionDefinition, StructDefinition, VarDefinition};
+use super::types::ResolvedType;
 use crate::ast::HasSpan;
-use crate::hir_context::WithContext;
-use crate::hir_definitions::{
-    FieldDefinition, FunctionDefinition, StructDefinition, VarDefinition,
-};
-use crate::hir_types::ResolvedType;
 use crate::lexer::Span;
 
 // ============================================================================
@@ -584,10 +582,10 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir_definitions::{
+    use crate::hir::definitions::{
         FieldDefinition, FunctionDefinition, FunctionParam, StructDefinition, VarDefinition,
     };
-    use crate::hir_types::ResolvedType;
+    use crate::hir::types::ResolvedType;
     use crate::lexer::LineColumn;
     use bumpalo::Bump;
 

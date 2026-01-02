@@ -9,9 +9,9 @@
 
 // Allow dead code for now since this module is not yet fully integrated
 
-use crate::hir_definitions::{FunctionDefinition, StructDefinition};
-use crate::hir_scope::ScopeStack;
-use crate::semantic_analyzer_errors::SemanticError;
+use super::errors::SemanticError;
+use crate::hir::definitions::{FunctionDefinition, StructDefinition};
+use crate::hir::scope::ScopeStack;
 use bumpalo::Bump;
 use std::collections::HashMap;
 
@@ -305,8 +305,8 @@ impl<'src, 'arena> AnalyzerContext<'src, 'arena> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir_definitions::{FieldDefinition, FunctionParam};
-    use crate::hir_types::ResolvedType;
+    use crate::hir::definitions::{FieldDefinition, FunctionParam};
+    use crate::hir::types::ResolvedType;
     use crate::lexer::{LineColumn, Span};
 
     /// Helper to create a dummy span for testing

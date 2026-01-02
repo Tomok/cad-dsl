@@ -168,13 +168,30 @@
 //! - **Z3 Integration**: Constraint solving for geometric relationships
 //! - **Error Recovery**: Continue type checking after errors for better IDE support
 
-// Re-exports for convenient access
-pub use crate::hir_expr::ResolvedStmt;
-pub use crate::type_checker_context::TypeCheckContext;
-pub use crate::type_checker_errors::TypeCheckError;
+// ============================================================================
+// Submodule Declarations
+// ============================================================================
 
+pub mod context;
+pub mod errors;
+pub mod inference;
+pub mod validation;
+
+// ============================================================================
+// Public Re-exports
+// ============================================================================
+
+#[allow(unused_imports)]
+pub use crate::hir::expr::ResolvedStmt;
+#[allow(unused_imports)]
+pub use context::TypeCheckContext;
+#[allow(unused_imports)]
+pub use errors::TypeCheckError;
+
+// ============================================================================
 // Imports
-use crate::type_checker_validation;
+// ============================================================================
+
 use bumpalo::Bump;
 
 /// Type check a CAD-DSL program
@@ -268,7 +285,7 @@ pub fn type_check<'src, 'arena>(
 
     // Validate each statement in the HIR
     for stmt in hir {
-        type_checker_validation::validate_stmt(&mut ctx, stmt);
+        validation::validate_stmt(&mut ctx, stmt);
     }
 
     // Check if any errors were collected
@@ -282,9 +299,9 @@ pub fn type_check<'src, 'arena>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir_definitions::VarDefinition;
-    use crate::hir_expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmtKind};
-    use crate::hir_types::ResolvedType;
+    use crate::hir::definitions::VarDefinition;
+    use crate::hir::expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmtKind};
+    use crate::hir::types::ResolvedType;
     use crate::lexer::{LineColumn, Span};
 
     /// Helper to create a span for testing
