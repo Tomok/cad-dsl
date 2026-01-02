@@ -120,7 +120,7 @@ Before committing, always:
 - Rich error reporting with Ariadne integration
 - Handles parentheses and operator precedence correctly
 
-**Semantic Analyzer (`src/semantic_analyzer.rs`)**
+**Semantic Analyzer (`src/semantic_analyzer/`)**
 - Transforms AST to High-level Intermediate Representation (HIR)
 - Two-pass analysis to support forward references
 - Pass 1: Declaration collection (structs, functions, top-level variables)
@@ -130,12 +130,12 @@ Before committing, always:
 - Output: Complete HIR with no AST nodes
 
 **Semantic Analyzer Submodules:**
-- `semantic_analyzer_errors.rs` - Error types for semantic analysis (9 error variants)
-- `semantic_analyzer_context.rs` - Analyzer context with symbol tables and scope management
-- `semantic_analyzer_pass1.rs` - Declaration collection with two-phase type resolution
-- `semantic_analyzer_pass2.rs` - AST to HIR transformation with name resolution
+- `errors.rs` - Error types for semantic analysis (9 error variants)
+- `context.rs` - Analyzer context with symbol tables and scope management
+- `pass1.rs` - Declaration collection with two-phase type resolution
+- `pass2.rs` - AST to HIR transformation with name resolution
 
-**Type Checker (`src/type_checker.rs`)**
+**Type Checker (`src/type_checker/`)**
 - Performs type inference and validation on HIR
 - Works with ResolvedStmt and ResolvedExpr (not AST)
 - Ensures type safety across the program
@@ -145,49 +145,52 @@ Before committing, always:
 - Comprehensive error reporting with span tracking
 
 **Type Checker Submodules:**
-- `type_checker_errors.rs` - Type-specific errors (8 error variants)
-- `type_checker_context.rs` - Type checking context with constraint management
-- `type_checker_inference.rs` - Type inference algorithm with unification
-- `type_checker_validation.rs` - Type validation and compatibility checks
+- `errors.rs` - Type-specific errors (8 error variants)
+- `context.rs` - Type checking context with constraint management
+- `inference.rs` - Type inference algorithm with unification
+- `validation.rs` - Type validation and compatibility checks
 
-**Constraint Extractor (`src/constraint_extractor.rs`)**
-- Extracts variables and constraints from typed HIR
-- Identifies uninitialized variables that need solving
-- Collects constraint equations from expression statements
-- Validates that constraints are solvable (basic types only)
-- Supports: let statements, assignments, comparison operators, arithmetic
-- Out of scope: control flow, structs, functions, standard library
-
-**Z3 Bridge (`src/z3_bridge.rs`)**
-- Translates HIR expressions to Z3 solver format
-- Maps TextCAD types to Z3 sorts (i32 → Int, f64 → Real, bool → Bool)
-- Converts arithmetic and comparison operators to Z3 operations
-- Creates Z3 variables and assertions from constraint equations
-- Type-safe wrapper around Z3 API
-
-**Solution Formatter (`src/solution_formatter.rs`)**
-- Extracts solutions from Z3 models
-- Formats variable assignments for display
-- Handles type-specific value extraction (Int, Real, Bool)
-- Provides user-friendly output of constraint solutions
-- Error handling for unsatisfiable constraints
-
-**Solver (`src/solver.rs`)**
+**Solver Pipeline (`src/solver/`)**
 - End-to-end constraint solving pipeline
 - Orchestrates: semantic analysis → type checking → constraint extraction → Z3 solving → formatting
 - Returns SAT (with solution) or UNSAT (no solution exists)
 - Integrates all constraint solving components
 - Main entry point for constraint solving from HIR
 
-**HIR (High-level IR) Modules:**
-- `hir_types.rs` - Resolved types with struct definition references
-- `hir_definitions.rs` - Definitions for variables, functions, structs, and fields
-- `hir_expr.rs` - Resolved expressions and statements with type information
+**Solver Submodules:**
+- `constraint_extractor.rs` - Extracts variables and constraints from typed HIR
+  - Identifies uninitialized variables that need solving
+  - Collects constraint equations from expression statements
+  - Validates that constraints are solvable (basic types only)
+  - Supports: let statements, assignments, comparison operators, arithmetic
+  - Out of scope: control flow, structs, functions, standard library
+
+- `z3_bridge.rs` - Translates HIR expressions to Z3 solver format
+  - Maps TextCAD types to Z3 sorts (i32 → Int, f64 → Real, bool → Bool)
+  - Converts arithmetic and comparison operators to Z3 operations
+  - Creates Z3 variables and assertions from constraint equations
+  - Type-safe wrapper around Z3 API
+
+- `solution_formatter.rs` - Extracts solutions from Z3 models
+  - Formats variable assignments for display
+  - Handles type-specific value extraction (Int, Real, Bool)
+  - Provides user-friendly output of constraint solutions
+  - Error handling for unsatisfiable constraints
+
+**HIR (High-level IR) Module (`src/hir/`)**
+- High-level Intermediate Representation with complete semantic resolution
+- Arena-allocated nodes with cross-references between definitions
+- Public API re-exported through `hir.rs`
+
+**HIR Submodules:**
+- `types.rs` - Resolved types with struct definition references
+- `definitions.rs` - Definitions for variables, functions, structs, and fields
+- `expr.rs` - Resolved expressions and statements with type information
   - ResolvedExpr: 30+ expression kinds with type annotations
   - ResolvedStmt: 11 statement kinds (Let, Assignment, If, For, FunctionDef, StructDef, Return, Expression, Block, With, FieldAssignment)
   - All HIR nodes use arena allocation with cross-references to definitions
-- `hir_context.rs` - With-context support for container field resolution
-- `hir_scope.rs` - Scope management with lexical scoping and shadowing
+- `context.rs` - With-context support for container field resolution
+- `scope.rs` - Scope management with lexical scoping and shadowing
 
 **CLI (`src/main.rs`)**
 - CLI with `lex`, `parse`, and `solve` subcommands
