@@ -637,6 +637,71 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
             }),
         }
     }
+
+    // ========================================================================
+    // Conditional (If-Then-Else) Operations
+    // ========================================================================
+
+    /// Create an if-then-else expression
+    ///
+    /// Uses Z3's native `ite` operator to create conditional expressions.
+    ///
+    /// # Arguments
+    /// * `condition` - Boolean condition
+    /// * `then_expr` - Expression if condition is true
+    /// * `else_expr` - Expression if condition is false
+    ///
+    /// # Returns
+    /// Returns the same type as then_expr and else_expr (must match or be compatible)
+    ///
+    /// # Type Promotion
+    /// If one branch is Int and the other is Real, both are promoted to Real
+    fn create_ite(
+        &self,
+        condition: &Z3Ast,
+        then_expr: &Z3Ast,
+        else_expr: &Z3Ast,
+        span: Span,
+    ) -> Result<Z3Ast, Z3BridgeError> {
+        let cond_bool = condition.as_bool(span)?;
+
+        match (then_expr, else_expr) {
+            (Z3Ast::Int(t), Z3Ast::Int(e)) => Ok(Z3Ast::Int(cond_bool.ite(t, e))),
+            (Z3Ast::Real(t), Z3Ast::Real(e)) => Ok(Z3Ast::Real(cond_bool.ite(t, e))),
+            (Z3Ast::Bool(t), Z3Ast::Bool(e)) => Ok(Z3Ast::Bool(cond_bool.ite(t, e))),
+            // Handle mixed Int/Real by promoting to Real
+            (Z3Ast::Int(t), Z3Ast::Real(e)) => Ok(Z3Ast::Real(cond_bool.ite(&t.to_real(), e))),
+            (Z3Ast::Real(t), Z3Ast::Int(e)) => Ok(Z3Ast::Real(cond_bool.ite(t, &e.to_real()))),
+            _ => Err(Z3BridgeError::TypeMismatch {
+                expected: "matching types in then/else branches".to_string(),
+                found: "mismatched types".to_string(),
+                span,
+            }),
+        }
+    }
+
+    /// Translate an if-then-else expression to Z3
+    ///
+    /// This method is public to support future HIR if-expressions.
+    /// Currently used for testing the ITE functionality.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Translates: if x > 0 { 10 } else { -10 }
+    /// let result = bridge.translate_if_expr(condition, then_expr, else_expr)?;
+    /// ```
+    pub fn translate_if_expr(
+        &self,
+        condition: &'arena ResolvedExpr<'src, 'arena>,
+        then_expr: &'arena ResolvedExpr<'src, 'arena>,
+        else_expr: &'arena ResolvedExpr<'src, 'arena>,
+    ) -> Result<Z3Ast, Z3BridgeError> {
+        let cond_z3 = self.translate_expr(condition)?;
+        let then_z3 = self.translate_expr(then_expr)?;
+        let else_z3 = self.translate_expr(else_expr)?;
+
+        self.create_ite(&cond_z3, &then_z3, &else_z3, condition.span)
+    }
 }
 
 impl<'src, 'arena> Default for Z3Bridge<'src, 'arena> {
@@ -1090,5 +1155,170 @@ mod tests {
         let display = format!("{}", error);
         assert!(display.contains("x"));
         assert!(display.contains("not found"));
+    }
+
+    // ========================================================================
+    // ITE (If-Then-Else) Tests
+    // ========================================================================
+
+    #[test]
+    fn test_create_ite_int() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if true { 10 } else { 20 }
+        let condition = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+        let then_val = Z3Ast::Int(z3::ast::Int::from_i64(10));
+        let else_val = Z3Ast::Int(z3::ast::Int::from_i64(20));
+
+        let result = bridge.create_ite(&condition, &then_val, &else_val, test_span());
+        assert!(result.is_ok());
+        assert_matches!(result.unwrap(), Z3Ast::Int(_));
+    }
+
+    #[test]
+    fn test_create_ite_real() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let real_ty = arena.alloc(ResolvedType::F64 { span: test_span() });
+
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if false { 1.5 } else { 2.5 }
+        let condition = Z3Ast::Bool(z3::ast::Bool::from_bool(false));
+        let then_val = Z3Ast::Real(z3::ast::Real::from_rational_str("15", "10").unwrap());
+        let else_val = Z3Ast::Real(z3::ast::Real::from_rational_str("25", "10").unwrap());
+
+        let result = bridge.create_ite(&condition, &then_val, &else_val, test_span());
+        assert!(result.is_ok());
+        assert_matches!(result.unwrap(), Z3Ast::Real(_));
+    }
+
+    #[test]
+    fn test_create_ite_bool() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if true { true } else { false }
+        let condition = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+        let then_val = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+        let else_val = Z3Ast::Bool(z3::ast::Bool::from_bool(false));
+
+        let result = bridge.create_ite(&condition, &then_val, &else_val, test_span());
+        assert!(result.is_ok());
+        assert_matches!(result.unwrap(), Z3Ast::Bool(_));
+    }
+
+    #[test]
+    fn test_create_ite_mixed_int_real() {
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if true { 10 (int) } else { 2.5 (real) }
+        let condition = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+        let then_val = Z3Ast::Int(z3::ast::Int::from_i64(10));
+        let else_val = Z3Ast::Real(z3::ast::Real::from_rational_str("25", "10").unwrap());
+
+        let result = bridge.create_ite(&condition, &then_val, &else_val, test_span());
+        assert!(result.is_ok());
+        // Should be promoted to Real
+        assert_matches!(result.unwrap(), Z3Ast::Real(_));
+    }
+
+    #[test]
+    fn test_create_ite_mixed_real_int() {
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if true { 1.5 (real) } else { 20 (int) }
+        let condition = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+        let then_val = Z3Ast::Real(z3::ast::Real::from_rational_str("15", "10").unwrap());
+        let else_val = Z3Ast::Int(z3::ast::Int::from_i64(20));
+
+        let result = bridge.create_ite(&condition, &then_val, &else_val, test_span());
+        assert!(result.is_ok());
+        // Should be promoted to Real
+        assert_matches!(result.unwrap(), Z3Ast::Real(_));
+    }
+
+    #[test]
+    fn test_create_ite_type_mismatch() {
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if true { 10 (int) } else { true (bool) } - should fail
+        let condition = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+        let then_val = Z3Ast::Int(z3::ast::Int::from_i64(10));
+        let else_val = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+
+        let result = bridge.create_ite(&condition, &then_val, &else_val, test_span());
+        assert!(result.is_err());
+        assert_matches!(result.unwrap_err(), Z3BridgeError::TypeMismatch { .. });
+    }
+
+    #[test]
+    fn test_translate_if_expr_basic() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if true { 10 } else { 20 }
+        let condition = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
+        let then_expr = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let else_expr = make_expr(&arena, ResolvedExprKind::IntLit { value: 20 }, int_ty);
+
+        let result = bridge.translate_if_expr(condition, then_expr, else_expr);
+        assert!(result.is_ok());
+        assert_matches!(result.unwrap(), Z3Ast::Int(_));
+    }
+
+    #[test]
+    fn test_translate_if_expr_with_variables() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Create variables
+        let var_x = Variable::new("x", int_ty, None, test_span());
+        let var_def_x = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let mut bridge = Z3Bridge::<'static, 'static>::new();
+        bridge.add_variable(&var_x).unwrap();
+
+        // Create: if x > 0 { 10 } else { -10 }
+        let x_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "x",
+                definition: var_def_x,
+            },
+            int_ty,
+        );
+        let zero = make_expr(&arena, ResolvedExprKind::IntLit { value: 0 }, int_ty);
+        let condition = make_expr(
+            &arena,
+            ResolvedExprKind::Gt {
+                lhs: x_ref,
+                rhs: zero,
+            },
+            bool_ty,
+        );
+        let then_expr = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let else_expr = make_expr(&arena, ResolvedExprKind::IntLit { value: -10 }, int_ty);
+
+        let result = bridge.translate_if_expr(condition, then_expr, else_expr);
+        assert!(result.is_ok());
+        assert_matches!(result.unwrap(), Z3Ast::Int(_));
     }
 }
