@@ -69,7 +69,7 @@ debug = 1
 codegen-units = 1
 
 [target.x86_64-unknown-linux-gnu]
-# Use mold linker for fast, memory-efficient linking
+# Use mold linker for fast, memory-efficient linking (Linux x86_64 only)
 #
 # RATIONALE: The mold linker is significantly more memory-efficient than lld
 # and allows us to re-enable debug information without OOM crashes.
@@ -84,9 +84,11 @@ codegen-units = 1
 # - Works reliably on CI runners with ~7GB RAM
 #
 # REQUIREMENTS:
-# - mold must be installed (provided via nix development environment)
-# - mold is available in nativeBuildInputs in flake.nix
+# - mold must be installed (provided via nix development environment on Linux)
+# - mold is conditionally added to nativeBuildInputs in flake.nix (Linux only)
 #
-# NOTE: This only affects x86_64 Linux targets. Other platforms may need
-# similar configuration if they experience linker crashes.
+# PLATFORM NOTES:
+# - This configuration only affects x86_64 Linux builds
+# - macOS/Darwin and other platforms will use their default system linkers
+# - mold is ELF-specific and not available on non-Linux platforms
 rustflags = ["-C", "linker=clang", "-C", "link-arg=-fuse-ld=mold"]
