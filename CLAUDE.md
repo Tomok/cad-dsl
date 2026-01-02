@@ -162,20 +162,36 @@ Before committing, always:
 **Solver Submodules:**
 - `constraint_extractor.rs` - Extracts variables and constraints from typed HIR
   - Identifies uninitialized variables that need solving
+  - **Flattens struct types** into primitive fields with qualified names
   - Collects constraint equations from expression statements
-  - Validates that constraints are solvable (basic types only)
-  - Supports: let statements, assignments, comparison operators, arithmetic
-  - Out of scope: control flow, structs, functions, standard library
+  - Validates that constraints are solvable (primitive types only)
+  - Supports: let statements, struct types, comparison operators, arithmetic, if-statements
+  - Detects and rejects recursive struct types
+
+- `recursive_struct_detector.rs` - Detects cycles in struct type definitions
+  - DFS-based cycle detection algorithm
+  - Detects direct recursion (struct A { field: A })
+  - Detects indirect recursion (A → B → C → A)
+  - Provides cycle path in error messages
+  - Handles reference types transparently
+
+- `struct_flattener.rs` - Flattens nested structs to primitive fields
+  - Generates qualified field names (e.g., "line.start.x")
+  - Supports arbitrary nesting depth
+  - Handles reference type unwrapping
+  - Returns list of FlattenedField with name and primitive type
 
 - `z3_bridge.rs` - Translates HIR expressions to Z3 solver format
   - Maps TextCAD types to Z3 sorts (i32 → Int, f64 → Real, bool → Bool)
   - Converts arithmetic and comparison operators to Z3 operations
   - Creates Z3 variables and assertions from constraint equations
+  - Supports flattened struct variable names (String keys)
   - Type-safe wrapper around Z3 API
 
 - `solution_formatter.rs` - Extracts solutions from Z3 models
   - Formats variable assignments for display
   - Handles type-specific value extraction (Int, Real, Bool)
+  - Supports flattened struct field names in output
   - Provides user-friendly output of constraint solutions
   - Error handling for unsatisfiable constraints
 
@@ -246,14 +262,22 @@ The project has comprehensive test suites for each component:
   - Variable extraction, constraint identification, error handling
   - Conditional constraint extraction (if-statements): 9 tests
   - Tests for then-only, then-else, multiple constraints, error cases
+- **Recursive Struct Detector tests**:
+  - Cycle detection: 5 tests for simple, direct, indirect, nested, and reference types
+  - Error message formatting with complete cycle paths
+- **Struct Flattener tests**:
+  - Primitive type flattening: 8 tests
+  - Simple, nested, deeply nested, mixed types, reference types
+  - Empty prefix handling for struct literals
 - **Z3 Bridge tests**:
   - Expression translation, type mapping, Z3 assertion creation
   - ITE (if-then-else) support: 8 tests for all type combinations
   - Conditional constraint integration: 5 tests for ITE, implication, end-to-end
+  - Updated for String variable names (flattened structs)
 - **Solution Formatter tests**: Model extraction, value formatting, error cases
 - **Solver tests**: End-to-end pipeline, SAT/UNSAT cases, integration tests
 
-Tests use timeout mechanisms to prevent infinite loops during development. The semantic analyzer has 60 comprehensive tests covering declaration collection, name resolution, scoping, error cases, and the complete analysis pipeline. The type checker has 84 comprehensive tests covering type inference, validation, numeric promotion, error cases, and the complete type checking pipeline. The constraint solver has comprehensive tests covering variable extraction, Z3 translation, solution formatting, and end-to-end solving. The if-statement implementation adds 22 new tests covering ITE operations, conditional constraint extraction, and Z3 integration.
+Tests use timeout mechanisms to prevent infinite loops during development. The semantic analyzer has 60 comprehensive tests covering declaration collection, name resolution, scoping, error cases, and the complete analysis pipeline. The type checker has 84 comprehensive tests covering type inference, validation, numeric promotion, error cases, and the complete type checking pipeline. The constraint solver has comprehensive tests covering variable extraction, Z3 translation, solution formatting, and end-to-end solving. The if-statement implementation adds 22 new tests covering ITE operations, conditional constraint extraction, and Z3 integration. The struct support adds 13 new tests for recursive struct detection and field flattening.
 
 ## Language Implementation Status
 
@@ -295,11 +319,18 @@ The project integrates Z3 constraint solver to solve for unknown variables in co
 
 **Supported:**
 - Basic types: `i32`, `f64`, `bool`
+- **Struct types** (flattened into primitive fields)
 - Let statements with and without initializers
 - Expression statements containing constraints
 - Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=`
 - Arithmetic operators: `+`, `-`, `*`, `/`
 - **If-statements with conditional constraints**
+
+**Struct Support:**
+- Struct variables are automatically flattened into primitive fields
+- Nested structs supported with qualified names (e.g., `line.start.x`)
+- Reference types (`&Point`) are transparently unwrapped
+- Recursive struct types are detected and rejected with clear error messages
 
 **Limitations for If-Statements:**
 - No variable declarations inside if-statement branches (scope/initialization issues)
@@ -308,9 +339,13 @@ The project integrates Z3 constraint solver to solve for unknown variables in co
 - Condition must be a boolean expression
 - Nested if-statements are not supported
 
+**Limitations for Structs:**
+- Struct literals not yet supported (use uninitialized variables)
+- Field assignments not yet implemented
+- Field access in expressions not yet implemented
+
 **Not Supported (Out of Scope):**
 - For loops and with statements
-- Structs and struct fields
 - Functions and function calls
 - Standard library functions
 - Transforms and geometric operations
@@ -362,9 +397,38 @@ y = 10
 
 **Explanation:** The solver determines that `x = 5` (from the constraint `x == 5`), which makes the condition `x > 0` true, so it applies the then-branch constraint `y == 10`.
 
+### Struct Example
+
+**Input file (struct_example.cad):**
+```
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+let p: Point;
+p.x + p.y == 15;
+p.x == 10;
+```
+
+**Command:**
+```bash
+nix shell -c cargo run -- solve struct_example.cad
+```
+
+**Output:**
+```
+p.x = 10
+p.y = 5
+```
+
+**Explanation:** The struct variable `p` is automatically flattened into two primitive variables `p.x` and `p.y`. The solver finds values that satisfy both constraints.
+
+**Note:** Currently, field access in constraints is not yet implemented. The above example shows the intended behavior once field access resolution is complete.
+
 ### Pipeline
 
-Source Code → Lexer → Parser → Semantic Analyzer → Type Checker → Constraint Extractor → Z3 Bridge → Solution
+Source Code → Lexer → Parser → Semantic Analyzer → Type Checker → Constraint Extractor (with struct flattening) → Z3 Bridge → Solution
 
 ## Dependencies
 
