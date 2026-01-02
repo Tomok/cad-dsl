@@ -9,34 +9,42 @@
 //! The constraint extractor processes HIR statements to:
 //! - Identify known variables (with initializers): `let y = 10;`
 //! - Identify unknown variables (without initializers): `let x;`
+//! - Flatten struct variables into their primitive fields
 //! - Extract constraint expressions (comparisons): `x + y == 20`
-//! - Report errors for unsupported constructs (control flow, structs, functions)
+//! - Report errors for unsupported constructs (recursive structs, functions)
 //!
 //! # Workflow
 //!
 //! 1. Walk the HIR statements
 //! 2. Collect variable declarations with their types and initial values
-//! 3. Collect constraint expressions from expression statements
-//! 4. Build a `ConstraintProblem` that can be passed to Z3
+//! 3. For struct types, flatten into primitive fields with qualified names
+//! 4. Detect and reject recursive struct types
+//! 5. Collect constraint expressions from expression statements
+//! 6. Build a `ConstraintProblem` that can be passed to Z3
 //!
 //! # Supported Constructs
 //!
 //! - `let` statements (both initialized and uninitialized)
+//! - Struct types (flattened into primitive fields)
 //! - Expression statements with comparison operators (==, !=, <, >, <=, >=)
+//! - Conditional constraints (if-statements)
 //!
 //! # Unsupported Constructs
 //!
-//! - Control flow: if, for, return
-//! - Definitions: struct, function
-//! - Advanced features: with blocks, field assignments
+//! - Recursive struct types
+//! - Control flow: for, return
+//! - Definitions: function definitions
+//! - Advanced features: with blocks
 //!
-//! These will generate errors as they're out of scope for basic constraint solving.
+//! These will generate errors as they're out of scope for constraint solving.
 
 #![allow(dead_code)] // Public API for future constraint solving implementation
 
 use crate::hir::expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind};
 use crate::hir::types::ResolvedType;
 use crate::lexer::Span;
+use crate::solver::recursive_struct_detector::detect_cycles;
+use crate::solver::struct_flattener::flatten_type;
 use std::fmt;
 
 // ============================================================================
@@ -58,6 +66,9 @@ pub enum ConstraintExtractorError {
 
     /// Variable has no type information
     MissingTypeInfo { var_name: String, span: Span },
+
+    /// Recursive struct type detected
+    RecursiveStruct { cycle_path: Vec<String>, span: Span },
 }
 
 impl fmt::Display for ConstraintExtractorError {
@@ -88,6 +99,15 @@ impl fmt::Display for ConstraintExtractorError {
                     var_name, span.start.line, span.start.column
                 )
             }
+            ConstraintExtractorError::RecursiveStruct { cycle_path, span } => {
+                write!(
+                    f,
+                    "Recursive struct detected at line {}, column {}: {}. Recursive structs cannot be solved.",
+                    span.start.line,
+                    span.start.column,
+                    cycle_path.join(" → ")
+                )
+            }
         }
     }
 }
@@ -103,13 +123,17 @@ impl std::error::Error for ConstraintExtractorError {}
 /// Variables can be:
 /// - Known: have an initializer value (e.g., `let y = 10;`)
 /// - Unknown: declared but not initialized (e.g., `let x;`)
+///
+/// For struct types, variables are flattened into their primitive fields
+/// with qualified names (e.g., "line.start.x" for nested structs).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Variable<'src, 'arena> {
-    /// Variable name
-    pub name: &'src str,
+    /// Variable name (owned to support generated names for flattened struct fields)
+    pub name: String,
 
     /// Variable type (required for constraint solving)
-    pub var_type: &'arena ResolvedType<'src, 'arena>,
+    /// Copy type, so we can store it by value
+    pub var_type: ResolvedType<'src, 'arena>,
 
     /// Optional initial value (known variables)
     pub init: Option<&'arena ResolvedExpr<'src, 'arena>>,
@@ -121,13 +145,13 @@ pub struct Variable<'src, 'arena> {
 impl<'src, 'arena> Variable<'src, 'arena> {
     /// Create a new variable
     pub fn new(
-        name: &'src str,
-        var_type: &'arena ResolvedType<'src, 'arena>,
+        name: &str,
+        var_type: ResolvedType<'src, 'arena>,
         init: Option<&'arena ResolvedExpr<'src, 'arena>>,
         span: Span,
     ) -> Self {
         Self {
-            name,
+            name: name.to_string(),
             var_type,
             init,
             span,
@@ -341,10 +365,80 @@ fn process_statement<'src, 'arena>(
                 }
             })?;
 
-            // Create a variable and add it to the problem
-            let variable = Variable::new(var_def.name, var_type, *init, *span);
-            problem.add_variable(variable);
-            Ok(())
+            // Check if this is a struct type - if so, flatten it
+            match var_type {
+                ResolvedType::UserDefined { definition, .. } => {
+                    // First, check for recursive structs
+                    if let Err(cycle_err) = detect_cycles(definition) {
+                        return Err(ConstraintExtractorError::RecursiveStruct {
+                            cycle_path: cycle_err
+                                .cycle_path
+                                .into_iter()
+                                .map(|s| s.to_string())
+                                .collect(),
+                            span: *span,
+                        });
+                    }
+
+                    // Flatten the struct into primitive fields
+                    let flattened_fields = flatten_type(var_def.name, *var_type);
+
+                    // Create a variable for each flattened field
+                    for field in flattened_fields {
+                        let variable = Variable::new(
+                            &field.full_name,
+                            field.primitive_type,
+                            None, // TODO: Handle struct literal init in future
+                            field.span,
+                        );
+                        problem.add_variable(variable);
+                    }
+                    Ok(())
+                }
+
+                // For reference types, unwrap and check the inner type
+                ResolvedType::Reference { inner, .. } => {
+                    if let ResolvedType::UserDefined { definition, .. } = **inner {
+                        // Check for recursive structs
+                        if let Err(cycle_err) = detect_cycles(definition) {
+                            return Err(ConstraintExtractorError::RecursiveStruct {
+                                cycle_path: cycle_err
+                                    .cycle_path
+                                    .into_iter()
+                                    .map(|s| s.to_string())
+                                    .collect(),
+                                span: *span,
+                            });
+                        }
+
+                        // Flatten the referenced struct
+                        let flattened_fields = flatten_type(var_def.name, **inner);
+
+                        for field in flattened_fields {
+                            let variable = Variable::new(
+                                &field.full_name,
+                                field.primitive_type,
+                                None,
+                                field.span,
+                            );
+                            problem.add_variable(variable);
+                        }
+                        Ok(())
+                    } else {
+                        // Reference to primitive type - create single variable
+                        let variable = Variable::new(var_def.name, *var_type, *init, *span);
+                        problem.add_variable(variable);
+                        Ok(())
+                    }
+                }
+
+                // Primitive types - create single variable
+                _ => {
+                    let variable = Variable::new(var_def.name, *var_type, *init, *span);
+                    problem.add_variable(variable);
+                    Ok(())
+                }
+            }
         }
 
         // Handle expression statements - extract constraints
@@ -629,7 +723,7 @@ mod tests {
         let ty = arena.alloc(ResolvedType::I32 { span: test_span() });
         let init = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, ty);
 
-        let var = Variable::new("x", ty, Some(init), test_span());
+        let var = Variable::new("x", *ty, Some(init), test_span());
         assert!(var.is_known());
         assert!(!var.is_unknown());
     }
@@ -639,7 +733,7 @@ mod tests {
         let arena = Bump::new();
         let ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
-        let var = Variable::new("x", ty, None, test_span());
+        let var = Variable::new("x", *ty, None, test_span());
         assert!(var.is_unknown());
         assert!(!var.is_known());
     }
@@ -653,7 +747,7 @@ mod tests {
         assert_eq!(problem.variable_count(), 0);
         assert_eq!(problem.constraint_count(), 0);
 
-        let var = Variable::new("x", ty, None, test_span());
+        let var = Variable::new("x", *ty, None, test_span());
         problem.add_variable(var);
         assert_eq!(problem.variable_count(), 1);
 
@@ -679,11 +773,11 @@ mod tests {
         let mut problem = ConstraintProblem::new();
 
         // Add known variable
-        let var1 = Variable::new("x", ty, Some(init), test_span());
+        let var1 = Variable::new("x", *ty, Some(init), test_span());
         problem.add_variable(var1);
 
         // Add unknown variable
-        let var2 = Variable::new("y", ty, None, test_span());
+        let var2 = Variable::new("y", *ty, None, test_span());
         problem.add_variable(var2);
 
         assert_eq!(problem.known_variables().len(), 1);

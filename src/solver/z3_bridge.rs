@@ -243,11 +243,12 @@ impl Z3Ast {
 /// methods to translate HIR expressions to Z3 assertions.
 pub struct Z3Bridge<'src, 'arena> {
     /// Map of variable names to their Z3 AST representations
-    variables: HashMap<&'src str, Z3Ast>,
+    /// Uses String to support both source-borrowed and generated names (flattened structs)
+    variables: HashMap<String, Z3Ast>,
     /// The Z3 solver
     solver: z3::Solver,
-    /// Phantom data to maintain the 'arena lifetime
-    _phantom: PhantomData<&'arena ()>,
+    /// Phantom data to maintain the lifetimes
+    _phantom: PhantomData<(&'src (), &'arena ())>,
 }
 
 impl<'src, 'arena> Z3Bridge<'src, 'arena> {
@@ -267,10 +268,10 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
     /// variable equals its initial value.
     pub fn add_variable(&mut self, variable: &Variable<'src, 'arena>) -> Result<(), Z3BridgeError> {
         // Create a Z3 constant based on the variable's type
-        let z3_var = self.create_z3_constant(variable.name, variable.var_type)?;
+        let z3_var = self.create_z3_constant(&variable.name, variable.var_type)?;
 
         // Store the variable
-        self.variables.insert(variable.name, z3_var.clone());
+        self.variables.insert(variable.name.clone(), z3_var.clone());
 
         // If the variable has an initializer, add an assertion
         if let Some(init_expr) = variable.init {
@@ -382,15 +383,15 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
     }
 
     /// Get the variables map for solution formatting
-    pub fn variables(&self) -> &HashMap<&'src str, Z3Ast> {
+    pub fn variables(&self) -> &HashMap<String, Z3Ast> {
         &self.variables
     }
 
     /// Create a Z3 constant based on a ResolvedType
     fn create_z3_constant(
         &self,
-        name: &'src str,
-        ty: &'arena ResolvedType<'src, 'arena>,
+        name: &str,
+        ty: ResolvedType<'src, 'arena>,
     ) -> Result<Z3Ast, Z3BridgeError> {
         match ty {
             ResolvedType::I32 { .. } => Ok(Z3Ast::Int(z3::ast::Int::new_const(name))),
@@ -403,12 +404,12 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
             }
             ResolvedType::Reference { span, .. } => Err(Z3BridgeError::UnsupportedType {
                 type_name: "Reference".to_string(),
-                span: *span,
+                span,
                 message: "Reference types are not supported in constraint solving".to_string(),
             }),
             ResolvedType::UserDefined { name, span, .. } => Err(Z3BridgeError::UnsupportedType {
                 type_name: name.to_string(),
-                span: *span,
+                span,
                 message: "User-defined types are not supported in constraint solving".to_string(),
             }),
         }
@@ -443,15 +444,14 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
             }
 
             // Variables
-            ResolvedExprKind::Var { name, .. } => {
-                self.variables
-                    .get(name)
-                    .cloned()
-                    .ok_or_else(|| Z3BridgeError::VariableNotFound {
-                        var_name: name.to_string(),
-                        span: expr.span,
-                    })
-            }
+            ResolvedExprKind::Var { name, .. } => self
+                .variables
+                .get(&name[..])
+                .cloned()
+                .ok_or_else(|| Z3BridgeError::VariableNotFound {
+                    var_name: name.to_string(),
+                    span: expr.span,
+                }),
 
             // Arithmetic operations
             ResolvedExprKind::Add { lhs, rhs } => {
@@ -813,7 +813,7 @@ mod tests {
         let ty = arena.alloc(ResolvedType::I32 { span: test_span() });
         let bridge = Z3Bridge::<'static, 'static>::new();
 
-        let result = bridge.create_z3_constant("x", ty);
+        let result = bridge.create_z3_constant("x", *ty);
         assert!(result.is_ok());
         assert_matches!(result.unwrap(), Z3Ast::Int(_));
     }
@@ -824,7 +824,7 @@ mod tests {
         let ty = arena.alloc(ResolvedType::F64 { span: test_span() });
         let bridge = Z3Bridge::<'static, 'static>::new();
 
-        let result = bridge.create_z3_constant("x", ty);
+        let result = bridge.create_z3_constant("x", *ty);
         assert!(result.is_ok());
         assert_matches!(result.unwrap(), Z3Ast::Real(_));
     }
@@ -835,7 +835,7 @@ mod tests {
         let ty = arena.alloc(ResolvedType::Bool { span: test_span() });
         let bridge = Z3Bridge::<'static, 'static>::new();
 
-        let result = bridge.create_z3_constant("x", ty);
+        let result = bridge.create_z3_constant("x", *ty);
         assert!(result.is_ok());
         assert_matches!(result.unwrap(), Z3Ast::Bool(_));
     }
@@ -880,7 +880,7 @@ mod tests {
     fn test_add_variable_without_init() {
         let arena = Bump::new();
         let ty = arena.alloc(ResolvedType::I32 { span: test_span() });
-        let var = Variable::new("x", ty, None, test_span());
+        let var = Variable::new("x", *ty, None, test_span());
 
         let mut bridge = Z3Bridge::<'static, 'static>::new();
         let result = bridge.add_variable(&var);
@@ -893,7 +893,7 @@ mod tests {
         let arena = Bump::new();
         let ty = arena.alloc(ResolvedType::I32 { span: test_span() });
         let init = make_expr(&arena, ResolvedExprKind::IntLit { value: 42 }, ty);
-        let var = Variable::new("x", ty, Some(init), test_span());
+        let var = Variable::new("x", *ty, Some(init), test_span());
 
         let mut bridge = Z3Bridge::<'static, 'static>::new();
         let result = bridge.add_variable(&var);
@@ -914,7 +914,7 @@ mod tests {
             span: test_span(),
         });
 
-        let var = Variable::new("x", ty, None, test_span());
+        let var = Variable::new("x", *ty, None, test_span());
         let mut bridge = Z3Bridge::<'static, 'static>::new();
         bridge.add_variable(&var).unwrap();
 
@@ -1069,10 +1069,10 @@ mod tests {
 
         // Create: let x = 10;
         let init_x = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
-        let var_x = Variable::new("x", int_ty, Some(init_x), test_span());
+        let var_x = Variable::new("x", *int_ty, Some(init_x), test_span());
 
         // Create: let y;
-        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_y = Variable::new("y", *int_ty, None, test_span());
 
         // Create: x + y == 20
         let var_def_x = arena.alloc(VarDefinition {
@@ -1163,7 +1163,7 @@ mod tests {
         });
         let bridge = Z3Bridge::<'static, 'static>::new();
 
-        let result = bridge.create_z3_constant("x", ty);
+        let result = bridge.create_z3_constant("x", *ty);
         assert!(result.is_err());
         assert_matches!(result.unwrap_err(), Z3BridgeError::UnsupportedType { .. });
     }
@@ -1345,7 +1345,7 @@ mod tests {
         let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
         // Create variables
-        let var_x = Variable::new("x", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, None, test_span());
         let var_def_x = arena.alloc(VarDefinition {
             name: "x",
             name_span: test_span(),
@@ -1397,8 +1397,8 @@ mod tests {
         let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
         // Create variables: x, y
-        let var_x = Variable::new("x", int_ty, None, test_span());
-        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, None, test_span());
+        let var_y = Variable::new("y", *int_ty, None, test_span());
         let var_def_x = arena.alloc(VarDefinition {
             name: "x",
             name_span: test_span(),
@@ -1495,8 +1495,8 @@ mod tests {
         let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
         // Create variables: x, y
-        let var_x = Variable::new("x", int_ty, None, test_span());
-        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, None, test_span());
+        let var_y = Variable::new("y", *int_ty, None, test_span());
         let var_def_x = arena.alloc(VarDefinition {
             name: "x",
             name_span: test_span(),
@@ -1575,8 +1575,8 @@ mod tests {
         let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
         // Create variables: x, y
-        let var_x = Variable::new("x", int_ty, None, test_span());
-        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, None, test_span());
+        let var_y = Variable::new("y", *int_ty, None, test_span());
         let var_def_x = arena.alloc(VarDefinition {
             name: "x",
             name_span: test_span(),
@@ -1655,9 +1655,9 @@ mod tests {
         let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
         // Create variables: x, y, z
-        let var_x = Variable::new("x", int_ty, None, test_span());
-        let var_y = Variable::new("y", int_ty, None, test_span());
-        let var_z = Variable::new("z", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, None, test_span());
+        let var_y = Variable::new("y", *int_ty, None, test_span());
+        let var_z = Variable::new("z", *int_ty, None, test_span());
         let var_def_x = arena.alloc(VarDefinition {
             name: "x",
             name_span: test_span(),
@@ -1787,8 +1787,8 @@ mod tests {
 
         // Create variables: x = 5, y
         let init_x = make_expr(&arena, ResolvedExprKind::IntLit { value: 5 }, int_ty);
-        let var_x = Variable::new("x", int_ty, Some(init_x), test_span());
-        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, Some(init_x), test_span());
+        let var_y = Variable::new("y", *int_ty, None, test_span());
 
         let var_def_x = arena.alloc(VarDefinition {
             name: "x",
