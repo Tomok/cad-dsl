@@ -51,8 +51,8 @@
 #![allow(dead_code)] // Public API for future constraint solving implementation
 
 use crate::constraint_extractor::{ConstraintProblem, Variable};
-use crate::hir_expr::{ResolvedExpr, ResolvedExprKind};
-use crate::hir_types::ResolvedType;
+use crate::hir::expr::{ResolvedExpr, ResolvedExprKind};
+use crate::hir::types::ResolvedType;
 use crate::lexer::Span;
 use std::collections::HashMap;
 use std::fmt;
@@ -653,9 +653,9 @@ impl<'src, 'arena> Default for Z3Bridge<'src, 'arena> {
 mod tests {
     use super::*;
     use crate::constraint_extractor::{Constraint, Variable};
-    use crate::hir_definitions::VarDefinition;
-    use crate::hir_expr::{ResolvedExpr, ResolvedExprKind};
-    use crate::hir_types::ResolvedType;
+    use crate::hir::definitions::VarDefinition;
+    use crate::hir::expr::{ResolvedExpr, ResolvedExprKind};
+    use crate::hir::types::ResolvedType;
     use crate::lexer::{LineColumn, Span};
     use assert_matches::assert_matches;
     use bumpalo::Bump;

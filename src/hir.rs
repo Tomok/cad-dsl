@@ -278,30 +278,41 @@
 //! }
 //! ```
 
-#![allow(unused_imports)] // Re-exports for public API
+// ============================================================================
+// Submodule Declarations
+// ============================================================================
+
+pub mod context;
+pub mod definitions;
+pub mod expr;
+pub mod scope;
+pub mod types;
 
 // ============================================================================
 // Public Re-exports
 // ============================================================================
 //
-// Note: The individual HIR modules (hir_types, hir_definitions, etc.) are
-// declared in main.rs at the crate root level. This module serves as a
-// convenient re-export point for all HIR types.
+// These re-exports provide a clean public API for the HIR module.
+// The `#[allow(unused_imports)]` annotation is necessary because these items
+// are re-exported for external use, even though they may not be used within
+// this module itself.
 
-// Type system
-pub use crate::hir_types::ResolvedType;
+#[allow(unused_imports)]
+pub use types::ResolvedType;
 
-// Definitions
-pub use crate::hir_definitions::{
-    ContainerField, FieldDefinition, FunctionDefinition, FunctionParam, StructDefinition,
-    VarDefinition,
+#[allow(unused_imports)]
+pub use definitions::{
+    ContainerField, FieldDefinition, FunctionDefinition, FunctionParam, ScopeLevel,
+    StructDefinition, VarDefinition,
 };
 
-// Expressions
-pub use crate::hir_expr::{ResolvedExpr, ResolvedExprKind, ResolvedStructLitField};
+#[allow(unused_imports)]
+pub use expr::{
+    ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind, ResolvedStructLitField,
+};
 
-// Context tracking
-pub use crate::hir_context::{TransformMethod, WithContext};
+#[allow(unused_imports)]
+pub use context::{TransformMethod, WithContext};
 
-// Scope management
-pub use crate::hir_scope::{Scope, ScopeStack};
+#[allow(unused_imports)]
+pub use scope::{Scope, ScopeStack};

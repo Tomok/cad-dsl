@@ -144,8 +144,8 @@
 //! - Safe cross-references without reference counting
 //! - Automatic cleanup when analysis completes
 
-use crate::hir_context::WithContext;
-use crate::hir_definitions::VarDefinition;
+use super::context::WithContext;
+use super::definitions::VarDefinition;
 use std::collections::HashMap;
 
 // ============================================================================
@@ -748,13 +748,13 @@ mod tests {
         assert!(stack.current_with_context().is_none());
 
         // Create a dummy type for the expression
-        let int_type = arena.alloc(crate::hir_types::ResolvedType::I32 { span: dummy_span() });
+        let int_type = arena.alloc(crate::hir::types::ResolvedType::I32 { span: dummy_span() });
 
         // Create a dummy with-context (transform context)
         let ctx = arena.alloc(WithContext {
-            context_expr: arena.alloc(crate::hir_expr::ResolvedExpr {
+            context_expr: arena.alloc(crate::hir::expr::ResolvedExpr {
                 span: dummy_span(),
-                kind: crate::hir_expr::ResolvedExprKind::IntLit { value: 42 },
+                kind: crate::hir::expr::ResolvedExprKind::IntLit { value: 42 },
                 ty: int_type,
             }),
             container_field: None,
@@ -792,13 +792,13 @@ mod tests {
         let mut stack = ScopeStack::new();
 
         // Create a dummy type for the expressions
-        let int_type = arena.alloc(crate::hir_types::ResolvedType::I32 { span: dummy_span() });
+        let int_type = arena.alloc(crate::hir::types::ResolvedType::I32 { span: dummy_span() });
 
         // Create first with-context
         let ctx1 = arena.alloc(WithContext {
-            context_expr: arena.alloc(crate::hir_expr::ResolvedExpr {
+            context_expr: arena.alloc(crate::hir::expr::ResolvedExpr {
                 span: dummy_span(),
-                kind: crate::hir_expr::ResolvedExprKind::IntLit { value: 1 },
+                kind: crate::hir::expr::ResolvedExprKind::IntLit { value: 1 },
                 ty: int_type,
             }),
             container_field: None,
@@ -810,9 +810,9 @@ mod tests {
 
         // Create nested with-context
         let ctx2 = arena.alloc(WithContext {
-            context_expr: arena.alloc(crate::hir_expr::ResolvedExpr {
+            context_expr: arena.alloc(crate::hir::expr::ResolvedExpr {
                 span: dummy_span(),
-                kind: crate::hir_expr::ResolvedExprKind::IntLit { value: 2 },
+                kind: crate::hir::expr::ResolvedExprKind::IntLit { value: 2 },
                 ty: int_type,
             }),
             container_field: None,

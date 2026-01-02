@@ -41,8 +41,8 @@
 //!
 //! All types retain their original source spans for error reporting and tooling.
 
+use super::definitions::StructDefinition;
 use crate::ast::span::HasSpan;
-use crate::hir_definitions::StructDefinition;
 use crate::lexer::Span;
 
 // ============================================================================

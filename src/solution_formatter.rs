@@ -234,9 +234,9 @@ impl<'src, 'arena> SolutionFormatter<'src, 'arena> {
 mod tests {
     use super::*;
     use crate::constraint_extractor::{Constraint, ConstraintProblem, Variable};
-    use crate::hir_definitions::VarDefinition;
-    use crate::hir_expr::{ResolvedExpr, ResolvedExprKind};
-    use crate::hir_types::ResolvedType;
+    use crate::hir::definitions::VarDefinition;
+    use crate::hir::expr::{ResolvedExpr, ResolvedExprKind};
+    use crate::hir::types::ResolvedType;
     use crate::lexer::{LineColumn, Span};
     use crate::z3_bridge::Z3Bridge;
     use assert_matches::assert_matches;

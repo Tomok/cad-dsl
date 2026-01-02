@@ -42,7 +42,7 @@
 #![allow(dead_code)] // Public API for future constraint solving integration
 
 use crate::constraint_extractor::{ConstraintExtractorError, extract_constraints};
-use crate::hir_expr::ResolvedStmt;
+use crate::hir::expr::ResolvedStmt;
 use crate::solution_formatter::{SolutionFormatter, SolutionFormatterError};
 use crate::z3_bridge::{Z3Bridge, Z3BridgeError};
 use std::fmt;
@@ -202,9 +202,9 @@ pub fn solve<'src, 'arena>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir_definitions::VarDefinition;
-    use crate::hir_expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind};
-    use crate::hir_types::ResolvedType;
+    use crate::hir::definitions::VarDefinition;
+    use crate::hir::expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind};
+    use crate::hir::types::ResolvedType;
     use crate::lexer::{LineColumn, Span};
     use assert_matches::assert_matches;
     use bumpalo::Bump;

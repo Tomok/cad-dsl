@@ -169,7 +169,7 @@
 //! - **Error Recovery**: Continue type checking after errors for better IDE support
 
 // Re-exports for convenient access
-pub use crate::hir_expr::ResolvedStmt;
+pub use crate::hir::expr::ResolvedStmt;
 pub use crate::type_checker_context::TypeCheckContext;
 pub use crate::type_checker_errors::TypeCheckError;
 
@@ -282,9 +282,9 @@ pub fn type_check<'src, 'arena>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir_definitions::VarDefinition;
-    use crate::hir_expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmtKind};
-    use crate::hir_types::ResolvedType;
+    use crate::hir::definitions::VarDefinition;
+    use crate::hir::expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmtKind};
+    use crate::hir::types::ResolvedType;
     use crate::lexer::{LineColumn, Span};
 
     /// Helper to create a span for testing

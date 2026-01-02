@@ -2,13 +2,8 @@ mod ast;
 mod lexer;
 mod parser;
 
-// HIR modules
+// HIR module
 mod hir;
-mod hir_context;
-mod hir_definitions;
-mod hir_expr;
-mod hir_scope;
-mod hir_types;
 
 // Semantic analysis modules
 mod semantic_analyzer;

@@ -5,8 +5,8 @@
 //! ensuring type consistency and compatibility across variable declarations,
 //! assignments, control flow, and function calls.
 
-use crate::hir_expr::{ResolvedStmt, ResolvedStmtKind};
-use crate::hir_types::ResolvedType;
+use crate::hir::expr::{ResolvedStmt, ResolvedStmtKind};
+use crate::hir::types::ResolvedType;
 use crate::type_checker_context::TypeCheckContext;
 
 /// Validate types in a statement
@@ -247,8 +247,8 @@ fn type_name(ty: &ResolvedType) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir_definitions::{StructDefinition, VarDefinition};
-    use crate::hir_expr::{ResolvedExpr, ResolvedExprKind};
+    use crate::hir::definitions::{StructDefinition, VarDefinition};
+    use crate::hir::expr::{ResolvedExpr, ResolvedExprKind};
     use crate::lexer::{LineColumn, Span};
     use bumpalo::Bump;
 
@@ -656,7 +656,7 @@ mod tests {
         let mut ctx = TypeCheckContext::new(&arena, source);
         let span = make_span(1, 1);
 
-        let func_def = arena.alloc(crate::hir_definitions::FunctionDefinition {
+        let func_def = arena.alloc(crate::hir::definitions::FunctionDefinition {
             name: "foo",
             name_span: span,
             params: vec![],
@@ -695,7 +695,7 @@ mod tests {
             kind: ResolvedExprKind::IntLit { value: 0 },
             ty: i32_type,
         });
-        let with_context = arena.alloc(crate::hir_context::WithContext {
+        let with_context = arena.alloc(crate::hir::context::WithContext {
             context_expr,
             container_field: None,
             transforms: vec![],
