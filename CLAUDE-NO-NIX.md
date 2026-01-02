@@ -33,9 +33,25 @@ cargo run -- solve <file.cad>
 
 ## Troubleshooting
 
-### DNS Issues with apt-get
+### Proxy Configuration for apt-get
 
-If `apt-get` fails with "Temporary failure resolving" errors, you can install packages directly using `curl` + `dpkg`:
+If `apt-get` fails with "Temporary failure resolving" errors but `curl` works, the issue is likely that `curl` uses proxy environment variables (`http_proxy`, `https_proxy`) but `apt-get` doesn't automatically. Configure apt to use the proxy:
+
+```bash
+# Configure apt to use the same proxy as curl
+sudo tee /etc/apt/apt.conf.d/95proxy > /dev/null <<EOF
+Acquire::http::Proxy "$http_proxy";
+Acquire::https::Proxy "$https_proxy";
+EOF
+
+# Now apt-get should work normally
+sudo apt-get update
+sudo apt-get install -y mold z3 libz3-dev
+```
+
+### Alternative: Direct Installation with curl + dpkg
+
+If proxy configuration doesn't work or you prefer a simpler approach, you can install packages directly using `curl` + `dpkg`:
 
 **Installing mold:**
 ```bash
@@ -54,7 +70,7 @@ curl -L -o /tmp/libz3-dev.deb http://archive.ubuntu.com/ubuntu/pool/universe/z/z
 sudo dpkg -i /tmp/libz3-4.deb /tmp/z3.deb /tmp/libz3-dev.deb
 ```
 
-**Note:** This workaround is necessary when `/etc/resolv.conf` is empty or DNS resolution is not working for `apt-get`, but `curl` can still resolve domains (e.g., via DNS over HTTPS).
+**Note:** This manual installation method works when apt cannot use the proxy or when you prefer not to configure it. The proxy configuration method above is the preferred solution for environments with proxy settings.
 
 ### Z3 Missing
 
