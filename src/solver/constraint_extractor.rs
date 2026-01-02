@@ -932,7 +932,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_unsupported_if_statement() {
+    fn test_if_statement_with_empty_branches() {
         let arena = Bump::new();
         let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
         let condition = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
@@ -948,15 +948,13 @@ mod tests {
         );
 
         let result = extract_constraints(&[stmt]);
-        assert!(result.is_err());
+        assert!(result.is_ok());
 
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert_matches!(
-            errors[0],
-            ConstraintExtractorError::UnsupportedStatement { ref statement_type, .. }
-            if statement_type == "if"
-        );
+        let problem = result.unwrap();
+        // Empty branches should result in a conditional constraint with no then/else constraints
+        assert_eq!(problem.conditional_constraint_count(), 1);
+        assert_eq!(problem.conditional_constraints[0].then_constraints.len(), 0);
+        assert_eq!(problem.conditional_constraints[0].else_constraints.len(), 0);
     }
 
     #[test]
