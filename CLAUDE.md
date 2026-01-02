@@ -15,6 +15,8 @@ This project uses Nix for development environment management. Use `nix develop` 
 - Code coverage tools (cargo-llvm-cov)
 - mold linker (Linux only, for fast memory-efficient builds)
 
+**Note:** If Nix is not available in your environment (e.g., CI/CD, Docker, or systems where Nix cannot be installed), see [CLAUDE-NO-NIX.md](CLAUDE-NO-NIX.md) for instructions on setting up dependencies manually using `apt-get` and running commands without the `nix shell -c` wrapper.
+
 ## Common Commands
 
 ### Building and Testing
