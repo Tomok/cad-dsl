@@ -49,28 +49,26 @@ sudo apt-get update
 sudo apt-get install -y mold z3 libz3-dev
 ```
 
-### Alternative: Direct Installation with curl + dpkg
+### Alternative: Authenticated Package Download
 
-If proxy configuration doesn't work or you prefer a simpler approach, you can install packages directly using `curl` + `dpkg`:
+If proxy configuration doesn't work, use `apt-get download` which maintains GPG signature verification:
 
-**Installing mold:**
 ```bash
-curl -L -o /tmp/mold.deb http://archive.ubuntu.com/ubuntu/pool/universe/m/mold/mold_2.30.0+dfsg-1build1_amd64.deb
-sudo dpkg -i /tmp/mold.deb
+# Configure proxy first (required for apt-get download to work)
+sudo tee /etc/apt/apt.conf.d/95proxy > /dev/null <<EOF
+Acquire::http::Proxy "$http_proxy";
+Acquire::https::Proxy "$https_proxy";
+EOF
+
+sudo apt-get update
+
+# Download with signature verification, then install
+cd /tmp
+apt-get download mold libz3-4 z3 libz3-dev
+sudo dpkg -i libz3-4_*.deb z3_*.deb libz3-dev_*.deb mold_*.deb
 ```
 
-**Installing Z3:**
-```bash
-# Download Z3 packages (library, binary, and development headers)
-curl -L -o /tmp/libz3-4.deb http://archive.ubuntu.com/ubuntu/pool/universe/z/z3/libz3-4_4.8.12-3.1build1_amd64.deb
-curl -L -o /tmp/z3.deb http://archive.ubuntu.com/ubuntu/pool/universe/z/z3/z3_4.8.12-3.1build1_amd64.deb
-curl -L -o /tmp/libz3-dev.deb http://archive.ubuntu.com/ubuntu/pool/universe/z/z3/libz3-dev_4.8.12-3.1build1_amd64.deb
-
-# Install in dependency order (libz3-4 → z3 → libz3-dev)
-sudo dpkg -i /tmp/libz3-4.deb /tmp/z3.deb /tmp/libz3-dev.deb
-```
-
-**Note:** This manual installation method works when apt cannot use the proxy or when you prefer not to configure it. The proxy configuration method above is the preferred solution for environments with proxy settings.
+**Security Note:** Never install .deb files downloaded via plain HTTP or curl without verification - this bypasses apt's GPG signature checks and is vulnerable to MITM attacks. Always use `apt-get download` or configure the proxy as shown above.
 
 ### Z3 Missing
 
