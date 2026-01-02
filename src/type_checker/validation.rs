@@ -5,9 +5,9 @@
 //! ensuring type consistency and compatibility across variable declarations,
 //! assignments, control flow, and function calls.
 
+use super::context::TypeCheckContext;
 use crate::hir::expr::{ResolvedStmt, ResolvedStmtKind};
 use crate::hir::types::ResolvedType;
-use crate::type_checker_context::TypeCheckContext;
 
 /// Validate types in a statement
 ///

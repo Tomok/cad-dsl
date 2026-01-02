@@ -6,10 +6,10 @@
 // Allow dead code for now since this module is not yet fully integrated
 #![allow(dead_code)] // Planned for future type inference implementation
 
+use super::context::TypeCheckContext;
+use super::errors::TypeCheckError;
 use crate::hir::expr::{ResolvedExpr, ResolvedExprKind};
 use crate::hir::types::ResolvedType;
-use crate::type_checker_context::TypeCheckContext;
-use crate::type_checker_errors::TypeCheckError;
 
 /// Infer the type of an expression
 ///

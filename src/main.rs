@@ -8,12 +8,8 @@ mod hir;
 // Semantic analysis module
 mod semantic_analyzer;
 
-// Type checking modules
+// Type checking module
 mod type_checker;
-mod type_checker_context;
-mod type_checker_errors;
-mod type_checker_inference;
-mod type_checker_validation;
 
 // Constraint extraction module
 mod constraint_extractor;
@@ -35,7 +31,7 @@ use lexer::TokenTrait;
 use semantic_analyzer::errors::SemanticError;
 use solver::SolverError;
 use std::fs;
-use type_checker_errors::TypeCheckError;
+use type_checker::errors::TypeCheckError;
 
 #[derive(Parser)]
 #[command(name = "cad-dsl")]
