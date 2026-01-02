@@ -38,6 +38,8 @@
 //! - Duplicate function definitions (same name)
 //! - Duplicate variable definitions (in the same scope)
 
+use super::context::AnalyzerContext;
+use super::errors::SemanticError;
 use crate::ast::{
     FunctionParam as AstFunctionParam, Stmt, StructField as AstStructField, Type as AstType,
 };
@@ -46,8 +48,6 @@ use crate::hir::definitions::{
 };
 use crate::hir::types::ResolvedType;
 use crate::lexer::Span;
-use crate::semantic_analyzer_context::AnalyzerContext;
-use crate::semantic_analyzer_errors::SemanticError;
 
 // ============================================================================
 // Main Collection Function

@@ -38,6 +38,8 @@
 //! and reporting of multiple errors at once. When a resolution failure occurs,
 //! the function returns `None` and an error is added to the context.
 
+use super::context::AnalyzerContext;
+use super::errors::SemanticError;
 use crate::ast::{Expr, Stmt, StructLitField as AstStructLitField};
 use crate::hir::context::WithContext;
 use crate::hir::definitions::{ScopeLevel, VarDefinition};
@@ -46,8 +48,6 @@ use crate::hir::expr::{
 };
 use crate::hir::types::ResolvedType;
 use crate::lexer::Span;
-use crate::semantic_analyzer_context::AnalyzerContext;
-use crate::semantic_analyzer_errors::SemanticError;
 
 // ============================================================================
 // Main Resolution Functions

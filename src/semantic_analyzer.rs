@@ -165,16 +165,25 @@
 // ============================================================================
 
 use crate::ast;
-use crate::semantic_analyzer_pass1;
-use crate::semantic_analyzer_pass2;
 use bumpalo::Bump;
 
 // ============================================================================
-// Re-exports for convenience
+// Submodule Declarations
 // ============================================================================
 
-pub use crate::semantic_analyzer_context::AnalyzerContext;
-pub use crate::semantic_analyzer_errors::SemanticError;
+pub mod context;
+pub mod errors;
+pub mod pass1;
+pub mod pass2;
+
+// ============================================================================
+// Public Re-exports
+// ============================================================================
+
+#[allow(unused_imports)]
+pub use context::AnalyzerContext;
+#[allow(unused_imports)]
+pub use errors::SemanticError;
 
 // ============================================================================
 // Main Entry Point
@@ -234,7 +243,7 @@ pub fn analyze<'src, 'arena>(
     let mut ctx = AnalyzerContext::new(arena, source);
 
     // Pass 1: Collect all declarations
-    semantic_analyzer_pass1::collect_declarations(&mut ctx, ast);
+    pass1::collect_declarations(&mut ctx, ast);
 
     // Check for errors from Pass 1
     if ctx.has_errors() {
@@ -242,7 +251,7 @@ pub fn analyze<'src, 'arena>(
     }
 
     // Pass 2: Resolve all references and build HIR
-    let resolved = semantic_analyzer_pass2::resolve_statements(&mut ctx, ast);
+    let resolved = pass2::resolve_statements(&mut ctx, ast);
 
     // Check for errors from Pass 2
     if ctx.has_errors() {

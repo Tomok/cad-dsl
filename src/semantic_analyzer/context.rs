@@ -9,9 +9,9 @@
 
 // Allow dead code for now since this module is not yet fully integrated
 
+use super::errors::SemanticError;
 use crate::hir::definitions::{FunctionDefinition, StructDefinition};
 use crate::hir::scope::ScopeStack;
-use crate::semantic_analyzer_errors::SemanticError;
 use bumpalo::Bump;
 use std::collections::HashMap;
 

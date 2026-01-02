@@ -5,12 +5,8 @@ mod parser;
 // HIR module
 mod hir;
 
-// Semantic analysis modules
+// Semantic analysis module
 mod semantic_analyzer;
-mod semantic_analyzer_context;
-mod semantic_analyzer_errors;
-mod semantic_analyzer_pass1;
-mod semantic_analyzer_pass2;
 
 // Type checking modules
 mod type_checker;
@@ -36,7 +32,7 @@ use bumpalo::Bump;
 use chumsky::Parser as _;
 use clap::{Parser, Subcommand};
 use lexer::TokenTrait;
-use semantic_analyzer_errors::SemanticError;
+use semantic_analyzer::errors::SemanticError;
 use solver::SolverError;
 use std::fs;
 use type_checker_errors::TypeCheckError;
