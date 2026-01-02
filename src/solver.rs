@@ -196,7 +196,8 @@ pub fn solve<'src, 'arena>(
         return Err(SolverError::NoVariables);
     }
 
-    if problem.constraints.is_empty() {
+    // Update constraint validation to include conditional constraints
+    if problem.constraints.is_empty() && problem.conditional_constraints.is_empty() {
         return Err(SolverError::NoConstraints);
     }
 
