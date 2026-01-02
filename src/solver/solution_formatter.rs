@@ -233,11 +233,11 @@ impl<'src, 'arena> SolutionFormatter<'src, 'arena> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::solver::constraint_extractor::{Constraint, ConstraintProblem, Variable};
     use crate::hir::definitions::VarDefinition;
     use crate::hir::expr::{ResolvedExpr, ResolvedExprKind};
     use crate::hir::types::ResolvedType;
     use crate::lexer::{LineColumn, Span};
+    use crate::solver::constraint_extractor::{Constraint, ConstraintProblem, Variable};
     use crate::solver::z3_bridge::Z3Bridge;
     use assert_matches::assert_matches;
     use bumpalo::Bump;

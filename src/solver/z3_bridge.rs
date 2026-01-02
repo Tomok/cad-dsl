@@ -652,11 +652,11 @@ impl<'src, 'arena> Default for Z3Bridge<'src, 'arena> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::solver::constraint_extractor::{Constraint, Variable};
     use crate::hir::definitions::VarDefinition;
     use crate::hir::expr::{ResolvedExpr, ResolvedExprKind};
     use crate::hir::types::ResolvedType;
     use crate::lexer::{LineColumn, Span};
+    use crate::solver::constraint_extractor::{Constraint, Variable};
     use assert_matches::assert_matches;
     use bumpalo::Bump;
 
