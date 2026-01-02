@@ -22,6 +22,7 @@ use lexer::TokenTrait;
 use semantic_analyzer::errors::SemanticError;
 use solver::SolverError;
 use std::fs;
+use std::io::{self, Read};
 use type_checker::errors::TypeCheckError;
 
 #[derive(Parser)]
@@ -37,6 +38,22 @@ enum Commands {
     Lex { file: String },
     Parse { file: String },
     Solve { file: String },
+}
+
+/// Read content from a file or stdin if the file is "-"
+fn read_input(file: &str) -> io::Result<String> {
+    if file == "-" {
+        let mut content = String::new();
+        io::stdin().read_to_string(&mut content)?;
+        Ok(content)
+    } else {
+        fs::read_to_string(file)
+    }
+}
+
+/// Get the filename for error reporting (use "<stdin>" for "-")
+fn display_filename(file: &str) -> &str {
+    if file == "-" { "<stdin>" } else { file }
 }
 
 /// Report semantic analysis errors with Ariadne formatting
@@ -143,7 +160,7 @@ fn main() {
 
     match &cli.command {
         Commands::Lex { file } => {
-            let content = fs::read_to_string(file).expect("Failed to read file");
+            let content = read_input(file).expect("Failed to read input");
 
             match lexer::tokenize(&content) {
                 Ok(tokens) => {
@@ -160,7 +177,8 @@ fn main() {
             }
         }
         Commands::Parse { file } => {
-            let content = fs::read_to_string(file).expect("Failed to read file");
+            let content = read_input(file).expect("Failed to read input");
+            let filename = display_filename(file);
 
             // Step 1: Tokenize
             let tokens = match lexer::tokenize(&content) {
@@ -186,7 +204,7 @@ fn main() {
                 }
                 Err(errors) => {
                     eprintln!("Parse errors:");
-                    parser::report_parse_errors(file, &content, errors);
+                    parser::report_parse_errors(filename, &content, errors);
                     std::process::exit(1);
                 }
             };
@@ -200,7 +218,7 @@ fn main() {
                 }
                 Err(errors) => {
                     eprintln!("\nSemantic errors:");
-                    report_semantic_errors(file, &content, errors);
+                    report_semantic_errors(filename, &content, errors);
                     std::process::exit(1);
                 }
             };
@@ -213,13 +231,14 @@ fn main() {
                 }
                 Err(errors) => {
                     eprintln!("\nType errors:");
-                    report_type_errors(file, &content, errors);
+                    report_type_errors(filename, &content, errors);
                     std::process::exit(1);
                 }
             }
         }
         Commands::Solve { file } => {
-            let content = fs::read_to_string(file).expect("Failed to read file");
+            let content = read_input(file).expect("Failed to read input");
+            let filename = display_filename(file);
 
             // Step 1: Tokenize
             let tokens = match lexer::tokenize(&content) {
@@ -247,7 +266,7 @@ fn main() {
                 Ok(stmts) => stmts,
                 Err(errors) => {
                     eprintln!("Parse errors:");
-                    parser::report_parse_errors(file, &content, errors);
+                    parser::report_parse_errors(filename, &content, errors);
                     std::process::exit(1);
                 }
             };
@@ -258,7 +277,7 @@ fn main() {
                 Ok(hir) => hir,
                 Err(errors) => {
                     eprintln!("Semantic errors:");
-                    report_semantic_errors(file, &content, errors);
+                    report_semantic_errors(filename, &content, errors);
                     std::process::exit(1);
                 }
             };
@@ -266,7 +285,7 @@ fn main() {
             // Step 4: Type Checking
             if let Err(errors) = type_checker::type_check(&arena, &content, &hir[..]) {
                 eprintln!("Type errors:");
-                report_type_errors(file, &content, errors);
+                report_type_errors(filename, &content, errors);
                 std::process::exit(1);
             }
 
@@ -276,7 +295,7 @@ fn main() {
                     print!("{}", solution);
                 }
                 Err(error) => {
-                    report_solver_errors(file, &content, error);
+                    report_solver_errors(filename, &content, error);
                     std::process::exit(1);
                 }
             }
