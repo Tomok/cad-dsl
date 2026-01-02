@@ -41,10 +41,30 @@
 
 #![allow(dead_code)] // Public API for future constraint solving integration
 
-use crate::constraint_extractor::{ConstraintExtractorError, extract_constraints};
+// ============================================================================
+// Submodule Declarations
+// ============================================================================
+
+pub mod constraint_extractor;
+pub mod solution_formatter;
+pub mod z3_bridge;
+
+// ============================================================================
+// Public Re-exports
+// ============================================================================
+
+#[allow(unused_imports)]
+pub use constraint_extractor::{ConstraintExtractorError, extract_constraints};
+#[allow(unused_imports)]
+pub use solution_formatter::{SolutionFormatter, SolutionFormatterError};
+#[allow(unused_imports)]
+pub use z3_bridge::{Z3Bridge, Z3BridgeError};
+
+// ============================================================================
+// Imports
+// ============================================================================
+
 use crate::hir::expr::ResolvedStmt;
-use crate::solution_formatter::{SolutionFormatter, SolutionFormatterError};
-use crate::z3_bridge::{Z3Bridge, Z3BridgeError};
 use std::fmt;
 
 // ============================================================================

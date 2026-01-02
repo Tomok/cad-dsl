@@ -11,16 +11,7 @@ mod semantic_analyzer;
 // Type checking module
 mod type_checker;
 
-// Constraint extraction module
-mod constraint_extractor;
-
-// Z3 constraint solver bridge
-mod z3_bridge;
-
-// Solution formatter
-mod solution_formatter;
-
-// Solver pipeline
+// Solver pipeline module
 mod solver;
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
