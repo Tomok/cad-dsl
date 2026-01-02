@@ -167,6 +167,52 @@ impl<'src, 'arena> Constraint<'src, 'arena> {
     }
 }
 
+/// Represents a conditional constraint (if-statement)
+///
+/// Conditional constraints express that certain constraints apply only when
+/// a condition is true, and optionally different constraints apply when the
+/// condition is false.
+///
+/// Example:
+/// ```cad
+/// if x > 0 {
+///     y == x * 2;
+/// } else {
+///     y == 0;
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConditionalConstraint<'src, 'arena> {
+    /// The condition expression (must be boolean)
+    pub condition: &'arena ResolvedExpr<'src, 'arena>,
+
+    /// Constraints that apply when the condition is true
+    pub then_constraints: Vec<Constraint<'src, 'arena>>,
+
+    /// Constraints that apply when the condition is false
+    pub else_constraints: Vec<Constraint<'src, 'arena>>,
+
+    /// Source span for error reporting
+    pub span: Span,
+}
+
+impl<'src, 'arena> ConditionalConstraint<'src, 'arena> {
+    /// Create a new conditional constraint
+    pub fn new(
+        condition: &'arena ResolvedExpr<'src, 'arena>,
+        then_constraints: Vec<Constraint<'src, 'arena>>,
+        else_constraints: Vec<Constraint<'src, 'arena>>,
+        span: Span,
+    ) -> Self {
+        Self {
+            condition,
+            then_constraints,
+            else_constraints,
+            span,
+        }
+    }
+}
+
 /// A complete constraint problem ready for solving
 ///
 /// Contains all variables (known and unknown) and all constraints
@@ -176,8 +222,11 @@ pub struct ConstraintProblem<'src, 'arena> {
     /// All variables in the problem
     pub variables: Vec<Variable<'src, 'arena>>,
 
-    /// All constraints in the problem
+    /// All unconditional constraints in the problem
     pub constraints: Vec<Constraint<'src, 'arena>>,
+
+    /// All conditional constraints (if-statements) in the problem
+    pub conditional_constraints: Vec<ConditionalConstraint<'src, 'arena>>,
 }
 
 impl<'src, 'arena> ConstraintProblem<'src, 'arena> {
@@ -186,6 +235,7 @@ impl<'src, 'arena> ConstraintProblem<'src, 'arena> {
         Self {
             variables: Vec::new(),
             constraints: Vec::new(),
+            conditional_constraints: Vec::new(),
         }
     }
 
@@ -199,6 +249,14 @@ impl<'src, 'arena> ConstraintProblem<'src, 'arena> {
         self.constraints.push(constraint);
     }
 
+    /// Add a conditional constraint to the problem
+    pub fn add_conditional_constraint(
+        &mut self,
+        conditional_constraint: ConditionalConstraint<'src, 'arena>,
+    ) {
+        self.conditional_constraints.push(conditional_constraint);
+    }
+
     /// Get the number of variables
     pub fn variable_count(&self) -> usize {
         self.variables.len()
@@ -207,6 +265,11 @@ impl<'src, 'arena> ConstraintProblem<'src, 'arena> {
     /// Get the number of constraints
     pub fn constraint_count(&self) -> usize {
         self.constraints.len()
+    }
+
+    /// Get the number of conditional constraints
+    pub fn conditional_constraint_count(&self) -> usize {
+        self.conditional_constraints.len()
     }
 
     /// Get all unknown variables (no initializer)
@@ -296,12 +359,29 @@ fn process_statement<'src, 'arena>(
             }
         }
 
-        // Unsupported: control flow
-        ResolvedStmtKind::If { span, .. } => Err(ConstraintExtractorError::UnsupportedStatement {
-            statement_type: "if".to_string(),
-            span: *span,
-            message: "Control flow is not supported in constraint problems".to_string(),
-        }),
+        // Handle if-statements - extract conditional constraints
+        ResolvedStmtKind::If {
+            condition,
+            then_branch,
+            else_branch,
+            span,
+        } => {
+            // Process then branch to extract constraints
+            let then_constraints = process_branch(then_branch)?;
+
+            // Process else branch (if present) to extract constraints
+            let else_constraints = if let Some(else_stmts) = else_branch {
+                process_branch(else_stmts)?
+            } else {
+                Vec::new()
+            };
+
+            // Create a conditional constraint and add it to the problem
+            let conditional_constraint =
+                ConditionalConstraint::new(condition, then_constraints, else_constraints, *span);
+            problem.add_conditional_constraint(conditional_constraint);
+            Ok(())
+        }
 
         ResolvedStmtKind::For { span, .. } => Err(ConstraintExtractorError::UnsupportedStatement {
             statement_type: "for".to_string(),
@@ -382,6 +462,119 @@ fn is_comparison_expr<'src, 'arena>(expr: &ResolvedExpr<'src, 'arena>) -> bool {
             | ResolvedExprKind::LtEq { .. }
             | ResolvedExprKind::GtEq { .. }
     )
+}
+
+/// Process if-statement branches and extract constraints
+///
+/// This function processes the statements in an if-branch or else-branch and
+/// extracts only constraint expressions. Variable declarations are not allowed
+/// in conditional branches because they would create scope and initialization issues.
+fn process_branch<'src, 'arena>(
+    statements: &[&'arena ResolvedStmt<'src, 'arena>],
+) -> Result<Vec<Constraint<'src, 'arena>>, ConstraintExtractorError> {
+    let mut constraints = Vec::new();
+
+    for stmt in statements {
+        match &stmt.kind {
+            // Expression statements - extract constraints
+            ResolvedStmtKind::Expression { expr, span } => {
+                if is_comparison_expr(expr) {
+                    constraints.push(Constraint::new(expr, *span));
+                } else {
+                    return Err(ConstraintExtractorError::NotAConstraint { span: *span });
+                }
+            }
+
+            // Block: recursively process statements
+            ResolvedStmtKind::Block { statements, .. } => {
+                let inner_constraints = process_branch(statements)?;
+                constraints.extend(inner_constraints);
+            }
+
+            // Variable declarations are not allowed in conditional branches
+            ResolvedStmtKind::Let { span, .. } => {
+                return Err(ConstraintExtractorError::UnsupportedStatement {
+                    statement_type: "let in conditional branch".to_string(),
+                    span: *span,
+                    message: "Variable declarations are not allowed in conditional branches"
+                        .to_string(),
+                });
+            }
+
+            // All other statement types are unsupported
+            ResolvedStmtKind::If { span, .. } => {
+                return Err(ConstraintExtractorError::UnsupportedStatement {
+                    statement_type: "nested if".to_string(),
+                    span: *span,
+                    message: "Nested if-statements are not supported in constraint problems"
+                        .to_string(),
+                });
+            }
+
+            ResolvedStmtKind::For { span, .. } => {
+                return Err(ConstraintExtractorError::UnsupportedStatement {
+                    statement_type: "for in conditional branch".to_string(),
+                    span: *span,
+                    message: "Loops are not allowed in conditional branches".to_string(),
+                });
+            }
+
+            ResolvedStmtKind::Return { span, .. } => {
+                return Err(ConstraintExtractorError::UnsupportedStatement {
+                    statement_type: "return in conditional branch".to_string(),
+                    span: *span,
+                    message: "Return statements are not allowed in conditional branches"
+                        .to_string(),
+                });
+            }
+
+            ResolvedStmtKind::FunctionDef { span, .. } => {
+                return Err(ConstraintExtractorError::UnsupportedStatement {
+                    statement_type: "function definition in conditional branch".to_string(),
+                    span: *span,
+                    message: "Function definitions are not allowed in conditional branches"
+                        .to_string(),
+                });
+            }
+
+            ResolvedStmtKind::StructDef { span, .. } => {
+                return Err(ConstraintExtractorError::UnsupportedStatement {
+                    statement_type: "struct definition in conditional branch".to_string(),
+                    span: *span,
+                    message: "Struct definitions are not allowed in conditional branches"
+                        .to_string(),
+                });
+            }
+
+            ResolvedStmtKind::Assignment { span, .. } => {
+                return Err(ConstraintExtractorError::UnsupportedStatement {
+                    statement_type: "assignment in conditional branch".to_string(),
+                    span: *span,
+                    message: "Variable reassignment is not allowed in conditional branches"
+                        .to_string(),
+                });
+            }
+
+            ResolvedStmtKind::FieldAssignment { span, .. } => {
+                return Err(ConstraintExtractorError::UnsupportedStatement {
+                    statement_type: "field assignment in conditional branch".to_string(),
+                    span: *span,
+                    message: "Field assignments are not allowed in conditional branches"
+                        .to_string(),
+                });
+            }
+
+            ResolvedStmtKind::With { span, .. } => {
+                return Err(ConstraintExtractorError::UnsupportedStatement {
+                    statement_type: "with in conditional branch".to_string(),
+                    span: *span,
+                    message: "With blocks are not allowed in conditional branches".to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(constraints)
 }
 
 // ============================================================================
@@ -739,7 +932,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_unsupported_if_statement() {
+    fn test_if_statement_with_empty_branches() {
         let arena = Bump::new();
         let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
         let condition = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
@@ -755,15 +948,13 @@ mod tests {
         );
 
         let result = extract_constraints(&[stmt]);
-        assert!(result.is_err());
+        assert!(result.is_ok());
 
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert_matches!(
-            errors[0],
-            ConstraintExtractorError::UnsupportedStatement { ref statement_type, .. }
-            if statement_type == "if"
-        );
+        let problem = result.unwrap();
+        // Empty branches should result in a conditional constraint with no then/else constraints
+        assert_eq!(problem.conditional_constraint_count(), 1);
+        assert_eq!(problem.conditional_constraints[0].then_constraints.len(), 0);
+        assert_eq!(problem.conditional_constraints[0].else_constraints.len(), 0);
     }
 
     #[test]
@@ -976,5 +1167,416 @@ mod tests {
         let display = format!("{}", error);
         assert!(display.contains("x"));
         assert!(display.contains("no type information"));
+    }
+
+    #[test]
+    fn test_if_statement_with_then_branch_only() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Condition: true
+        let condition = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
+
+        // Then branch: x == 10
+        let lhs = make_expr(&arena, ResolvedExprKind::IntLit { value: 1 }, int_ty);
+        let rhs = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let constraint_expr = make_expr(&arena, ResolvedExprKind::Eq { lhs, rhs }, bool_ty);
+        let then_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::Expression {
+                expr: constraint_expr,
+                span: test_span(),
+            },
+        );
+
+        let if_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::If {
+                condition,
+                then_branch: vec![then_stmt],
+                else_branch: None,
+                span: test_span(),
+            },
+        );
+
+        let result = extract_constraints(&[if_stmt]);
+        assert!(result.is_ok());
+
+        let problem = result.unwrap();
+        assert_eq!(problem.conditional_constraint_count(), 1);
+        assert_eq!(problem.conditional_constraints[0].then_constraints.len(), 1);
+        assert_eq!(problem.conditional_constraints[0].else_constraints.len(), 0);
+    }
+
+    #[test]
+    fn test_if_statement_with_else_branch() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Condition: x > 0
+        let lhs = make_expr(&arena, ResolvedExprKind::IntLit { value: 1 }, int_ty);
+        let rhs = make_expr(&arena, ResolvedExprKind::IntLit { value: 0 }, int_ty);
+        let condition = make_expr(&arena, ResolvedExprKind::Gt { lhs, rhs }, bool_ty);
+
+        // Then branch: y == 10
+        let then_lhs = make_expr(&arena, ResolvedExprKind::IntLit { value: 2 }, int_ty);
+        let then_rhs = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let then_expr = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: then_lhs,
+                rhs: then_rhs,
+            },
+            bool_ty,
+        );
+        let then_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::Expression {
+                expr: then_expr,
+                span: test_span(),
+            },
+        );
+
+        // Else branch: y == 0
+        let else_lhs = make_expr(&arena, ResolvedExprKind::IntLit { value: 2 }, int_ty);
+        let else_rhs = make_expr(&arena, ResolvedExprKind::IntLit { value: 0 }, int_ty);
+        let else_expr = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: else_lhs,
+                rhs: else_rhs,
+            },
+            bool_ty,
+        );
+        let else_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::Expression {
+                expr: else_expr,
+                span: test_span(),
+            },
+        );
+
+        let if_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::If {
+                condition,
+                then_branch: vec![then_stmt],
+                else_branch: Some(vec![else_stmt]),
+                span: test_span(),
+            },
+        );
+
+        let result = extract_constraints(&[if_stmt]);
+        assert!(result.is_ok());
+
+        let problem = result.unwrap();
+        assert_eq!(problem.conditional_constraint_count(), 1);
+        assert_eq!(problem.conditional_constraints[0].then_constraints.len(), 1);
+        assert_eq!(problem.conditional_constraints[0].else_constraints.len(), 1);
+    }
+
+    #[test]
+    fn test_if_statement_with_multiple_constraints() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Condition
+        let condition = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
+
+        // Then branch: x == 10 and y == 20
+        let constraint1 = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: make_expr(&arena, ResolvedExprKind::IntLit { value: 1 }, int_ty),
+                rhs: make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty),
+            },
+            bool_ty,
+        );
+        let constraint2 = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: make_expr(&arena, ResolvedExprKind::IntLit { value: 2 }, int_ty),
+                rhs: make_expr(&arena, ResolvedExprKind::IntLit { value: 20 }, int_ty),
+            },
+            bool_ty,
+        );
+
+        let then_stmt1 = make_stmt(
+            &arena,
+            ResolvedStmtKind::Expression {
+                expr: constraint1,
+                span: test_span(),
+            },
+        );
+        let then_stmt2 = make_stmt(
+            &arena,
+            ResolvedStmtKind::Expression {
+                expr: constraint2,
+                span: test_span(),
+            },
+        );
+
+        let if_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::If {
+                condition,
+                then_branch: vec![then_stmt1, then_stmt2],
+                else_branch: None,
+                span: test_span(),
+            },
+        );
+
+        let result = extract_constraints(&[if_stmt]);
+        assert!(result.is_ok());
+
+        let problem = result.unwrap();
+        assert_eq!(problem.conditional_constraint_count(), 1);
+        assert_eq!(problem.conditional_constraints[0].then_constraints.len(), 2);
+    }
+
+    #[test]
+    fn test_error_variable_declaration_in_then_branch() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Condition
+        let condition = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
+
+        // Then branch with variable declaration (not allowed)
+        let var_def = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 1,
+            span: test_span(),
+        });
+        let then_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::Let {
+                dot_prefix: false,
+                name_path: vec![("x", test_span())],
+                var_def,
+                init: None,
+                span: test_span(),
+            },
+        );
+
+        let if_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::If {
+                condition,
+                then_branch: vec![then_stmt],
+                else_branch: None,
+                span: test_span(),
+            },
+        );
+
+        let result = extract_constraints(&[if_stmt]);
+        assert!(result.is_err());
+
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(
+            errors[0],
+            ConstraintExtractorError::UnsupportedStatement { ref statement_type, .. }
+            if statement_type == "let in conditional branch"
+        );
+    }
+
+    #[test]
+    fn test_error_variable_declaration_in_else_branch() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Condition
+        let condition = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
+
+        // Then branch with valid constraint
+        let constraint = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: make_expr(&arena, ResolvedExprKind::IntLit { value: 1 }, int_ty),
+                rhs: make_expr(&arena, ResolvedExprKind::IntLit { value: 2 }, int_ty),
+            },
+            bool_ty,
+        );
+        let then_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::Expression {
+                expr: constraint,
+                span: test_span(),
+            },
+        );
+
+        // Else branch with variable declaration (not allowed)
+        let var_def = arena.alloc(VarDefinition {
+            name: "y",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 1,
+            span: test_span(),
+        });
+        let else_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::Let {
+                dot_prefix: false,
+                name_path: vec![("y", test_span())],
+                var_def,
+                init: None,
+                span: test_span(),
+            },
+        );
+
+        let if_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::If {
+                condition,
+                then_branch: vec![then_stmt],
+                else_branch: Some(vec![else_stmt]),
+                span: test_span(),
+            },
+        );
+
+        let result = extract_constraints(&[if_stmt]);
+        assert!(result.is_err());
+
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(
+            errors[0],
+            ConstraintExtractorError::UnsupportedStatement { ref statement_type, .. }
+            if statement_type == "let in conditional branch"
+        );
+    }
+
+    #[test]
+    fn test_error_nested_if_statement() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+
+        // Outer condition
+        let outer_condition = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
+
+        // Inner if-statement (nested, not allowed)
+        let inner_condition =
+            make_expr(&arena, ResolvedExprKind::BoolLit { value: false }, bool_ty);
+        let inner_if = make_stmt(
+            &arena,
+            ResolvedStmtKind::If {
+                condition: inner_condition,
+                then_branch: vec![],
+                else_branch: None,
+                span: test_span(),
+            },
+        );
+
+        let outer_if = make_stmt(
+            &arena,
+            ResolvedStmtKind::If {
+                condition: outer_condition,
+                then_branch: vec![inner_if],
+                else_branch: None,
+                span: test_span(),
+            },
+        );
+
+        let result = extract_constraints(&[outer_if]);
+        assert!(result.is_err());
+
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(
+            errors[0],
+            ConstraintExtractorError::UnsupportedStatement { ref statement_type, .. }
+            if statement_type == "nested if"
+        );
+    }
+
+    #[test]
+    fn test_if_statement_with_block_in_branch() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Condition
+        let condition = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
+
+        // Then branch with block containing constraint
+        let constraint = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: make_expr(&arena, ResolvedExprKind::IntLit { value: 1 }, int_ty),
+                rhs: make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty),
+            },
+            bool_ty,
+        );
+        let inner_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::Expression {
+                expr: constraint,
+                span: test_span(),
+            },
+        );
+        let block_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::Block {
+                statements: vec![inner_stmt],
+                span: test_span(),
+            },
+        );
+
+        let if_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::If {
+                condition,
+                then_branch: vec![block_stmt],
+                else_branch: None,
+                span: test_span(),
+            },
+        );
+
+        let result = extract_constraints(&[if_stmt]);
+        assert!(result.is_ok());
+
+        let problem = result.unwrap();
+        assert_eq!(problem.conditional_constraint_count(), 1);
+        assert_eq!(problem.conditional_constraints[0].then_constraints.len(), 1);
+    }
+
+    #[test]
+    fn test_conditional_constraint_helper_methods() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        let mut problem = ConstraintProblem::new();
+        assert_eq!(problem.conditional_constraint_count(), 0);
+
+        let condition = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
+        let constraint_expr = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: make_expr(&arena, ResolvedExprKind::IntLit { value: 1 }, int_ty),
+                rhs: make_expr(&arena, ResolvedExprKind::IntLit { value: 2 }, int_ty),
+            },
+            bool_ty,
+        );
+
+        let conditional = ConditionalConstraint::new(
+            condition,
+            vec![Constraint::new(constraint_expr, test_span())],
+            vec![],
+            test_span(),
+        );
+
+        problem.add_conditional_constraint(conditional);
+        assert_eq!(problem.conditional_constraint_count(), 1);
     }
 }

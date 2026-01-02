@@ -50,7 +50,7 @@
 
 #![allow(dead_code)] // Public API for future constraint solving implementation
 
-use super::constraint_extractor::{ConstraintProblem, Variable};
+use super::constraint_extractor::{ConditionalConstraint, ConstraintProblem, Variable};
 use crate::hir::expr::{ResolvedExpr, ResolvedExprKind};
 use crate::hir::types::ResolvedType;
 use crate::lexer::Span;
@@ -296,6 +296,63 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
         Ok(())
     }
 
+    /// Add a conditional constraint to the Z3 solver
+    ///
+    /// Translates if-statement constraints to Z3 assertions using three strategies:
+    /// 1. Both branches have constraints: Use ITE (if-then-else)
+    /// 2. Only then branch: Use implication (condition => then_constraint)
+    /// 3. Only else branch: Use implication (!condition => else_constraint)
+    ///
+    /// When branches have different numbers of constraints, pairs are processed
+    /// with ITE and remaining constraints use implication.
+    pub fn add_conditional_constraints(
+        &mut self,
+        cond_constraint: &ConditionalConstraint<'src, 'arena>,
+    ) -> Result<(), Z3BridgeError> {
+        let condition_z3 = self.translate_expr(cond_constraint.condition)?;
+        let condition_bool = condition_z3.as_bool(cond_constraint.condition.span)?;
+
+        let then_count = cond_constraint.then_constraints.len();
+        let else_count = cond_constraint.else_constraints.len();
+        let min_count = then_count.min(else_count);
+
+        // Process paired constraints with ITE
+        for i in 0..min_count {
+            let then_expr = self.translate_expr(cond_constraint.then_constraints[i].expr)?;
+            let else_expr = self.translate_expr(cond_constraint.else_constraints[i].expr)?;
+
+            let then_bool = then_expr.as_bool(cond_constraint.then_constraints[i].span)?;
+            let else_bool = else_expr.as_bool(cond_constraint.else_constraints[i].span)?;
+
+            // Create: ite(condition, then_constraint, else_constraint)
+            let ite_expr = condition_bool.ite(then_bool, else_bool);
+            self.solver.assert(&ite_expr);
+        }
+
+        // Process remaining then-only constraints with implication
+        for i in min_count..then_count {
+            let then_expr = self.translate_expr(cond_constraint.then_constraints[i].expr)?;
+            let then_bool = then_expr.as_bool(cond_constraint.then_constraints[i].span)?;
+
+            // Create: condition => then_constraint
+            let implication = condition_bool.implies(then_bool);
+            self.solver.assert(&implication);
+        }
+
+        // Process remaining else-only constraints with implication
+        for i in min_count..else_count {
+            let else_expr = self.translate_expr(cond_constraint.else_constraints[i].expr)?;
+            let else_bool = else_expr.as_bool(cond_constraint.else_constraints[i].span)?;
+
+            // Create: !condition => else_constraint
+            let not_condition = condition_bool.not();
+            let implication = not_condition.implies(else_bool);
+            self.solver.assert(&implication);
+        }
+
+        Ok(())
+    }
+
     /// Add all variables and constraints from a ConstraintProblem
     pub fn add_problem(
         &mut self,
@@ -309,6 +366,11 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
         // Add all constraints
         for constraint in &problem.constraints {
             self.add_constraint(constraint.expr)?;
+        }
+
+        // Add all conditional constraints
+        for cond_constraint in &problem.conditional_constraints {
+            self.add_conditional_constraints(cond_constraint)?;
         }
 
         Ok(())
@@ -636,6 +698,71 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
                 span,
             }),
         }
+    }
+
+    // ========================================================================
+    // Conditional (If-Then-Else) Operations
+    // ========================================================================
+
+    /// Create an if-then-else expression
+    ///
+    /// Uses Z3's native `ite` operator to create conditional expressions.
+    ///
+    /// # Arguments
+    /// * `condition` - Boolean condition
+    /// * `then_expr` - Expression if condition is true
+    /// * `else_expr` - Expression if condition is false
+    ///
+    /// # Returns
+    /// Returns the same type as then_expr and else_expr (must match or be compatible)
+    ///
+    /// # Type Promotion
+    /// If one branch is Int and the other is Real, both are promoted to Real
+    fn create_ite(
+        &self,
+        condition: &Z3Ast,
+        then_expr: &Z3Ast,
+        else_expr: &Z3Ast,
+        span: Span,
+    ) -> Result<Z3Ast, Z3BridgeError> {
+        let cond_bool = condition.as_bool(span)?;
+
+        match (then_expr, else_expr) {
+            (Z3Ast::Int(t), Z3Ast::Int(e)) => Ok(Z3Ast::Int(cond_bool.ite(t, e))),
+            (Z3Ast::Real(t), Z3Ast::Real(e)) => Ok(Z3Ast::Real(cond_bool.ite(t, e))),
+            (Z3Ast::Bool(t), Z3Ast::Bool(e)) => Ok(Z3Ast::Bool(cond_bool.ite(t, e))),
+            // Handle mixed Int/Real by promoting to Real
+            (Z3Ast::Int(t), Z3Ast::Real(e)) => Ok(Z3Ast::Real(cond_bool.ite(&t.to_real(), e))),
+            (Z3Ast::Real(t), Z3Ast::Int(e)) => Ok(Z3Ast::Real(cond_bool.ite(t, &e.to_real()))),
+            _ => Err(Z3BridgeError::TypeMismatch {
+                expected: "matching types in then/else branches".to_string(),
+                found: "mismatched types".to_string(),
+                span,
+            }),
+        }
+    }
+
+    /// Translate an if-then-else expression to Z3
+    ///
+    /// This method is public to support future HIR if-expressions.
+    /// Currently used for testing the ITE functionality.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Translates: if x > 0 { 10 } else { -10 }
+    /// let result = bridge.translate_if_expr(condition, then_expr, else_expr)?;
+    /// ```
+    pub fn translate_if_expr(
+        &self,
+        condition: &'arena ResolvedExpr<'src, 'arena>,
+        then_expr: &'arena ResolvedExpr<'src, 'arena>,
+        else_expr: &'arena ResolvedExpr<'src, 'arena>,
+    ) -> Result<Z3Ast, Z3BridgeError> {
+        let cond_z3 = self.translate_expr(condition)?;
+        let then_z3 = self.translate_expr(then_expr)?;
+        let else_z3 = self.translate_expr(else_expr)?;
+
+        self.create_ite(&cond_z3, &then_z3, &else_z3, condition.span)
     }
 }
 
@@ -1090,5 +1217,683 @@ mod tests {
         let display = format!("{}", error);
         assert!(display.contains("x"));
         assert!(display.contains("not found"));
+    }
+
+    // ========================================================================
+    // ITE (If-Then-Else) Tests
+    // ========================================================================
+
+    #[test]
+    fn test_create_ite_int() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if true { 10 } else { 20 }
+        let condition = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+        let then_val = Z3Ast::Int(z3::ast::Int::from_i64(10));
+        let else_val = Z3Ast::Int(z3::ast::Int::from_i64(20));
+
+        let result = bridge.create_ite(&condition, &then_val, &else_val, test_span());
+        assert!(result.is_ok());
+        assert_matches!(result.unwrap(), Z3Ast::Int(_));
+    }
+
+    #[test]
+    fn test_create_ite_real() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let real_ty = arena.alloc(ResolvedType::F64 { span: test_span() });
+
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if false { 1.5 } else { 2.5 }
+        let condition = Z3Ast::Bool(z3::ast::Bool::from_bool(false));
+        let then_val = Z3Ast::Real(z3::ast::Real::from_rational_str("15", "10").unwrap());
+        let else_val = Z3Ast::Real(z3::ast::Real::from_rational_str("25", "10").unwrap());
+
+        let result = bridge.create_ite(&condition, &then_val, &else_val, test_span());
+        assert!(result.is_ok());
+        assert_matches!(result.unwrap(), Z3Ast::Real(_));
+    }
+
+    #[test]
+    fn test_create_ite_bool() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if true { true } else { false }
+        let condition = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+        let then_val = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+        let else_val = Z3Ast::Bool(z3::ast::Bool::from_bool(false));
+
+        let result = bridge.create_ite(&condition, &then_val, &else_val, test_span());
+        assert!(result.is_ok());
+        assert_matches!(result.unwrap(), Z3Ast::Bool(_));
+    }
+
+    #[test]
+    fn test_create_ite_mixed_int_real() {
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if true { 10 (int) } else { 2.5 (real) }
+        let condition = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+        let then_val = Z3Ast::Int(z3::ast::Int::from_i64(10));
+        let else_val = Z3Ast::Real(z3::ast::Real::from_rational_str("25", "10").unwrap());
+
+        let result = bridge.create_ite(&condition, &then_val, &else_val, test_span());
+        assert!(result.is_ok());
+        // Should be promoted to Real
+        assert_matches!(result.unwrap(), Z3Ast::Real(_));
+    }
+
+    #[test]
+    fn test_create_ite_mixed_real_int() {
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if true { 1.5 (real) } else { 20 (int) }
+        let condition = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+        let then_val = Z3Ast::Real(z3::ast::Real::from_rational_str("15", "10").unwrap());
+        let else_val = Z3Ast::Int(z3::ast::Int::from_i64(20));
+
+        let result = bridge.create_ite(&condition, &then_val, &else_val, test_span());
+        assert!(result.is_ok());
+        // Should be promoted to Real
+        assert_matches!(result.unwrap(), Z3Ast::Real(_));
+    }
+
+    #[test]
+    fn test_create_ite_type_mismatch() {
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if true { 10 (int) } else { true (bool) } - should fail
+        let condition = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+        let then_val = Z3Ast::Int(z3::ast::Int::from_i64(10));
+        let else_val = Z3Ast::Bool(z3::ast::Bool::from_bool(true));
+
+        let result = bridge.create_ite(&condition, &then_val, &else_val, test_span());
+        assert!(result.is_err());
+        assert_matches!(result.unwrap_err(), Z3BridgeError::TypeMismatch { .. });
+    }
+
+    #[test]
+    fn test_translate_if_expr_basic() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: if true { 10 } else { 20 }
+        let condition = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
+        let then_expr = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let else_expr = make_expr(&arena, ResolvedExprKind::IntLit { value: 20 }, int_ty);
+
+        let result = bridge.translate_if_expr(condition, then_expr, else_expr);
+        assert!(result.is_ok());
+        assert_matches!(result.unwrap(), Z3Ast::Int(_));
+    }
+
+    #[test]
+    fn test_translate_if_expr_with_variables() {
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Create variables
+        let var_x = Variable::new("x", int_ty, None, test_span());
+        let var_def_x = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let mut bridge = Z3Bridge::<'static, 'static>::new();
+        bridge.add_variable(&var_x).unwrap();
+
+        // Create: if x > 0 { 10 } else { -10 }
+        let x_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "x",
+                definition: var_def_x,
+            },
+            int_ty,
+        );
+        let zero = make_expr(&arena, ResolvedExprKind::IntLit { value: 0 }, int_ty);
+        let condition = make_expr(
+            &arena,
+            ResolvedExprKind::Gt {
+                lhs: x_ref,
+                rhs: zero,
+            },
+            bool_ty,
+        );
+        let then_expr = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let else_expr = make_expr(&arena, ResolvedExprKind::IntLit { value: -10 }, int_ty);
+
+        let result = bridge.translate_if_expr(condition, then_expr, else_expr);
+        assert!(result.is_ok());
+        assert_matches!(result.unwrap(), Z3Ast::Int(_));
+    }
+
+    // ========================================================================
+    // Conditional Constraint Tests
+    // ========================================================================
+
+    #[test]
+    fn test_add_conditional_constraint_both_branches() {
+        use super::super::constraint_extractor::{ConditionalConstraint, Constraint};
+
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Create variables: x, y
+        let var_x = Variable::new("x", int_ty, None, test_span());
+        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_def_x = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+        let var_def_y = arena.alloc(VarDefinition {
+            name: "y",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let mut bridge = Z3Bridge::<'static, 'static>::new();
+        bridge.add_variable(&var_x).unwrap();
+        bridge.add_variable(&var_y).unwrap();
+
+        // Create: if x > 0 { y == 10; } else { y == 20; }
+        let x_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "x",
+                definition: var_def_x,
+            },
+            int_ty,
+        );
+        let zero = make_expr(&arena, ResolvedExprKind::IntLit { value: 0 }, int_ty);
+        let condition = make_expr(
+            &arena,
+            ResolvedExprKind::Gt {
+                lhs: x_ref,
+                rhs: zero,
+            },
+            bool_ty,
+        );
+
+        let y_ref_then = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "y",
+                definition: var_def_y,
+            },
+            int_ty,
+        );
+        let ten = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let then_constraint = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: y_ref_then,
+                rhs: ten,
+            },
+            bool_ty,
+        );
+
+        let y_ref_else = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "y",
+                definition: var_def_y,
+            },
+            int_ty,
+        );
+        let twenty = make_expr(&arena, ResolvedExprKind::IntLit { value: 20 }, int_ty);
+        let else_constraint = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: y_ref_else,
+                rhs: twenty,
+            },
+            bool_ty,
+        );
+
+        let cond_constraint = ConditionalConstraint::new(
+            condition,
+            vec![Constraint::new(then_constraint, test_span())],
+            vec![Constraint::new(else_constraint, test_span())],
+            test_span(),
+        );
+
+        let result = bridge.add_conditional_constraints(&cond_constraint);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_add_conditional_constraint_then_only() {
+        use super::super::constraint_extractor::{ConditionalConstraint, Constraint};
+
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Create variables: x, y
+        let var_x = Variable::new("x", int_ty, None, test_span());
+        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_def_x = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+        let var_def_y = arena.alloc(VarDefinition {
+            name: "y",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let mut bridge = Z3Bridge::<'static, 'static>::new();
+        bridge.add_variable(&var_x).unwrap();
+        bridge.add_variable(&var_y).unwrap();
+
+        // Create: if x > 0 { y == 10; }
+        let x_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "x",
+                definition: var_def_x,
+            },
+            int_ty,
+        );
+        let zero = make_expr(&arena, ResolvedExprKind::IntLit { value: 0 }, int_ty);
+        let condition = make_expr(
+            &arena,
+            ResolvedExprKind::Gt {
+                lhs: x_ref,
+                rhs: zero,
+            },
+            bool_ty,
+        );
+
+        let y_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "y",
+                definition: var_def_y,
+            },
+            int_ty,
+        );
+        let ten = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let then_constraint = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: y_ref,
+                rhs: ten,
+            },
+            bool_ty,
+        );
+
+        let cond_constraint = ConditionalConstraint::new(
+            condition,
+            vec![Constraint::new(then_constraint, test_span())],
+            vec![], // No else constraints
+            test_span(),
+        );
+
+        let result = bridge.add_conditional_constraints(&cond_constraint);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_add_conditional_constraint_else_only() {
+        use super::super::constraint_extractor::{ConditionalConstraint, Constraint};
+
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Create variables: x, y
+        let var_x = Variable::new("x", int_ty, None, test_span());
+        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_def_x = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+        let var_def_y = arena.alloc(VarDefinition {
+            name: "y",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let mut bridge = Z3Bridge::<'static, 'static>::new();
+        bridge.add_variable(&var_x).unwrap();
+        bridge.add_variable(&var_y).unwrap();
+
+        // Create: if x > 0 { } else { y == 20; }
+        let x_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "x",
+                definition: var_def_x,
+            },
+            int_ty,
+        );
+        let zero = make_expr(&arena, ResolvedExprKind::IntLit { value: 0 }, int_ty);
+        let condition = make_expr(
+            &arena,
+            ResolvedExprKind::Gt {
+                lhs: x_ref,
+                rhs: zero,
+            },
+            bool_ty,
+        );
+
+        let y_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "y",
+                definition: var_def_y,
+            },
+            int_ty,
+        );
+        let twenty = make_expr(&arena, ResolvedExprKind::IntLit { value: 20 }, int_ty);
+        let else_constraint = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: y_ref,
+                rhs: twenty,
+            },
+            bool_ty,
+        );
+
+        let cond_constraint = ConditionalConstraint::new(
+            condition,
+            vec![], // No then constraints
+            vec![Constraint::new(else_constraint, test_span())],
+            test_span(),
+        );
+
+        let result = bridge.add_conditional_constraints(&cond_constraint);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_add_conditional_constraint_multiple() {
+        use super::super::constraint_extractor::{ConditionalConstraint, Constraint};
+
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Create variables: x, y, z
+        let var_x = Variable::new("x", int_ty, None, test_span());
+        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_z = Variable::new("z", int_ty, None, test_span());
+        let var_def_x = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+        let var_def_y = arena.alloc(VarDefinition {
+            name: "y",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+        let var_def_z = arena.alloc(VarDefinition {
+            name: "z",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let mut bridge = Z3Bridge::<'static, 'static>::new();
+        bridge.add_variable(&var_x).unwrap();
+        bridge.add_variable(&var_y).unwrap();
+        bridge.add_variable(&var_z).unwrap();
+
+        // Create: if x > 0 { y == 10; z == 5; } else { y == 20; }
+        let x_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "x",
+                definition: var_def_x,
+            },
+            int_ty,
+        );
+        let zero = make_expr(&arena, ResolvedExprKind::IntLit { value: 0 }, int_ty);
+        let condition = make_expr(
+            &arena,
+            ResolvedExprKind::Gt {
+                lhs: x_ref,
+                rhs: zero,
+            },
+            bool_ty,
+        );
+
+        // Then branch: y == 10; z == 5;
+        let y_ref_then = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "y",
+                definition: var_def_y,
+            },
+            int_ty,
+        );
+        let ten = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let then_constraint1 = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: y_ref_then,
+                rhs: ten,
+            },
+            bool_ty,
+        );
+
+        let z_ref_then = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "z",
+                definition: var_def_z,
+            },
+            int_ty,
+        );
+        let five = make_expr(&arena, ResolvedExprKind::IntLit { value: 5 }, int_ty);
+        let then_constraint2 = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: z_ref_then,
+                rhs: five,
+            },
+            bool_ty,
+        );
+
+        // Else branch: y == 20;
+        let y_ref_else = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "y",
+                definition: var_def_y,
+            },
+            int_ty,
+        );
+        let twenty = make_expr(&arena, ResolvedExprKind::IntLit { value: 20 }, int_ty);
+        let else_constraint = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: y_ref_else,
+                rhs: twenty,
+            },
+            bool_ty,
+        );
+
+        let cond_constraint = ConditionalConstraint::new(
+            condition,
+            vec![
+                Constraint::new(then_constraint1, test_span()),
+                Constraint::new(then_constraint2, test_span()),
+            ],
+            vec![Constraint::new(else_constraint, test_span())],
+            test_span(),
+        );
+
+        let result = bridge.add_conditional_constraints(&cond_constraint);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_end_to_end_if_constraint() {
+        use super::super::constraint_extractor::{ConditionalConstraint, Constraint};
+
+        let arena = Bump::new();
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Create variables: x = 5, y
+        let init_x = make_expr(&arena, ResolvedExprKind::IntLit { value: 5 }, int_ty);
+        let var_x = Variable::new("x", int_ty, Some(init_x), test_span());
+        let var_y = Variable::new("y", int_ty, None, test_span());
+
+        let var_def_x = arena.alloc(VarDefinition {
+            name: "x",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: Some(init_x),
+            scope_level: 0,
+            span: test_span(),
+        });
+        let var_def_y = arena.alloc(VarDefinition {
+            name: "y",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        // Create: if x > 0 { y == 10; } else { y == -10; }
+        let x_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "x",
+                definition: var_def_x,
+            },
+            int_ty,
+        );
+        let zero = make_expr(&arena, ResolvedExprKind::IntLit { value: 0 }, int_ty);
+        let condition = make_expr(
+            &arena,
+            ResolvedExprKind::Gt {
+                lhs: x_ref,
+                rhs: zero,
+            },
+            bool_ty,
+        );
+
+        let y_ref_then = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "y",
+                definition: var_def_y,
+            },
+            int_ty,
+        );
+        let ten = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let then_constraint = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: y_ref_then,
+                rhs: ten,
+            },
+            bool_ty,
+        );
+
+        let y_ref_else = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "y",
+                definition: var_def_y,
+            },
+            int_ty,
+        );
+        let neg_ten = make_expr(&arena, ResolvedExprKind::IntLit { value: -10 }, int_ty);
+        let else_constraint = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: y_ref_else,
+                rhs: neg_ten,
+            },
+            bool_ty,
+        );
+
+        let cond_constraint = ConditionalConstraint::new(
+            condition,
+            vec![Constraint::new(then_constraint, test_span())],
+            vec![Constraint::new(else_constraint, test_span())],
+            test_span(),
+        );
+
+        // Build the constraint problem
+        let mut problem = ConstraintProblem::new();
+        problem.add_variable(var_x);
+        problem.add_variable(var_y);
+        problem.conditional_constraints.push(cond_constraint);
+
+        // Translate to Z3
+        let mut bridge = Z3Bridge::new();
+        let result = bridge.add_problem(&problem);
+        assert!(result.is_ok());
+
+        // Solve
+        let solver = bridge.solver();
+        assert_eq!(solver.check(), z3::SatResult::Sat);
+
+        // Get model and verify
+        // Since x = 5 > 0, the then branch applies: y == 10
+        let model = solver.get_model().expect("Failed to get model");
+        let y_z3 = bridge.variables.get("y").unwrap();
+        let y_value = model
+            .eval(y_z3.as_int(test_span()).unwrap(), true)
+            .expect("Failed to evaluate y")
+            .as_i64()
+            .expect("y should be an integer");
+
+        assert_eq!(y_value, 10); // x = 5 > 0, so y == 10
     }
 }

@@ -242,12 +242,18 @@ The project has comprehensive test suites for each component:
   - Type inference (25 tests in type_checker_inference)
   - Type validation (25 tests in type_checker_validation)
   - Integration tests (6 tests in type_checker)
-- **Constraint Extractor tests**: Variable extraction, constraint identification, error handling
-- **Z3 Bridge tests**: Expression translation, type mapping, Z3 assertion creation
+- **Constraint Extractor tests**:
+  - Variable extraction, constraint identification, error handling
+  - Conditional constraint extraction (if-statements): 9 tests
+  - Tests for then-only, then-else, multiple constraints, error cases
+- **Z3 Bridge tests**:
+  - Expression translation, type mapping, Z3 assertion creation
+  - ITE (if-then-else) support: 8 tests for all type combinations
+  - Conditional constraint integration: 5 tests for ITE, implication, end-to-end
 - **Solution Formatter tests**: Model extraction, value formatting, error cases
 - **Solver tests**: End-to-end pipeline, SAT/UNSAT cases, integration tests
 
-Tests use timeout mechanisms to prevent infinite loops during development. The semantic analyzer has 60 comprehensive tests covering declaration collection, name resolution, scoping, error cases, and the complete analysis pipeline. The type checker has 84 comprehensive tests covering type inference, validation, numeric promotion, error cases, and the complete type checking pipeline. The constraint solver has comprehensive tests covering variable extraction, Z3 translation, solution formatting, and end-to-end solving.
+Tests use timeout mechanisms to prevent infinite loops during development. The semantic analyzer has 60 comprehensive tests covering declaration collection, name resolution, scoping, error cases, and the complete analysis pipeline. The type checker has 84 comprehensive tests covering type inference, validation, numeric promotion, error cases, and the complete type checking pipeline. The constraint solver has comprehensive tests covering variable extraction, Z3 translation, solution formatting, and end-to-end solving. The if-statement implementation adds 22 new tests covering ITE operations, conditional constraint extraction, and Z3 integration.
 
 ## Language Implementation Status
 
@@ -273,6 +279,7 @@ Currently implements:
   - Extracts variables and constraints from typed HIR
   - Translates to Z3 format and solves for unknowns
   - Supports basic types (i32, f64, bool) and arithmetic/comparison operators
+  - **If-statement support**: Conditional constraints using Z3 ITE and implication
   - Returns variable assignments or UNSAT for unsolvable constraints
 
 ### Next Steps:
@@ -292,9 +299,17 @@ The project integrates Z3 constraint solver to solve for unknown variables in co
 - Expression statements containing constraints
 - Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=`
 - Arithmetic operators: `+`, `-`, `*`, `/`
+- **If-statements with conditional constraints**
+
+**Limitations for If-Statements:**
+- No variable declarations inside if-statement branches (scope/initialization issues)
+- No assignments inside if-statement branches
+- Only constraint expressions (comparisons) are supported in branches
+- Condition must be a boolean expression
+- Nested if-statements are not supported
 
 **Not Supported (Out of Scope):**
-- Control flow: `if`, `for`, `with` statements
+- For loops and with statements
 - Structs and struct fields
 - Functions and function calls
 - Standard library functions
@@ -319,6 +334,33 @@ nix shell -c cargo run -- solve example.cad
 x = 10
 y = 10
 ```
+
+### If-Statement Example
+
+**Input file (if_example.cad):**
+```
+let x: i32;
+let y: i32;
+if x > 0 {
+    y == 10;
+} else {
+    y == 20;
+}
+x == 5;
+```
+
+**Command:**
+```bash
+nix shell -c cargo run -- solve if_example.cad
+```
+
+**Output:**
+```
+x = 5
+y = 10
+```
+
+**Explanation:** The solver determines that `x = 5` (from the constraint `x == 5`), which makes the condition `x > 0` true, so it applies the then-branch constraint `y == 10`.
 
 ### Pipeline
 

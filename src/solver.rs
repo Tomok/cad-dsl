@@ -196,7 +196,8 @@ pub fn solve<'src, 'arena>(
         return Err(SolverError::NoVariables);
     }
 
-    if problem.constraints.is_empty() {
+    // Update constraint validation to include conditional constraints
+    if problem.constraints.is_empty() && problem.conditional_constraints.is_empty() {
         return Err(SolverError::NoConstraints);
     }
 
@@ -946,8 +947,8 @@ mod tests {
     }
 
     #[test]
-    fn test_error_unsupported_statement() {
-        // Test: if true { }
+    fn test_error_if_statement_without_variables() {
+        // Test: if true { } with no variables - should fail with NoVariables
         let arena = Bump::new();
         let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
 
@@ -964,10 +965,7 @@ mod tests {
 
         let result = solve(&[stmt]);
         assert!(result.is_err());
-        assert_matches!(
-            result.unwrap_err(),
-            SolverError::ConstraintExtraction { .. }
-        );
+        assert_matches!(result.unwrap_err(), SolverError::NoVariables);
     }
 
     #[test]
