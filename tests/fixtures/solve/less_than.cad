@@ -1,0 +1,6 @@
+// Less than comparison
+// x < 10 and x == 5
+// Expected: x = 5
+let x: i32;
+x < 10;
+x == 5;

@@ -1,0 +1,6 @@
+// Inequality comparison
+// x != 5 and x == 10
+// Expected: x = 10
+let x: i32;
+x != 5;
+x == 10;

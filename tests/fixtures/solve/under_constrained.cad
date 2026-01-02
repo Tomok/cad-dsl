@@ -1,0 +1,6 @@
+// Under-constrained system
+// Z3 will pick one solution
+// Expected: x + y = 20 (e.g., x = 0, y = 20)
+let x: i32;
+let y: i32;
+x + y == 20;

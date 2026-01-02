@@ -47,7 +47,8 @@ use chumsky::prelude::*;
 // ============================================================================
 
 mod arithmetic;
-mod atoms;
+#[cfg_attr(test, allow(dead_code))] // Used in parser tests
+pub(crate) mod atoms;
 mod comparison;
 mod error;
 mod logical;

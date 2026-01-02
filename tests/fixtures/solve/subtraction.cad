@@ -1,0 +1,6 @@
+// Subtraction operation
+// Expected: x = 10, y = 5
+let x: i32;
+let y: i32;
+x - y == 5;
+y == 5;

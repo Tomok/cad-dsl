@@ -1,0 +1,4 @@
+// Large number constraint
+// Expected: x = 1000000
+let x: i32;
+x == 1000000;

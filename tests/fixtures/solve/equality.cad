@@ -1,0 +1,4 @@
+// Equality comparison
+// Expected: x = 10
+let x: i32;
+x == 10;

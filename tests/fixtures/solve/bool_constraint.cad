@@ -1,0 +1,4 @@
+// Boolean type constraint
+// Expected: x = true
+let x: bool;
+x == true;

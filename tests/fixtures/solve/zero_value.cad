@@ -1,0 +1,4 @@
+// Zero value constraint
+// Expected: x = 0
+let x: i32;
+x == 0;

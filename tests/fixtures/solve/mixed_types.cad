@@ -1,0 +1,8 @@
+// Mixed types in one program
+// Expected: x = 10, y = 3.14, z = true
+let x: i32;
+let y: f64;
+let z: bool;
+x + 5 == 15;
+y * 2.0 == 6.28;
+z == true;

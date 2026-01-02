@@ -31,19 +31,52 @@ jobs = 1
 incremental = false
 
 [profile.dev]
-# Use line-tables-only debug info instead of full debug symbols
+# Disable debug info completely to prevent linker OOM crashes
 #
-# RATIONALE: Full debug info (level 2, the default) significantly increases:
-# - Binary size (test binaries can exceed 100MB)
-# - Linker memory consumption (can add several GB per process)
-# - Link time (especially critical with serial linking)
+# RATIONALE: Even minimal debug info (level 1) causes test binaries to be too large
+# for CI runners with limited memory (~7GB RAM).
+# - Test binaries are monolithic and include ALL tests + test framework
+# - With debug = 1, linker still crashes with Bus errors on CI
+# - debug = 0 eliminates all debug symbols, drastically reducing binary size
 #
 # IMPACT:
-# - debug = 1 provides line numbers for backtraces and basic debugging
-# - Reduces test binary size by 50-70%
-# - Significantly reduces linker memory pressure
-# - Trade-off: Limited variable inspection in debuggers (use debug = 2 locally if needed)
+# - Prevents linker crashes in CI by minimizing binary size
+# - No backtraces with line numbers (basic function names only)
+# - Tests still run correctly, just harder to debug failures
+# - Critical trade-off for CI reliability
 #
-# ALTERNATIVE: Developers can override locally with CARGO_PROFILE_DEV_DEBUG=2
-# for full debug symbols when doing intensive debugging sessions.
-debug = 1
+# ALTERNATIVE: Developers can override locally with CARGO_PROFILE_DEV_DEBUG=1 or =2
+# for debug symbols when working locally (local machines have more RAM).
+debug = 0
+
+# Reduce code generation units to minimize linker workload
+#
+# RATIONALE: Fewer codegen units = fewer object files = less linker work
+# - Default is 16 units in dev mode, which creates many object files
+# - Each object file adds to linker memory pressure
+# - Reducing to 1 creates a single object file per crate
+#
+# IMPACT:
+# - Significantly reduces linker memory consumption
+# - Slower initial compilation but much faster linking
+# - Critical for preventing OOM crashes on CI runners
+# - Trade-off: Slower incremental builds (but we disabled incremental anyway)
+codegen-units = 1
+
+[target.x86_64-unknown-linux-gnu]
+# Force single-threaded linking to prevent linker OOM crashes
+#
+# RATIONALE: The lld linker uses internal parallelism (llvm::parallelFor) which
+# can cause Bus errors and OOM crashes on CI runners with limited memory.
+# - The --threads=1 flag disables lld's internal parallelism
+# - This is separate from Cargo's job parallelism (jobs = 1 above)
+# - Without this flag, lld may still spawn multiple threads internally
+#
+# IMPACT:
+# - Prevents Bus error crashes during linking phase
+# - Increases link time but ensures build reliability
+# - Critical for CI environments with ~7GB RAM
+#
+# NOTE: This only affects x86_64 Linux targets. Other platforms may need
+# similar configuration if they experience linker crashes.
+rustflags = ["-C", "link-arg=-Wl,--threads=1"]

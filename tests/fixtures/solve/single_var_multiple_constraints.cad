@@ -1,0 +1,7 @@
+// Single variable with multiple constraints
+// All constraints should agree
+// Expected: x = 15
+let x: i32;
+x + 5 == 20;
+x - 5 == 10;
+x * 2 == 30;

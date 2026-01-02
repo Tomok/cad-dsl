@@ -25,6 +25,7 @@ This project uses Nix for development environment management. Use `nix develop` 
 ### Running the CLI
 - `nix shell -c cargo run -- lex <file.cad>` - Tokenize a CAD file and display tokens
 - `nix shell -c cargo run -- parse <file.cad>` - Parse a CAD file and display AST
+- `nix shell -c cargo run -- solve <file.cad>` - Solve constraints and display variable assignments
 
 ### Code Quality
 - `nix shell -c cargo fmt` - Format code
@@ -148,6 +149,35 @@ Before committing, always:
 - `type_checker_inference.rs` - Type inference algorithm with unification
 - `type_checker_validation.rs` - Type validation and compatibility checks
 
+**Constraint Extractor (`src/constraint_extractor.rs`)**
+- Extracts variables and constraints from typed HIR
+- Identifies uninitialized variables that need solving
+- Collects constraint equations from expression statements
+- Validates that constraints are solvable (basic types only)
+- Supports: let statements, assignments, comparison operators, arithmetic
+- Out of scope: control flow, structs, functions, standard library
+
+**Z3 Bridge (`src/z3_bridge.rs`)**
+- Translates HIR expressions to Z3 solver format
+- Maps TextCAD types to Z3 sorts (i32 → Int, f64 → Real, bool → Bool)
+- Converts arithmetic and comparison operators to Z3 operations
+- Creates Z3 variables and assertions from constraint equations
+- Type-safe wrapper around Z3 API
+
+**Solution Formatter (`src/solution_formatter.rs`)**
+- Extracts solutions from Z3 models
+- Formats variable assignments for display
+- Handles type-specific value extraction (Int, Real, Bool)
+- Provides user-friendly output of constraint solutions
+- Error handling for unsatisfiable constraints
+
+**Solver (`src/solver.rs`)**
+- End-to-end constraint solving pipeline
+- Orchestrates: semantic analysis → type checking → constraint extraction → Z3 solving → formatting
+- Returns SAT (with solution) or UNSAT (no solution exists)
+- Integrates all constraint solving components
+- Main entry point for constraint solving from HIR
+
 **HIR (High-level IR) Modules:**
 - `hir_types.rs` - Resolved types with struct definition references
 - `hir_definitions.rs` - Definitions for variables, functions, structs, and fields
@@ -159,8 +189,9 @@ Before committing, always:
 - `hir_scope.rs` - Scope management with lexical scoping and shadowing
 
 **CLI (`src/main.rs`)**
-- Simple CLI with `lex` and `parse` subcommands
+- CLI with `lex`, `parse`, and `solve` subcommands
 - File input handling and error reporting
+- Integration with lexer, parser, semantic analyzer, type checker, and solver
 
 ### Key Design Patterns
 
@@ -205,8 +236,12 @@ The project has comprehensive test suites for each component:
   - Type inference (25 tests in type_checker_inference)
   - Type validation (25 tests in type_checker_validation)
   - Integration tests (6 tests in type_checker)
+- **Constraint Extractor tests**: Variable extraction, constraint identification, error handling
+- **Z3 Bridge tests**: Expression translation, type mapping, Z3 assertion creation
+- **Solution Formatter tests**: Model extraction, value formatting, error cases
+- **Solver tests**: End-to-end pipeline, SAT/UNSAT cases, integration tests
 
-Tests use timeout mechanisms to prevent infinite loops during development. The semantic analyzer has 60 comprehensive tests covering declaration collection, name resolution, scoping, error cases, and the complete analysis pipeline. The type checker has 84 comprehensive tests covering type inference, validation, numeric promotion, error cases, and the complete type checking pipeline.
+Tests use timeout mechanisms to prevent infinite loops during development. The semantic analyzer has 60 comprehensive tests covering declaration collection, name resolution, scoping, error cases, and the complete analysis pipeline. The type checker has 84 comprehensive tests covering type inference, validation, numeric promotion, error cases, and the complete type checking pipeline. The constraint solver has comprehensive tests covering variable extraction, Z3 translation, solution formatting, and end-to-end solving.
 
 ## Language Implementation Status
 
@@ -216,6 +251,7 @@ Currently implements:
 - **Semantic analysis** with name resolution (semantic analyzer)
 - **Type checking** with inference and validation (type checker)
 - **HIR construction** for further compilation stages
+- **Constraint solving** with Z3 integration (solver)
 - **Comprehensive error reporting** infrastructure across all stages
 
 ### Completed Features:
@@ -227,22 +263,71 @@ Currently implements:
   - ResolvedExpr: 30+ expression kinds with type annotations
   - ResolvedStmt: 11 statement kinds with cross-references
   - All AST nodes transformed to HIR in semantic analyzer
+- Constraint Solver: Z3 integration for solving constraint equations
+  - Extracts variables and constraints from typed HIR
+  - Translates to Z3 format and solves for unknowns
+  - Supports basic types (i32, f64, bool) and arithmetic/comparison operators
+  - Returns variable assignments or UNSAT for unsolvable constraints
 
 ### Next Steps:
-- Constraint solving integration (Z3)
 - Code generation or interpretation
 
-The language specification in `docs/TEXTCAD_LANGUAGE_SPEC.md` defines the full TextCAD language, including constraints, structs, transforms, and the standard library. The current implementation covers the complete frontend pipeline from source code to typed HIR.
+The language specification in `docs/TEXTCAD_LANGUAGE_SPEC.md` defines the full TextCAD language, including constraints, structs, transforms, and the standard library. The current implementation covers the complete frontend pipeline from source code to typed HIR, plus constraint solving.
+
+## Constraint Solving
+
+The project integrates Z3 constraint solver to solve for unknown variables in constraint equations.
+
+### Scope
+
+**Supported:**
+- Basic types: `i32`, `f64`, `bool`
+- Let statements with and without initializers
+- Expression statements containing constraints
+- Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=`
+- Arithmetic operators: `+`, `-`, `*`, `/`
+
+**Not Supported (Out of Scope):**
+- Control flow: `if`, `for`, `with` statements
+- Structs and struct fields
+- Functions and function calls
+- Standard library functions
+- Transforms and geometric operations
+
+### Usage Example
+
+**Input file (example.cad):**
+```
+let x;
+let y = 10;
+x + y == 20;
+```
+
+**Command:**
+```bash
+nix shell -c cargo run -- solve example.cad
+```
+
+**Output:**
+```
+x = 10
+y = 10
+```
+
+### Pipeline
+
+Source Code → Lexer → Parser → Semantic Analyzer → Type Checker → Constraint Extractor → Z3 Bridge → Solution
 
 ## Dependencies
 
 Key dependencies:
-- `logos` - Lexical analysis
-- `chumsky` - Parser combinators
 - `ariadne` - Error reporting
-- `clap` - CLI interface
-- `subenum` - Type-safe enum subsets
-- `bumpalo` - Arena allocator for HIR nodes
 - `assert_matches` - Pattern matching assertions in tests
+- `bumpalo` - Arena allocator for HIR nodes
+- `chumsky` - Parser combinators
+- `clap` - CLI interface
+- `logos` - Lexical analysis
+- `subenum` - Type-safe enum subsets
+- `z3` - Constraint solver integration
 
-Z3 constraint solver is included as a system dependency for future constraint solving implementation.
+Z3 constraint solver is provided as both a system dependency (via Nix) and a Rust crate dependency for constraint solving implementation.

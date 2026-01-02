@@ -1,0 +1,4 @@
+// Multiplication operation
+// Expected: x = 5
+let x: i32;
+x * 2 == 10;

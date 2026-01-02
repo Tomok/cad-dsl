@@ -24,12 +24,25 @@ mod type_checker_errors;
 mod type_checker_inference;
 mod type_checker_validation;
 
+// Constraint extraction module
+mod constraint_extractor;
+
+// Z3 constraint solver bridge
+mod z3_bridge;
+
+// Solution formatter
+mod solution_formatter;
+
+// Solver pipeline
+mod solver;
+
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use bumpalo::Bump;
 use chumsky::Parser as _;
 use clap::{Parser, Subcommand};
 use lexer::TokenTrait;
 use semantic_analyzer_errors::SemanticError;
+use solver::SolverError;
 use std::fs;
 use type_checker_errors::TypeCheckError;
 
@@ -45,6 +58,7 @@ struct Cli {
 enum Commands {
     Lex { file: String },
     Parse { file: String },
+    Solve { file: String },
 }
 
 /// Report semantic analysis errors with Ariadne formatting
@@ -106,6 +120,22 @@ fn report_type_errors(filename: &str, source: &str, errors: Vec<TypeCheckError>)
 
         report.print((filename, Source::from(source))).unwrap();
     }
+}
+
+/// Report solver errors with Ariadne formatting
+fn report_solver_errors(filename: &str, source: &str, error: SolverError) {
+    // For solver errors, we don't have specific span information,
+    // so we report the error at the beginning of the file
+    let report = Report::build(ReportKind::Error, filename, 0)
+        .with_message("Solver error")
+        .with_label(
+            Label::new((filename, 0..1))
+                .with_message(error.to_string())
+                .with_color(Color::Red),
+        )
+        .finish();
+
+    report.print((filename, Source::from(source))).unwrap();
 }
 
 /// Calculate byte offset from line and column numbers
@@ -206,6 +236,69 @@ fn main() {
                 Err(errors) => {
                     eprintln!("\nType errors:");
                     report_type_errors(file, &content, errors);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::Solve { file } => {
+            let content = fs::read_to_string(file).expect("Failed to read file");
+
+            // Step 1: Tokenize
+            let tokens = match lexer::tokenize(&content) {
+                Ok(tokens) => tokens,
+                Err(error) => {
+                    eprintln!("Lexing error: {}", error);
+                    std::process::exit(1);
+                }
+            };
+
+            // Step 2: Parse the program (may have multiple statements)
+            use chumsky::IterParser;
+            use chumsky::primitive::choice;
+            let stmt_parser = choice((
+                parser::struct_def(parser::expr_inner()),
+                parser::function_def(parser::expr_inner()),
+                parser::let_stmt(parser::expr_inner()),
+                parser::assignment_stmt(parser::expr_inner()),
+                parser::expression_stmt(parser::expr_inner()),
+            ))
+            .repeated()
+            .collect::<Vec<_>>();
+
+            let ast = match stmt_parser.parse(&tokens).into_result() {
+                Ok(stmts) => stmts,
+                Err(errors) => {
+                    eprintln!("Parse errors:");
+                    parser::report_parse_errors(file, &content, errors);
+                    std::process::exit(1);
+                }
+            };
+
+            // Step 3: Semantic Analysis
+            let arena = Bump::new();
+            let hir = match semantic_analyzer::analyze(&arena, &content, &ast) {
+                Ok(hir) => hir,
+                Err(errors) => {
+                    eprintln!("Semantic errors:");
+                    report_semantic_errors(file, &content, errors);
+                    std::process::exit(1);
+                }
+            };
+
+            // Step 4: Type Checking
+            if let Err(errors) = type_checker::type_check(&arena, &content, &hir[..]) {
+                eprintln!("Type errors:");
+                report_type_errors(file, &content, errors);
+                std::process::exit(1);
+            }
+
+            // Step 5: Constraint Solving
+            match solver::solve(&hir[..]) {
+                Ok(solution) => {
+                    print!("{}", solution);
+                }
+                Err(error) => {
+                    report_solver_errors(file, &content, error);
                     std::process::exit(1);
                 }
             }
