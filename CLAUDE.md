@@ -13,6 +13,7 @@ This project uses Nix for development environment management. Use `nix develop` 
 - Rust toolchain with rust-analyzer and LLVM tools
 - Z3 constraint solver (system dependency)
 - Code coverage tools (cargo-llvm-cov)
+- mold linker (Linux only, for fast memory-efficient builds)
 
 ## Common Commands
 
