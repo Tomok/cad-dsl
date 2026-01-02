@@ -49,27 +49,6 @@ sudo apt-get update
 sudo apt-get install -y mold z3 libz3-dev
 ```
 
-### Alternative: Authenticated Package Download
-
-If proxy configuration doesn't work, use `apt-get download` which maintains GPG signature verification:
-
-```bash
-# Configure proxy first (required for apt-get download to work)
-sudo tee /etc/apt/apt.conf.d/95proxy > /dev/null <<EOF
-Acquire::http::Proxy "$http_proxy";
-Acquire::https::Proxy "$https_proxy";
-EOF
-
-sudo apt-get update
-
-# Download with signature verification, then install
-cd /tmp
-apt-get download mold libz3-4 z3 libz3-dev
-sudo dpkg -i libz3-4_*.deb z3_*.deb libz3-dev_*.deb mold_*.deb
-```
-
-**Security Note:** Never install .deb files downloaded via plain HTTP or curl without verification - this bypasses apt's GPG signature checks and is vulnerable to MITM attacks. Always use `apt-get download` or configure the proxy as shown above.
-
 ### Z3 Missing
 
 If Z3 is missing and `apt-get` works normally:
