@@ -419,6 +419,9 @@ fn type_name(ty: &ResolvedType) -> String {
         ResolvedType::Algebraic { .. } => "algebraic".to_string(),
         ResolvedType::Reference { inner, .. } => format!("&{}", type_name(inner)),
         ResolvedType::UserDefined { name, .. } => name.to_string(),
+        ResolvedType::Array {
+            element_type, size, ..
+        } => format!("[{}; {}]", type_name(element_type), size),
     }
 }
 
@@ -440,6 +443,18 @@ fn types_equal(lhs: &ResolvedType, rhs: &ResolvedType) -> bool {
                 inner: rhs_inner, ..
             },
         ) => types_equal(lhs_inner, rhs_inner),
+        (
+            Array {
+                element_type: lhs_elem,
+                size: lhs_size,
+                ..
+            },
+            Array {
+                element_type: rhs_elem,
+                size: rhs_size,
+                ..
+            },
+        ) => lhs_size == rhs_size && types_equal(lhs_elem, rhs_elem),
         (
             UserDefined {
                 name: lhs_name,

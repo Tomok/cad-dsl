@@ -1390,6 +1390,19 @@ fn resolve_type<'src, 'arena>(
                 span: *span,
             })
         }
+        crate::ast::Type::Array {
+            element_type,
+            size,
+            span,
+        } => {
+            let element_resolved = resolve_type(ctx, element_type)?;
+            let element_allocated = ctx.arena.alloc(element_resolved);
+            Some(ResolvedType::Array {
+                element_type: element_allocated,
+                size: *size,
+                span: *span,
+            })
+        }
         crate::ast::Type::UserDefined { name, span } => {
             let struct_def = ctx.lookup_struct(name);
             if let Some(struct_def) = struct_def {

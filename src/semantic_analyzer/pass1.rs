@@ -415,6 +415,20 @@ fn resolve_type<'src, 'arena>(
                 span: *span,
             })
         }
+        AstType::Array {
+            element_type,
+            size,
+            span,
+        } => {
+            // Recursively resolve the element type
+            let element_resolved = resolve_type(ctx, element_type)?;
+            let element_allocated = ctx.arena.alloc(element_resolved);
+            Some(ResolvedType::Array {
+                element_type: element_allocated,
+                size: *size,
+                span: *span,
+            })
+        }
         AstType::UserDefined { name, span } => {
             // Look up the struct definition
             let name_src = extract_name(ctx.source, name);

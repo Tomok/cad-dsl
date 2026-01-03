@@ -96,6 +96,16 @@ pub enum ResolvedType<'src, 'arena> {
         definition: &'arena StructDefinition<'src, 'arena>,
         span: Span,
     },
+
+    /// Fixed-size array type (e.g., `[i32; 5]`, `[Point; 3]`)
+    ///
+    /// Arrays have a compile-time-known size. The element type is allocated
+    /// in the arena.
+    Array {
+        element_type: &'arena ResolvedType<'src, 'arena>,
+        size: usize,
+        span: Span,
+    },
 }
 
 // ============================================================================
@@ -112,6 +122,7 @@ impl<'src, 'arena> HasSpan for ResolvedType<'src, 'arena> {
             ResolvedType::Algebraic { span } => *span,
             ResolvedType::Reference { span, .. } => *span,
             ResolvedType::UserDefined { span, .. } => *span,
+            ResolvedType::Array { span, .. } => *span,
         }
     }
 }

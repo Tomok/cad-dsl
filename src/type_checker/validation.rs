@@ -241,6 +241,9 @@ fn type_name(ty: &ResolvedType) -> String {
         ResolvedType::Algebraic { .. } => "algebraic".to_string(),
         ResolvedType::Reference { inner, .. } => format!("&{}", type_name(inner)),
         ResolvedType::UserDefined { name, .. } => name.to_string(),
+        ResolvedType::Array {
+            element_type, size, ..
+        } => format!("[{}; {}]", type_name(element_type), size),
     }
 }
 

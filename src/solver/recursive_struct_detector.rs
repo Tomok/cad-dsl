@@ -146,6 +146,9 @@ fn visit_type<'src, 'arena>(
         // Reference type - look through to inner type
         ResolvedType::Reference { inner, .. } => visit_type(*inner, visiting, path),
 
+        // Array type - check element type for recursion
+        ResolvedType::Array { element_type, .. } => visit_type(*element_type, visiting, path),
+
         // User-defined type - recursively visit the struct
         ResolvedType::UserDefined { definition, .. } => visit_struct(definition, visiting, path),
     }

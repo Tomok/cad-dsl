@@ -407,6 +407,11 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
                 span,
                 message: "Reference types are not supported in constraint solving".to_string(),
             }),
+            ResolvedType::Array { span, .. } => Err(Z3BridgeError::UnsupportedType {
+                type_name: "Array".to_string(),
+                span,
+                message: "Array types should be flattened before reaching Z3 bridge".to_string(),
+            }),
             ResolvedType::UserDefined { name, span, .. } => Err(Z3BridgeError::UnsupportedType {
                 type_name: name.to_string(),
                 span,
