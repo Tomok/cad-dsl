@@ -340,9 +340,11 @@ The project integrates Z3 constraint solver to solve for unknown variables in co
 - Nested if-statements are not supported
 
 **Limitations for Structs:**
-- Struct literals not yet supported (use uninitialized variables)
-- Field assignments not yet implemented
-- Field access in expressions not yet implemented
+- Struct literal handling implemented but end-to-end tests fail with UNSAT (needs investigation)
+- Field assignment handling implemented but end-to-end tests fail (needs investigation)
+- Field access in constraints has Z3 bridge support but end-to-end pipeline has issues (needs investigation)
+
+**Note:** The Z3 bridge and constraint extractor have full implementation for struct literals, field assignments, and field access expressions. However, end-to-end integration tests reveal issues in the pipeline that produce unexpected UNSAT results. The individual components work correctly in unit tests.
 
 **Not Supported (Out of Scope):**
 - For loops and with statements
