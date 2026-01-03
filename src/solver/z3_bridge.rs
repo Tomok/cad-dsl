@@ -1276,8 +1276,8 @@ mod tests {
     #[test]
     fn test_create_ite_int() {
         let arena = Bump::new();
-        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
-        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+        let _bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let _int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
         let bridge = Z3Bridge::<'static, 'static>::new();
 
@@ -1294,8 +1294,8 @@ mod tests {
     #[test]
     fn test_create_ite_real() {
         let arena = Bump::new();
-        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
-        let real_ty = arena.alloc(ResolvedType::F64 { span: test_span() });
+        let _bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let _real_ty = arena.alloc(ResolvedType::F64 { span: test_span() });
 
         let bridge = Z3Bridge::<'static, 'static>::new();
 
@@ -1312,7 +1312,7 @@ mod tests {
     #[test]
     fn test_create_ite_bool() {
         let arena = Bump::new();
-        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+        let _bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
 
         let bridge = Z3Bridge::<'static, 'static>::new();
 
@@ -1958,7 +1958,7 @@ mod tests {
         let arena = Bump::new();
         let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
-        let bridge = Z3Bridge::<'static, 'static>::new();
+        let _bridge = Z3Bridge::<'static, 'static>::new();
 
         // Create: p.x
         let var_def = arena.alloc(VarDefinition {
@@ -1991,7 +1991,7 @@ mod tests {
         let arena = Bump::new();
         let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
-        let bridge = Z3Bridge::<'static, 'static>::new();
+        let _bridge = Z3Bridge::<'static, 'static>::new();
 
         // Create struct Point { x: i32, y: i32 }
         let point_struct = arena.alloc(StructDefinition::new(
