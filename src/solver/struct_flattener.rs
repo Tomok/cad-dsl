@@ -545,4 +545,79 @@ mod tests {
         assert_eq!(result[0].full_name, "x");
         assert_eq!(result[1].full_name, "y");
     }
+
+    #[test]
+    fn test_flatten_array_of_primitives() {
+        let arena = Bump::new();
+
+        // [i32; 3]
+        let element_type = arena.alloc(ResolvedType::I32 { span: test_span() });
+        let array_type = ResolvedType::Array {
+            element_type,
+            size: 3,
+            span: test_span(),
+        };
+
+        let result = flatten_type("nums", array_type);
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].full_name, "nums[0]");
+        assert!(matches!(result[0].primitive_type, ResolvedType::I32 { .. }));
+        assert_eq!(result[1].full_name, "nums[1]");
+        assert!(matches!(result[1].primitive_type, ResolvedType::I32 { .. }));
+        assert_eq!(result[2].full_name, "nums[2]");
+        assert!(matches!(result[2].primitive_type, ResolvedType::I32 { .. }));
+    }
+
+    #[test]
+    fn test_flatten_array_of_structs() {
+        let arena = Bump::new();
+
+        // struct Point { x: i32, y: i32 }
+        let point = arena.alloc(StructDefinition::new(
+            "Point",
+            test_span(),
+            vec![
+                arena.alloc(FieldDefinition::new(
+                    "x",
+                    test_span(),
+                    ResolvedType::I32 { span: test_span() },
+                    test_span(),
+                )),
+                arena.alloc(FieldDefinition::new(
+                    "y",
+                    test_span(),
+                    ResolvedType::I32 { span: test_span() },
+                    test_span(),
+                )),
+            ],
+            vec![],
+            None,
+            test_span(),
+        ));
+
+        // [Point; 2]
+        let point_type = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: point,
+            span: test_span(),
+        });
+        let array_type = ResolvedType::Array {
+            element_type: point_type,
+            size: 2,
+            span: test_span(),
+        };
+
+        let result = flatten_type("points", array_type);
+
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0].full_name, "points[0].x");
+        assert!(matches!(result[0].primitive_type, ResolvedType::I32 { .. }));
+        assert_eq!(result[1].full_name, "points[0].y");
+        assert!(matches!(result[1].primitive_type, ResolvedType::I32 { .. }));
+        assert_eq!(result[2].full_name, "points[1].x");
+        assert!(matches!(result[2].primitive_type, ResolvedType::I32 { .. }));
+        assert_eq!(result[3].full_name, "points[1].y");
+        assert!(matches!(result[3].primitive_type, ResolvedType::I32 { .. }));
+    }
 }

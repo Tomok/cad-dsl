@@ -402,6 +402,28 @@ fn process_statement<'src, 'arena>(
                     Ok(())
                 }
 
+                // Array types - flatten into indexed elements
+                ResolvedType::Array { .. } => {
+                    // Flatten the array into primitive fields
+                    let flattened_fields = flatten_type(var_def.name, *var_type);
+
+                    // Create a variable for each flattened field
+                    for field in flattened_fields {
+                        let variable = Variable::new(
+                            &field.full_name,
+                            field.primitive_type,
+                            None, // Array elements are initialized via constraints
+                            field.span,
+                        );
+                        problem.add_variable(variable);
+                    }
+
+                    // TODO: Handle array literal initializers when implemented
+                    // For now, arrays must be constrained element-by-element
+
+                    Ok(())
+                }
+
                 // For reference types, unwrap and check the inner type
                 ResolvedType::Reference { inner, .. } => {
                     if let ResolvedType::UserDefined { definition, .. } = **inner {

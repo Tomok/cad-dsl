@@ -291,13 +291,32 @@ pub fn infer_expr_type<'src, 'arena>(
         // ====================================================================
         // Index Expressions
         // ====================================================================
-        ResolvedExprKind::Index { array, .. } => {
-            // Arrays are not yet fully supported in the type system
-            ctx.add_error(TypeCheckError::CannotIndex {
-                array_type: type_name(array.ty),
-                span: expr.span,
-            });
-            None
+        ResolvedExprKind::Index { array, index } => {
+            // Check that array is actually an array type
+            match array.ty {
+                ResolvedType::Array { element_type, .. } => {
+                    // Check that index is i32
+                    let index_ty = index.ty;
+                    if !matches!(index_ty, ResolvedType::I32 { .. }) {
+                        ctx.add_error(TypeCheckError::TypeMismatch {
+                            expected: "i32".to_string(),
+                            found: type_name(index_ty),
+                            span: index.span,
+                        });
+                        return None;
+                    }
+                    // Return the element type
+                    Some(**element_type)
+                }
+                _ => {
+                    // Not an array type
+                    ctx.add_error(TypeCheckError::CannotIndex {
+                        array_type: type_name(array.ty),
+                        span: expr.span,
+                    });
+                    None
+                }
+            }
         }
 
         // ====================================================================

@@ -445,11 +445,71 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
                 Ok(format!("{}.{}", prefix, field_name))
             }
 
+            // Array indexing followed by field access: arr[idx].field
+            ResolvedExprKind::Index { array, index } => {
+                let prefix = Self::build_index_name(array, index)?;
+                Ok(format!("{}.{}", prefix, field_name))
+            }
+
             // Unsupported receiver type
             _ => Err(Z3BridgeError::UnsupportedExpression {
                 expr_type: format!("{:?}", receiver.kind),
                 span: receiver.span,
-                message: "Field access receiver must be a variable or nested field access"
+                message: "Field access receiver must be a variable, field access, or array index"
+                    .to_string(),
+            }),
+        }
+    }
+
+    /// Build a variable name for an array index expression
+    ///
+    /// Handles flattened array indexing like `arr[0]`, `arr[1]`, etc.
+    /// Only supports constant integer literal indices.
+    fn build_index_name<'src2, 'arena2>(
+        array: &'arena2 ResolvedExpr<'src2, 'arena2>,
+        index: &'arena2 ResolvedExpr<'src2, 'arena2>,
+    ) -> Result<String, Z3BridgeError> {
+        // Extract the index value - must be a constant integer literal
+        let index_value = match &index.kind {
+            ResolvedExprKind::IntLit { value } => *value,
+            _ => {
+                return Err(Z3BridgeError::UnsupportedExpression {
+                    expr_type: format!("{:?}", index.kind),
+                    span: index.span,
+                    message: "Array index must be a constant integer literal (variable indices not yet supported)".to_string(),
+                });
+            }
+        };
+
+        // Build the array name (handle different receiver types)
+        match &array.kind {
+            // Base case: variable reference
+            ResolvedExprKind::Var { name, .. } => Ok(format!("{}[{}]", name, index_value)),
+
+            // Recursive case: nested array indexing
+            ResolvedExprKind::Index {
+                array: nested_array,
+                index: nested_index,
+            } => {
+                let prefix = Self::build_index_name(nested_array, nested_index)?;
+                Ok(format!("{}[{}]", prefix, index_value))
+            }
+
+            // Field access followed by indexing: obj.field[index]
+            ResolvedExprKind::FieldAccess {
+                receiver,
+                field_name,
+                ..
+            } => {
+                let prefix = Self::build_field_access_name(receiver, field_name)?;
+                Ok(format!("{}[{}]", prefix, index_value))
+            }
+
+            // Unsupported array expression type
+            _ => Err(Z3BridgeError::UnsupportedExpression {
+                expr_type: format!("{:?}", array.kind),
+                span: array.span,
+                message: "Array indexing base must be a variable, field access, or nested index"
                     .to_string(),
             }),
         }
@@ -564,6 +624,17 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
                 self.variables.get(&qualified_name[..]).cloned().ok_or(
                     Z3BridgeError::VariableNotFound {
                         var_name: qualified_name,
+                        span: expr.span,
+                    },
+                )
+            }
+
+            // Array indexing - translate to flattened variable name
+            ResolvedExprKind::Index { array, index } => {
+                let index_name = Self::build_index_name(array, index)?;
+                self.variables.get(&index_name[..]).cloned().ok_or(
+                    Z3BridgeError::VariableNotFound {
+                        var_name: index_name,
                         span: expr.span,
                     },
                 )
