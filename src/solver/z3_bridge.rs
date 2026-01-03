@@ -243,11 +243,12 @@ impl Z3Ast {
 /// methods to translate HIR expressions to Z3 assertions.
 pub struct Z3Bridge<'src, 'arena> {
     /// Map of variable names to their Z3 AST representations
-    variables: HashMap<&'src str, Z3Ast>,
+    /// Uses String to support both source-borrowed and generated names (flattened structs)
+    variables: HashMap<String, Z3Ast>,
     /// The Z3 solver
     solver: z3::Solver,
-    /// Phantom data to maintain the 'arena lifetime
-    _phantom: PhantomData<&'arena ()>,
+    /// Phantom data to maintain the lifetimes
+    _phantom: PhantomData<(&'src (), &'arena ())>,
 }
 
 impl<'src, 'arena> Z3Bridge<'src, 'arena> {
@@ -267,10 +268,10 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
     /// variable equals its initial value.
     pub fn add_variable(&mut self, variable: &Variable<'src, 'arena>) -> Result<(), Z3BridgeError> {
         // Create a Z3 constant based on the variable's type
-        let z3_var = self.create_z3_constant(variable.name, variable.var_type)?;
+        let z3_var = self.create_z3_constant(&variable.name, variable.var_type)?;
 
         // Store the variable
-        self.variables.insert(variable.name, z3_var.clone());
+        self.variables.insert(variable.name.clone(), z3_var.clone());
 
         // If the variable has an initializer, add an assertion
         if let Some(init_expr) = variable.init {
@@ -382,15 +383,15 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
     }
 
     /// Get the variables map for solution formatting
-    pub fn variables(&self) -> &HashMap<&'src str, Z3Ast> {
+    pub fn variables(&self) -> &HashMap<String, Z3Ast> {
         &self.variables
     }
 
     /// Create a Z3 constant based on a ResolvedType
     fn create_z3_constant(
         &self,
-        name: &'src str,
-        ty: &'arena ResolvedType<'src, 'arena>,
+        name: &str,
+        ty: ResolvedType<'src, 'arena>,
     ) -> Result<Z3Ast, Z3BridgeError> {
         match ty {
             ResolvedType::I32 { .. } => Ok(Z3Ast::Int(z3::ast::Int::new_const(name))),
@@ -403,13 +404,48 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
             }
             ResolvedType::Reference { span, .. } => Err(Z3BridgeError::UnsupportedType {
                 type_name: "Reference".to_string(),
-                span: *span,
+                span,
                 message: "Reference types are not supported in constraint solving".to_string(),
             }),
             ResolvedType::UserDefined { name, span, .. } => Err(Z3BridgeError::UnsupportedType {
                 type_name: name.to_string(),
-                span: *span,
+                span,
                 message: "User-defined types are not supported in constraint solving".to_string(),
+            }),
+        }
+    }
+
+    /// Build a qualified variable name from a field access chain
+    ///
+    /// Recursively walks the receiver expression to build the full qualified name.
+    ///
+    /// # Examples
+    /// - `p.x` → "p.x"
+    /// - `line.start.x` → "line.start.x"
+    fn build_field_access_name<'src2, 'arena2>(
+        receiver: &'arena2 ResolvedExpr<'src2, 'arena2>,
+        field_name: &str,
+    ) -> Result<String, Z3BridgeError> {
+        match &receiver.kind {
+            // Base case: variable reference
+            ResolvedExprKind::Var { name, .. } => Ok(format!("{}.{}", name, field_name)),
+
+            // Recursive case: nested field access
+            ResolvedExprKind::FieldAccess {
+                receiver: nested_receiver,
+                field_name: nested_field,
+                ..
+            } => {
+                let prefix = Self::build_field_access_name(nested_receiver, nested_field)?;
+                Ok(format!("{}.{}", prefix, field_name))
+            }
+
+            // Unsupported receiver type
+            _ => Err(Z3BridgeError::UnsupportedExpression {
+                expr_type: format!("{:?}", receiver.kind),
+                span: receiver.span,
+                message: "Field access receiver must be a variable or nested field access"
+                    .to_string(),
             }),
         }
     }
@@ -444,13 +480,12 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
 
             // Variables
             ResolvedExprKind::Var { name, .. } => {
-                self.variables
-                    .get(name)
-                    .cloned()
-                    .ok_or_else(|| Z3BridgeError::VariableNotFound {
+                self.variables.get(&name[..]).cloned().ok_or_else(|| {
+                    Z3BridgeError::VariableNotFound {
                         var_name: name.to_string(),
                         span: expr.span,
-                    })
+                    }
+                })
             }
 
             // Arithmetic operations
@@ -512,6 +547,21 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
             ResolvedExprKind::Neg { inner } => {
                 let inner_z3 = self.translate_expr(inner)?;
                 self.neg_operation(&inner_z3, expr.span)
+            }
+
+            // Field access - translate to flattened variable name
+            ResolvedExprKind::FieldAccess {
+                receiver,
+                field_name,
+                ..
+            } => {
+                let qualified_name = Self::build_field_access_name(receiver, field_name)?;
+                self.variables.get(&qualified_name[..]).cloned().ok_or(
+                    Z3BridgeError::VariableNotFound {
+                        var_name: qualified_name,
+                        span: expr.span,
+                    },
+                )
             }
 
             // Unsupported operations
@@ -813,7 +863,7 @@ mod tests {
         let ty = arena.alloc(ResolvedType::I32 { span: test_span() });
         let bridge = Z3Bridge::<'static, 'static>::new();
 
-        let result = bridge.create_z3_constant("x", ty);
+        let result = bridge.create_z3_constant("x", *ty);
         assert!(result.is_ok());
         assert_matches!(result.unwrap(), Z3Ast::Int(_));
     }
@@ -824,7 +874,7 @@ mod tests {
         let ty = arena.alloc(ResolvedType::F64 { span: test_span() });
         let bridge = Z3Bridge::<'static, 'static>::new();
 
-        let result = bridge.create_z3_constant("x", ty);
+        let result = bridge.create_z3_constant("x", *ty);
         assert!(result.is_ok());
         assert_matches!(result.unwrap(), Z3Ast::Real(_));
     }
@@ -835,7 +885,7 @@ mod tests {
         let ty = arena.alloc(ResolvedType::Bool { span: test_span() });
         let bridge = Z3Bridge::<'static, 'static>::new();
 
-        let result = bridge.create_z3_constant("x", ty);
+        let result = bridge.create_z3_constant("x", *ty);
         assert!(result.is_ok());
         assert_matches!(result.unwrap(), Z3Ast::Bool(_));
     }
@@ -880,7 +930,7 @@ mod tests {
     fn test_add_variable_without_init() {
         let arena = Bump::new();
         let ty = arena.alloc(ResolvedType::I32 { span: test_span() });
-        let var = Variable::new("x", ty, None, test_span());
+        let var = Variable::new("x", *ty, None, test_span());
 
         let mut bridge = Z3Bridge::<'static, 'static>::new();
         let result = bridge.add_variable(&var);
@@ -893,7 +943,7 @@ mod tests {
         let arena = Bump::new();
         let ty = arena.alloc(ResolvedType::I32 { span: test_span() });
         let init = make_expr(&arena, ResolvedExprKind::IntLit { value: 42 }, ty);
-        let var = Variable::new("x", ty, Some(init), test_span());
+        let var = Variable::new("x", *ty, Some(init), test_span());
 
         let mut bridge = Z3Bridge::<'static, 'static>::new();
         let result = bridge.add_variable(&var);
@@ -914,7 +964,7 @@ mod tests {
             span: test_span(),
         });
 
-        let var = Variable::new("x", ty, None, test_span());
+        let var = Variable::new("x", *ty, None, test_span());
         let mut bridge = Z3Bridge::<'static, 'static>::new();
         bridge.add_variable(&var).unwrap();
 
@@ -1069,10 +1119,10 @@ mod tests {
 
         // Create: let x = 10;
         let init_x = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
-        let var_x = Variable::new("x", int_ty, Some(init_x), test_span());
+        let var_x = Variable::new("x", *int_ty, Some(init_x), test_span());
 
         // Create: let y;
-        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_y = Variable::new("y", *int_ty, None, test_span());
 
         // Create: x + y == 20
         let var_def_x = arena.alloc(VarDefinition {
@@ -1163,7 +1213,7 @@ mod tests {
         });
         let bridge = Z3Bridge::<'static, 'static>::new();
 
-        let result = bridge.create_z3_constant("x", ty);
+        let result = bridge.create_z3_constant("x", *ty);
         assert!(result.is_err());
         assert_matches!(result.unwrap_err(), Z3BridgeError::UnsupportedType { .. });
     }
@@ -1345,7 +1395,7 @@ mod tests {
         let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
         // Create variables
-        let var_x = Variable::new("x", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, None, test_span());
         let var_def_x = arena.alloc(VarDefinition {
             name: "x",
             name_span: test_span(),
@@ -1397,8 +1447,8 @@ mod tests {
         let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
         // Create variables: x, y
-        let var_x = Variable::new("x", int_ty, None, test_span());
-        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, None, test_span());
+        let var_y = Variable::new("y", *int_ty, None, test_span());
         let var_def_x = arena.alloc(VarDefinition {
             name: "x",
             name_span: test_span(),
@@ -1495,8 +1545,8 @@ mod tests {
         let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
         // Create variables: x, y
-        let var_x = Variable::new("x", int_ty, None, test_span());
-        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, None, test_span());
+        let var_y = Variable::new("y", *int_ty, None, test_span());
         let var_def_x = arena.alloc(VarDefinition {
             name: "x",
             name_span: test_span(),
@@ -1575,8 +1625,8 @@ mod tests {
         let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
         // Create variables: x, y
-        let var_x = Variable::new("x", int_ty, None, test_span());
-        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, None, test_span());
+        let var_y = Variable::new("y", *int_ty, None, test_span());
         let var_def_x = arena.alloc(VarDefinition {
             name: "x",
             name_span: test_span(),
@@ -1655,9 +1705,9 @@ mod tests {
         let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
 
         // Create variables: x, y, z
-        let var_x = Variable::new("x", int_ty, None, test_span());
-        let var_y = Variable::new("y", int_ty, None, test_span());
-        let var_z = Variable::new("z", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, None, test_span());
+        let var_y = Variable::new("y", *int_ty, None, test_span());
+        let var_z = Variable::new("z", *int_ty, None, test_span());
         let var_def_x = arena.alloc(VarDefinition {
             name: "x",
             name_span: test_span(),
@@ -1787,8 +1837,8 @@ mod tests {
 
         // Create variables: x = 5, y
         let init_x = make_expr(&arena, ResolvedExprKind::IntLit { value: 5 }, int_ty);
-        let var_x = Variable::new("x", int_ty, Some(init_x), test_span());
-        let var_y = Variable::new("y", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, Some(init_x), test_span());
+        let var_y = Variable::new("y", *int_ty, None, test_span());
 
         let var_def_x = arena.alloc(VarDefinition {
             name: "x",
@@ -1895,5 +1945,382 @@ mod tests {
             .expect("y should be an integer");
 
         assert_eq!(y_value, 10); // x = 5 > 0, so y == 10
+    }
+
+    // ========================================================================
+    // Field Access Tests
+    // ========================================================================
+
+    #[test]
+    fn test_build_field_access_name_simple() {
+        use crate::hir::definitions::VarDefinition;
+
+        let arena = Bump::new();
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create: p.x
+        let var_def = arena.alloc(VarDefinition {
+            name: "p",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let p_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "p",
+                definition: var_def,
+            },
+            int_ty,
+        );
+
+        let result = Z3Bridge::build_field_access_name(p_ref, "x");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "p.x");
+    }
+
+    #[test]
+    fn test_build_field_access_name_nested() {
+        use crate::hir::definitions::{FieldDefinition, StructDefinition, VarDefinition};
+
+        let arena = Bump::new();
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Create struct Point { x: i32, y: i32 }
+        let point_struct = arena.alloc(StructDefinition::new(
+            "Point",
+            test_span(),
+            vec![
+                arena.alloc(FieldDefinition::new("x", test_span(), *int_ty, test_span())),
+                arena.alloc(FieldDefinition::new("y", test_span(), *int_ty, test_span())),
+            ],
+            vec![],
+            None,
+            test_span(),
+        ));
+
+        let point_ty = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: point_struct,
+            span: test_span(),
+        });
+
+        // Create struct Line { start: Point, end: Point }
+        let line_struct = arena.alloc(StructDefinition::new(
+            "Line",
+            test_span(),
+            vec![
+                arena.alloc(FieldDefinition::new(
+                    "start",
+                    test_span(),
+                    *point_ty,
+                    test_span(),
+                )),
+                arena.alloc(FieldDefinition::new(
+                    "end",
+                    test_span(),
+                    *point_ty,
+                    test_span(),
+                )),
+            ],
+            vec![],
+            None,
+            test_span(),
+        ));
+
+        let line_ty = arena.alloc(ResolvedType::UserDefined {
+            name: "Line",
+            definition: line_struct,
+            span: test_span(),
+        });
+
+        // Create variable: line
+        let var_def = arena.alloc(VarDefinition {
+            name: "line",
+            name_span: test_span(),
+            var_type: Some(*line_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        // Build: line.start.x
+        let line_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "line",
+                definition: var_def,
+            },
+            line_ty,
+        );
+
+        let start_field = &line_struct.fields[0];
+        let line_start = make_expr(
+            &arena,
+            ResolvedExprKind::FieldAccess {
+                receiver: line_ref,
+                field_name: "start",
+                field: start_field,
+            },
+            point_ty,
+        );
+
+        let result = Z3Bridge::build_field_access_name(line_start, "x");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "line.start.x");
+    }
+
+    #[test]
+    fn test_translate_field_access_simple() {
+        use crate::hir::definitions::{FieldDefinition, StructDefinition, VarDefinition};
+
+        let arena = Bump::new();
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Create struct Point { x: i32, y: i32 }
+        let point_struct = arena.alloc(StructDefinition::new(
+            "Point",
+            test_span(),
+            vec![
+                arena.alloc(FieldDefinition::new("x", test_span(), *int_ty, test_span())),
+                arena.alloc(FieldDefinition::new("y", test_span(), *int_ty, test_span())),
+            ],
+            vec![],
+            None,
+            test_span(),
+        ));
+
+        let point_ty = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: point_struct,
+            span: test_span(),
+        });
+
+        // Create variable p: Point (with flattened fields p.x and p.y)
+        let var_p_x = Variable::new("p.x", *int_ty, None, test_span());
+        let var_p_y = Variable::new("p.y", *int_ty, None, test_span());
+
+        let mut bridge = Z3Bridge::<'static, 'static>::new();
+        bridge.add_variable(&var_p_x).unwrap();
+        bridge.add_variable(&var_p_y).unwrap();
+
+        // Create field access: p.x
+        let var_def = arena.alloc(VarDefinition {
+            name: "p",
+            name_span: test_span(),
+            var_type: Some(*point_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let p_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "p",
+                definition: var_def,
+            },
+            point_ty,
+        );
+
+        let x_field = &point_struct.fields[0];
+        let p_x_expr = make_expr(
+            &arena,
+            ResolvedExprKind::FieldAccess {
+                receiver: p_ref,
+                field_name: "x",
+                field: x_field,
+            },
+            int_ty,
+        );
+
+        let result = bridge.translate_expr(p_x_expr);
+        assert!(result.is_ok());
+        assert_matches!(result.unwrap(), Z3Ast::Int(_));
+    }
+
+    #[test]
+    fn test_field_access_in_constraint() {
+        use crate::hir::definitions::{FieldDefinition, StructDefinition, VarDefinition};
+
+        let arena = Bump::new();
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+
+        // Create struct Point { x: i32, y: i32 }
+        let point_struct = arena.alloc(StructDefinition::new(
+            "Point",
+            test_span(),
+            vec![
+                arena.alloc(FieldDefinition::new("x", test_span(), *int_ty, test_span())),
+                arena.alloc(FieldDefinition::new("y", test_span(), *int_ty, test_span())),
+            ],
+            vec![],
+            None,
+            test_span(),
+        ));
+
+        let point_ty = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: point_struct,
+            span: test_span(),
+        });
+
+        // Create flattened variables: p.x, p.y
+        let var_p_x = Variable::new("p.x", *int_ty, None, test_span());
+        let var_p_y = Variable::new("p.y", *int_ty, None, test_span());
+
+        let mut bridge = Z3Bridge::<'static, 'static>::new();
+        bridge.add_variable(&var_p_x).unwrap();
+        bridge.add_variable(&var_p_y).unwrap();
+
+        // Create constraint: p.x + p.y == 15
+        let var_def = arena.alloc(VarDefinition {
+            name: "p",
+            name_span: test_span(),
+            var_type: Some(*point_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let p_ref1 = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "p",
+                definition: var_def,
+            },
+            point_ty,
+        );
+
+        let p_ref2 = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "p",
+                definition: var_def,
+            },
+            point_ty,
+        );
+
+        let x_field = &point_struct.fields[0];
+        let y_field = &point_struct.fields[1];
+
+        let p_x_expr = make_expr(
+            &arena,
+            ResolvedExprKind::FieldAccess {
+                receiver: p_ref1,
+                field_name: "x",
+                field: x_field,
+            },
+            int_ty,
+        );
+
+        let p_y_expr = make_expr(
+            &arena,
+            ResolvedExprKind::FieldAccess {
+                receiver: p_ref2,
+                field_name: "y",
+                field: y_field,
+            },
+            int_ty,
+        );
+
+        let sum = make_expr(
+            &arena,
+            ResolvedExprKind::Add {
+                lhs: p_x_expr,
+                rhs: p_y_expr,
+            },
+            int_ty,
+        );
+
+        let fifteen = make_expr(&arena, ResolvedExprKind::IntLit { value: 15 }, int_ty);
+
+        let constraint = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: sum,
+                rhs: fifteen,
+            },
+            bool_ty,
+        );
+
+        // Add constraint and solve
+        let result = bridge.add_constraint(constraint);
+        assert!(result.is_ok());
+
+        let solver = bridge.solver();
+        assert_eq!(solver.check(), z3::SatResult::Sat);
+    }
+
+    #[test]
+    fn test_field_access_variable_not_found() {
+        use crate::hir::definitions::{FieldDefinition, StructDefinition, VarDefinition};
+
+        let arena = Bump::new();
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Create struct Point { x: i32, y: i32 }
+        let point_struct = arena.alloc(StructDefinition::new(
+            "Point",
+            test_span(),
+            vec![
+                arena.alloc(FieldDefinition::new("x", test_span(), *int_ty, test_span())),
+                arena.alloc(FieldDefinition::new("y", test_span(), *int_ty, test_span())),
+            ],
+            vec![],
+            None,
+            test_span(),
+        ));
+
+        let point_ty = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: point_struct,
+            span: test_span(),
+        });
+
+        // Create bridge WITHOUT adding p.x variable
+        let bridge = Z3Bridge::<'static, 'static>::new();
+
+        // Try to access p.x (should fail - variable not found)
+        let var_def = arena.alloc(VarDefinition {
+            name: "p",
+            name_span: test_span(),
+            var_type: Some(*point_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let p_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "p",
+                definition: var_def,
+            },
+            point_ty,
+        );
+
+        let x_field = &point_struct.fields[0];
+        let p_x_expr = make_expr(
+            &arena,
+            ResolvedExprKind::FieldAccess {
+                receiver: p_ref,
+                field_name: "x",
+                field: x_field,
+            },
+            int_ty,
+        );
+
+        let result = bridge.translate_expr(p_x_expr);
+        assert!(result.is_err());
+        assert_matches!(result.unwrap_err(), Z3BridgeError::VariableNotFound { .. });
     }
 }

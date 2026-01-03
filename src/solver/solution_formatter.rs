@@ -98,7 +98,7 @@ impl std::error::Error for SolutionFormatterError {}
 /// Takes a Z3 solver and extracts the solution in a human-readable format.
 pub struct SolutionFormatter<'src, 'arena> {
     /// Map of variable names to their Z3 AST representations
-    variables: &'src HashMap<&'src str, Z3Ast>,
+    variables: &'src HashMap<String, Z3Ast>,
     /// List of variables to format
     var_list: Vec<&'arena Variable<'src, 'arena>>,
 }
@@ -106,7 +106,7 @@ pub struct SolutionFormatter<'src, 'arena> {
 impl<'src, 'arena> SolutionFormatter<'src, 'arena> {
     /// Create a new solution formatter
     pub fn new(
-        variables: &'src HashMap<&'src str, Z3Ast>,
+        variables: &'src HashMap<String, Z3Ast>,
         var_list: Vec<&'arena Variable<'src, 'arena>>,
     ) -> Self {
         Self {
@@ -139,11 +139,11 @@ impl<'src, 'arena> SolutionFormatter<'src, 'arena> {
         // Extract values for each variable
         for var in &self.var_list {
             let assignment = self.format_variable(var, model)?;
-            assignments.push((var.name, assignment));
+            assignments.push((var.name.clone(), assignment));
         }
 
         // Sort alphabetically by variable name
-        assignments.sort_by_key(|(name, _)| *name);
+        assignments.sort_by_key(|(name, _)| name.clone());
 
         // Build the output string
         let mut output = String::new();
@@ -161,9 +161,9 @@ impl<'src, 'arena> SolutionFormatter<'src, 'arena> {
         model: &z3::Model,
     ) -> Result<String, SolutionFormatterError> {
         // Get the Z3 AST for this variable
-        let z3_var = self.variables.get(var.name).ok_or_else(|| {
+        let z3_var = self.variables.get(&var.name).ok_or_else(|| {
             SolutionFormatterError::VariableNotInModel {
-                var_name: var.name.to_string(),
+                var_name: var.name.clone(),
             }
         })?;
 
@@ -269,7 +269,7 @@ mod tests {
 
         // Create: let x = 10;
         let init_x = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
-        let var_x = Variable::new("x", int_ty, Some(init_x), test_span());
+        let var_x = Variable::new("x", *int_ty, Some(init_x), test_span());
 
         // Build constraint problem
         let mut problem = ConstraintProblem::new();
@@ -296,10 +296,10 @@ mod tests {
 
         // Create: let y = 10;
         let init_y = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
-        let var_y = Variable::new("y", int_ty, Some(init_y), test_span());
+        let var_y = Variable::new("y", *int_ty, Some(init_y), test_span());
 
         // Create: let x;
-        let var_x = Variable::new("x", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, None, test_span());
 
         // Create: x + y == 20
         let var_def_x = arena.alloc(VarDefinition {
@@ -381,7 +381,7 @@ mod tests {
         // Create variables: z, a, m (intentionally out of order)
         let var_z = Variable::new(
             "z",
-            int_ty,
+            *int_ty,
             Some(make_expr(
                 &arena,
                 ResolvedExprKind::IntLit { value: 3 },
@@ -391,7 +391,7 @@ mod tests {
         );
         let var_a = Variable::new(
             "a",
-            int_ty,
+            *int_ty,
             Some(make_expr(
                 &arena,
                 ResolvedExprKind::IntLit { value: 1 },
@@ -401,7 +401,7 @@ mod tests {
         );
         let var_m = Variable::new(
             "m",
-            int_ty,
+            *int_ty,
             Some(make_expr(
                 &arena,
                 ResolvedExprKind::IntLit { value: 2 },
@@ -437,7 +437,7 @@ mod tests {
         let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
 
         // Create: let x;
-        let var_x = Variable::new("x", int_ty, None, test_span());
+        let var_x = Variable::new("x", *int_ty, None, test_span());
 
         // Create: x == 10
         let var_def_x = arena.alloc(VarDefinition {
@@ -510,7 +510,7 @@ mod tests {
 
         // Create: let x = 3.14;
         let init_x = make_expr(&arena, ResolvedExprKind::FloatLit { value: 3.14 }, real_ty);
-        let var_x = Variable::new("x", real_ty, Some(init_x), test_span());
+        let var_x = Variable::new("x", *real_ty, Some(init_x), test_span());
 
         // Build constraint problem
         let mut problem = ConstraintProblem::new();
@@ -537,7 +537,7 @@ mod tests {
 
         // Create: let x = true;
         let init_x = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
-        let var_x = Variable::new("x", bool_ty, Some(init_x), test_span());
+        let var_x = Variable::new("x", *bool_ty, Some(init_x), test_span());
 
         // Build constraint problem
         let mut problem = ConstraintProblem::new();
@@ -565,7 +565,7 @@ mod tests {
         // Create: let x = 42;
         let var_x = Variable::new(
             "x",
-            int_ty,
+            *int_ty,
             Some(make_expr(
                 &arena,
                 ResolvedExprKind::IntLit { value: 42 },
@@ -577,7 +577,7 @@ mod tests {
         // Create: let flag = false;
         let var_flag = Variable::new(
             "flag",
-            bool_ty,
+            *bool_ty,
             Some(make_expr(
                 &arena,
                 ResolvedExprKind::BoolLit { value: false },

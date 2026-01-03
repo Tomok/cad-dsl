@@ -46,7 +46,9 @@
 // ============================================================================
 
 pub mod constraint_extractor;
+pub mod recursive_struct_detector;
 pub mod solution_formatter;
+pub mod struct_flattener;
 pub mod z3_bridge;
 
 // ============================================================================
