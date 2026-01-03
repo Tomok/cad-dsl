@@ -198,8 +198,12 @@ pub fn solve<'src, 'arena>(
         return Err(SolverError::NoVariables);
     }
 
-    // Update constraint validation to include conditional constraints
-    if problem.constraints.is_empty() && problem.conditional_constraints.is_empty() {
+    // Check if we have constraints or if all variables are initialized
+    let has_constraints =
+        !problem.constraints.is_empty() || !problem.conditional_constraints.is_empty();
+    let all_vars_initialized = problem.variables.iter().all(|v| v.init.is_some());
+
+    if !has_constraints && !all_vars_initialized {
         return Err(SolverError::NoConstraints);
     }
 

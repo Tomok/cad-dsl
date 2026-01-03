@@ -342,13 +342,8 @@ fn test_nonexistent_file() {
 // ============================================================================
 // Struct Support Tests
 // ============================================================================
-// TODO: These tests are currently failing with UNSAT errors. The Z3 bridge
-// properly handles field access expressions (verified by unit tests), but
-// the end-to-end pipeline from source code through solving produces UNSAT
-// results. Needs investigation.
 
 #[test]
-#[ignore = "Failing with UNSAT - needs investigation"]
 fn test_struct_simple_field_constraint() {
     let (success, stdout, stderr) = solve_fixture("struct_simple_field_constraint.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);
@@ -357,7 +352,6 @@ fn test_struct_simple_field_constraint() {
 }
 
 #[test]
-#[ignore = "Failing with UNSAT - needs investigation"]
 fn test_struct_nested_field_constraint() {
     let (success, stdout, stderr) = solve_fixture("struct_nested_field_constraint.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);
@@ -366,7 +360,6 @@ fn test_struct_nested_field_constraint() {
 }
 
 #[test]
-#[ignore = "Failing - needs investigation"]
 fn test_struct_literal_init() {
     let (success, stdout, stderr) = solve_fixture("struct_literal_init.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);
@@ -375,7 +368,6 @@ fn test_struct_literal_init() {
 }
 
 #[test]
-#[ignore = "Failing - needs investigation"]
 fn test_struct_field_assignment() {
     let (success, stdout, stderr) = solve_fixture("struct_field_assignment.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);
