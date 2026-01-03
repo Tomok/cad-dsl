@@ -531,12 +531,34 @@ fn process_statement<'src, 'arena>(
             })
         }
 
-        ResolvedStmtKind::FieldAssignment { span, .. } => {
-            Err(ConstraintExtractorError::UnsupportedStatement {
-                statement_type: "field assignment".to_string(),
-                span: *span,
-                message: "Field assignments are not supported in constraint problems".to_string(),
-            })
+        ResolvedStmtKind::FieldAssignment {
+            target,
+            value,
+            span,
+        } => {
+            // Build the qualified field name from the target expression
+            let qualified_name = build_qualified_field_name(target)?;
+
+            // Find the corresponding variable and update its init value
+            // This marks the variable as "known" with the assigned value
+            if let Some(var) = problem
+                .variables
+                .iter_mut()
+                .find(|v| v.name == qualified_name)
+            {
+                var.init = Some(*value);
+                Ok(())
+            } else {
+                // Variable not found - this shouldn't happen if semantic analysis passed
+                Err(ConstraintExtractorError::UnsupportedStatement {
+                    statement_type: "field assignment to unknown variable".to_string(),
+                    span: *span,
+                    message: format!(
+                        "Field assignment to '{}' but variable not found in problem",
+                        qualified_name
+                    ),
+                })
+            }
         }
 
         ResolvedStmtKind::With { span, .. } => {
@@ -752,6 +774,53 @@ fn process_struct_literal_init<'src, 'arena>(
             // with a variable or function call, which we don't support yet.
             Ok(())
         }
+    }
+}
+
+/// Build a qualified field name from a field access expression
+///
+/// Recursively walks the target expression to build the full qualified name.
+///
+/// # Examples
+/// - `p.x` → "p.x"
+/// - `line.start.x` → "line.start.x"
+///
+/// # Errors
+/// Returns an error if the target expression is not a valid field access chain.
+fn build_qualified_field_name<'src, 'arena>(
+    target: &'arena ResolvedExpr<'src, 'arena>,
+) -> Result<String, ConstraintExtractorError> {
+    match &target.kind {
+        // Base case: field access directly on a variable
+        ResolvedExprKind::FieldAccess {
+            receiver,
+            field_name,
+            ..
+        } => {
+            // Check if receiver is a variable (base case) or another field access (recursive case)
+            match &receiver.kind {
+                ResolvedExprKind::Var { name, .. } => {
+                    // Base case: variable.field
+                    Ok(format!("{}.{}", name, field_name))
+                }
+                ResolvedExprKind::FieldAccess { .. } => {
+                    // Recursive case: build the prefix recursively
+                    let prefix = build_qualified_field_name(receiver)?;
+                    Ok(format!("{}.{}", prefix, field_name))
+                }
+                _ => Err(ConstraintExtractorError::UnsupportedStatement {
+                    statement_type: "field assignment with non-field-access receiver".to_string(),
+                    span: target.span,
+                    message: "Field assignment target must be a field access expression"
+                        .to_string(),
+                }),
+            }
+        }
+        _ => Err(ConstraintExtractorError::UnsupportedStatement {
+            statement_type: "field assignment with invalid target".to_string(),
+            span: target.span,
+            message: "Field assignment target must be a field access expression".to_string(),
+        }),
     }
 }
 
@@ -2292,6 +2361,574 @@ mod tests {
             errors[0],
             ConstraintExtractorError::UnsupportedStatement { ref statement_type, .. }
             if statement_type == "computed property in struct literal"
+        );
+    }
+
+    // ============================================================================
+    // Field Assignment Tests (Step 6)
+    // ============================================================================
+
+    #[test]
+    fn test_field_assignment_simple() {
+        let arena = Bump::new();
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Create Point struct definition
+        let x_field = arena.alloc(crate::hir::definitions::FieldDefinition::new(
+            "x",
+            test_span(),
+            *int_ty,
+            test_span(),
+        ));
+        let y_field = arena.alloc(crate::hir::definitions::FieldDefinition::new(
+            "y",
+            test_span(),
+            *int_ty,
+            test_span(),
+        ));
+        let struct_def = arena.alloc(crate::hir::definitions::StructDefinition {
+            name: "Point",
+            name_span: test_span(),
+            fields: vec![x_field, y_field],
+            methods: vec![],
+            container_field: None,
+            span: test_span(),
+        });
+
+        let point_ty = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: struct_def,
+            span: test_span(),
+        });
+
+        // Create let statement: let p: Point;
+        let var_def = arena.alloc(VarDefinition {
+            name: "p",
+            name_span: test_span(),
+            var_type: Some(*point_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let let_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::Let {
+                dot_prefix: false,
+                name_path: vec![("p", test_span())],
+                var_def,
+                init: None,
+                span: test_span(),
+            },
+        );
+
+        // Create field assignment: p.x = 5;
+        let p_var = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "p",
+                definition: var_def,
+            },
+            point_ty,
+        );
+        let p_x = make_expr(
+            &arena,
+            ResolvedExprKind::FieldAccess {
+                receiver: p_var,
+                field_name: "x",
+                field: x_field,
+            },
+            int_ty,
+        );
+        let value = make_expr(&arena, ResolvedExprKind::IntLit { value: 5 }, int_ty);
+        let assignment_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::FieldAssignment {
+                target: p_x,
+                value,
+                span: test_span(),
+            },
+        );
+
+        let result = extract_constraints(&[let_stmt, assignment_stmt]);
+        assert!(result.is_ok());
+
+        let problem = result.unwrap();
+        // Should have 2 variables: p.x and p.y
+        assert_eq!(problem.variable_count(), 2);
+        // p.x should be known (assigned), p.y should be unknown
+        assert_eq!(problem.known_variables().len(), 1);
+        assert_eq!(problem.unknown_variables().len(), 1);
+
+        let p_x_var = problem.variables.iter().find(|v| v.name == "p.x").unwrap();
+        assert!(p_x_var.is_known());
+        assert_matches!(
+            p_x_var.init.unwrap().kind,
+            ResolvedExprKind::IntLit { value: 5 }
+        );
+
+        let p_y_var = problem.variables.iter().find(|v| v.name == "p.y").unwrap();
+        assert!(p_y_var.is_unknown());
+    }
+
+    #[test]
+    fn test_field_assignment_multiple() {
+        let arena = Bump::new();
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Create Point struct definition
+        let x_field = arena.alloc(crate::hir::definitions::FieldDefinition::new(
+            "x",
+            test_span(),
+            *int_ty,
+            test_span(),
+        ));
+        let y_field = arena.alloc(crate::hir::definitions::FieldDefinition::new(
+            "y",
+            test_span(),
+            *int_ty,
+            test_span(),
+        ));
+        let struct_def = arena.alloc(crate::hir::definitions::StructDefinition {
+            name: "Point",
+            name_span: test_span(),
+            fields: vec![x_field, y_field],
+            methods: vec![],
+            container_field: None,
+            span: test_span(),
+        });
+
+        let point_ty = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: struct_def,
+            span: test_span(),
+        });
+
+        // Create let statement: let p: Point;
+        let var_def = arena.alloc(VarDefinition {
+            name: "p",
+            name_span: test_span(),
+            var_type: Some(*point_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let let_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::Let {
+                dot_prefix: false,
+                name_path: vec![("p", test_span())],
+                var_def,
+                init: None,
+                span: test_span(),
+            },
+        );
+
+        // Create field assignment: p.x = 10;
+        let p_var1 = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "p",
+                definition: var_def,
+            },
+            point_ty,
+        );
+        let p_x = make_expr(
+            &arena,
+            ResolvedExprKind::FieldAccess {
+                receiver: p_var1,
+                field_name: "x",
+                field: x_field,
+            },
+            int_ty,
+        );
+        let value_x = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let assignment_x = make_stmt(
+            &arena,
+            ResolvedStmtKind::FieldAssignment {
+                target: p_x,
+                value: value_x,
+                span: test_span(),
+            },
+        );
+
+        // Create field assignment: p.y = 20;
+        let p_var2 = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "p",
+                definition: var_def,
+            },
+            point_ty,
+        );
+        let p_y = make_expr(
+            &arena,
+            ResolvedExprKind::FieldAccess {
+                receiver: p_var2,
+                field_name: "y",
+                field: y_field,
+            },
+            int_ty,
+        );
+        let value_y = make_expr(&arena, ResolvedExprKind::IntLit { value: 20 }, int_ty);
+        let assignment_y = make_stmt(
+            &arena,
+            ResolvedStmtKind::FieldAssignment {
+                target: p_y,
+                value: value_y,
+                span: test_span(),
+            },
+        );
+
+        let result = extract_constraints(&[let_stmt, assignment_x, assignment_y]);
+        assert!(result.is_ok());
+
+        let problem = result.unwrap();
+        // Both fields should be known now
+        assert_eq!(problem.variable_count(), 2);
+        assert_eq!(problem.known_variables().len(), 2);
+
+        let p_x_var = problem.variables.iter().find(|v| v.name == "p.x").unwrap();
+        assert_matches!(
+            p_x_var.init.unwrap().kind,
+            ResolvedExprKind::IntLit { value: 10 }
+        );
+
+        let p_y_var = problem.variables.iter().find(|v| v.name == "p.y").unwrap();
+        assert_matches!(
+            p_y_var.init.unwrap().kind,
+            ResolvedExprKind::IntLit { value: 20 }
+        );
+    }
+
+    #[test]
+    fn test_field_assignment_nested() {
+        let arena = Bump::new();
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Create Point struct definition
+        let x_field = arena.alloc(crate::hir::definitions::FieldDefinition::new(
+            "x",
+            test_span(),
+            *int_ty,
+            test_span(),
+        ));
+        let y_field = arena.alloc(crate::hir::definitions::FieldDefinition::new(
+            "y",
+            test_span(),
+            *int_ty,
+            test_span(),
+        ));
+        let point_struct_def = arena.alloc(crate::hir::definitions::StructDefinition {
+            name: "Point",
+            name_span: test_span(),
+            fields: vec![x_field, y_field],
+            methods: vec![],
+            container_field: None,
+            span: test_span(),
+        });
+
+        let point_ty = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: point_struct_def,
+            span: test_span(),
+        });
+
+        // Create Line struct definition with two Point fields
+        let start_field = arena.alloc(crate::hir::definitions::FieldDefinition::new(
+            "start",
+            test_span(),
+            *point_ty,
+            test_span(),
+        ));
+        let end_field = arena.alloc(crate::hir::definitions::FieldDefinition::new(
+            "end",
+            test_span(),
+            *point_ty,
+            test_span(),
+        ));
+        let line_struct_def = arena.alloc(crate::hir::definitions::StructDefinition {
+            name: "Line",
+            name_span: test_span(),
+            fields: vec![start_field, end_field],
+            methods: vec![],
+            container_field: None,
+            span: test_span(),
+        });
+
+        let line_ty = arena.alloc(ResolvedType::UserDefined {
+            name: "Line",
+            definition: line_struct_def,
+            span: test_span(),
+        });
+
+        // Create let statement: let line: Line;
+        let var_def = arena.alloc(VarDefinition {
+            name: "line",
+            name_span: test_span(),
+            var_type: Some(*line_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let let_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::Let {
+                dot_prefix: false,
+                name_path: vec![("line", test_span())],
+                var_def,
+                init: None,
+                span: test_span(),
+            },
+        );
+
+        // Create nested field assignment: line.start.x = 42;
+        let line_var = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "line",
+                definition: var_def,
+            },
+            line_ty,
+        );
+        let line_start = make_expr(
+            &arena,
+            ResolvedExprKind::FieldAccess {
+                receiver: line_var,
+                field_name: "start",
+                field: start_field,
+            },
+            point_ty,
+        );
+        let line_start_x = make_expr(
+            &arena,
+            ResolvedExprKind::FieldAccess {
+                receiver: line_start,
+                field_name: "x",
+                field: x_field,
+            },
+            int_ty,
+        );
+        let value = make_expr(&arena, ResolvedExprKind::IntLit { value: 42 }, int_ty);
+        let assignment = make_stmt(
+            &arena,
+            ResolvedStmtKind::FieldAssignment {
+                target: line_start_x,
+                value,
+                span: test_span(),
+            },
+        );
+
+        let result = extract_constraints(&[let_stmt, assignment]);
+        assert!(result.is_ok());
+
+        let problem = result.unwrap();
+        // Should have 4 variables: line.start.x, line.start.y, line.end.x, line.end.y
+        assert_eq!(problem.variable_count(), 4);
+        // Only line.start.x should be known
+        assert_eq!(problem.known_variables().len(), 1);
+
+        let line_start_x_var = problem
+            .variables
+            .iter()
+            .find(|v| v.name == "line.start.x")
+            .unwrap();
+        assert_matches!(
+            line_start_x_var.init.unwrap().kind,
+            ResolvedExprKind::IntLit { value: 42 }
+        );
+    }
+
+    #[test]
+    fn test_field_assignment_mixed_with_struct_literal() {
+        let arena = Bump::new();
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+
+        // Create Point struct definition
+        let x_field = arena.alloc(crate::hir::definitions::FieldDefinition::new(
+            "x",
+            test_span(),
+            *int_ty,
+            test_span(),
+        ));
+        let y_field = arena.alloc(crate::hir::definitions::FieldDefinition::new(
+            "y",
+            test_span(),
+            *int_ty,
+            test_span(),
+        ));
+        let struct_def = arena.alloc(crate::hir::definitions::StructDefinition {
+            name: "Point",
+            name_span: test_span(),
+            fields: vec![x_field, y_field],
+            methods: vec![],
+            container_field: None,
+            span: test_span(),
+        });
+
+        let point_ty = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: struct_def,
+            span: test_span(),
+        });
+
+        // Create struct literal with only x field: Point { x: 5 }
+        let x_value = make_expr(&arena, ResolvedExprKind::IntLit { value: 5 }, int_ty);
+
+        let struct_lit = make_expr(
+            &arena,
+            ResolvedExprKind::StructLit {
+                name: "Point",
+                fields: vec![crate::hir::expr::ResolvedStructLitField::Field {
+                    name: "x",
+                    value: x_value,
+                    field_def: x_field,
+                    span: test_span(),
+                }],
+            },
+            point_ty,
+        );
+
+        // Create let statement: let p: Point = Point { x: 5 };
+        let var_def = arena.alloc(VarDefinition {
+            name: "p",
+            name_span: test_span(),
+            var_type: Some(*point_ty),
+            init: Some(struct_lit),
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let let_stmt = make_stmt(
+            &arena,
+            ResolvedStmtKind::Let {
+                dot_prefix: false,
+                name_path: vec![("p", test_span())],
+                var_def,
+                init: Some(struct_lit),
+                span: test_span(),
+            },
+        );
+
+        // Create field assignment to the missing field: p.y = 10;
+        let p_var = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "p",
+                definition: var_def,
+            },
+            point_ty,
+        );
+        let p_y = make_expr(
+            &arena,
+            ResolvedExprKind::FieldAccess {
+                receiver: p_var,
+                field_name: "y",
+                field: y_field,
+            },
+            int_ty,
+        );
+        let value_y = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let assignment = make_stmt(
+            &arena,
+            ResolvedStmtKind::FieldAssignment {
+                target: p_y,
+                value: value_y,
+                span: test_span(),
+            },
+        );
+
+        let result = extract_constraints(&[let_stmt, assignment]);
+        assert!(result.is_ok());
+
+        let problem = result.unwrap();
+        // Both fields should be known now
+        assert_eq!(problem.variable_count(), 2);
+        assert_eq!(problem.known_variables().len(), 2);
+
+        let p_x_var = problem.variables.iter().find(|v| v.name == "p.x").unwrap();
+        assert_matches!(
+            p_x_var.init.unwrap().kind,
+            ResolvedExprKind::IntLit { value: 5 }
+        );
+
+        let p_y_var = problem.variables.iter().find(|v| v.name == "p.y").unwrap();
+        assert_matches!(
+            p_y_var.init.unwrap().kind,
+            ResolvedExprKind::IntLit { value: 10 }
+        );
+    }
+
+    #[test]
+    fn test_field_assignment_to_unknown_variable_error() {
+        let arena = Bump::new();
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+        let point_ty = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: arena.alloc(crate::hir::definitions::StructDefinition {
+                name: "Point",
+                name_span: test_span(),
+                fields: vec![],
+                methods: vec![],
+                container_field: None,
+                span: test_span(),
+            }),
+            span: test_span(),
+        });
+
+        // Create field assignment without declaring the variable first: p.x = 5;
+        let dummy_var_def = arena.alloc(VarDefinition {
+            name: "p",
+            name_span: test_span(),
+            var_type: Some(*point_ty),
+            init: None,
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let p_var = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "p",
+                definition: dummy_var_def,
+            },
+            point_ty,
+        );
+        let p_x = make_expr(
+            &arena,
+            ResolvedExprKind::FieldAccess {
+                receiver: p_var,
+                field_name: "x",
+                field: arena.alloc(crate::hir::definitions::FieldDefinition::new(
+                    "x",
+                    test_span(),
+                    *int_ty,
+                    test_span(),
+                )),
+            },
+            int_ty,
+        );
+        let value = make_expr(&arena, ResolvedExprKind::IntLit { value: 5 }, int_ty);
+        let assignment = make_stmt(
+            &arena,
+            ResolvedStmtKind::FieldAssignment {
+                target: p_x,
+                value,
+                span: test_span(),
+            },
+        );
+
+        let result = extract_constraints(&[assignment]);
+        assert!(result.is_err());
+
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(
+            errors[0],
+            ConstraintExtractorError::UnsupportedStatement { ref statement_type, .. }
+            if statement_type == "field assignment to unknown variable"
         );
     }
 }
