@@ -1,0 +1,10 @@
+// Struct field assignment
+// Expected: p.x = 5, p.y = 10
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+let p: Point;
+p.x = 5;
+p.y = 10;

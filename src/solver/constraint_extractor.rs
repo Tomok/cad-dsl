@@ -513,12 +513,10 @@ fn process_statement<'src, 'arena>(
             })
         }
 
-        ResolvedStmtKind::StructDef { span, .. } => {
-            Err(ConstraintExtractorError::UnsupportedStatement {
-                statement_type: "struct definition".to_string(),
-                span: *span,
-                message: "Struct definitions are not supported in constraint problems".to_string(),
-            })
+        ResolvedStmtKind::StructDef { .. } => {
+            // Struct definitions are needed for type checking but don't contribute constraints
+            // Skip them silently
+            Ok(())
         }
 
         // Unsupported: advanced features
@@ -1241,7 +1239,8 @@ mod tests {
     }
 
     #[test]
-    fn test_error_unsupported_struct_def() {
+    fn test_struct_def_allowed() {
+        // Struct definitions should be allowed (silently skipped) in constraint problems
         let arena = Bump::new();
         let struct_def = arena.alloc(crate::hir::definitions::StructDefinition {
             name: "Point",
@@ -1261,16 +1260,13 @@ mod tests {
             },
         );
 
+        // Struct definitions should be accepted (they define types but don't contribute constraints)
         let result = extract_constraints(&[stmt]);
-        assert!(result.is_err());
+        assert!(result.is_ok());
 
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert_matches!(
-            errors[0],
-            ConstraintExtractorError::UnsupportedStatement { ref statement_type, .. }
-            if statement_type == "struct definition"
-        );
+        let problem = result.unwrap();
+        assert_eq!(problem.variables.len(), 0); // No variables from struct definition
+        assert_eq!(problem.constraints.len(), 0); // No constraints from struct definition
     }
 
     #[test]
