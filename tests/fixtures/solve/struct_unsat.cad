@@ -1,0 +1,10 @@
+// UNSAT struct constraint: contradictory constraints on same field
+// Expected: UNSAT (p.x cannot be both 5 and 10)
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+let p: Point;
+p.x == 5;
+p.x == 10;

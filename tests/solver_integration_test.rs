@@ -338,3 +338,58 @@ fn test_nonexistent_file() {
         stderr
     );
 }
+
+// ============================================================================
+// Struct Support Tests
+// ============================================================================
+
+#[test]
+fn test_struct_simple_field_constraint() {
+    let (success, stdout, stderr) = solve_fixture("struct_simple_field_constraint.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "p.x", "10");
+    verify_solution(&stdout, "p.y", "5");
+}
+
+#[test]
+fn test_struct_nested_field_constraint() {
+    let (success, stdout, stderr) = solve_fixture("struct_nested_field_constraint.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "line.start.x", "5");
+    verify_solution(&stdout, "line.end.x", "15");
+}
+
+#[test]
+fn test_struct_literal_init() {
+    let (success, stdout, stderr) = solve_fixture("struct_literal_init.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "p.x", "5");
+    verify_solution(&stdout, "p.y", "10");
+}
+
+#[test]
+fn test_struct_field_assignment() {
+    let (success, stdout, stderr) = solve_fixture("struct_field_assignment.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "p.x", "5");
+    verify_solution(&stdout, "p.y", "10");
+}
+
+#[test]
+fn test_struct_unsat() {
+    let (success, stdout, stderr) = solve_fixture("struct_unsat.cad");
+    assert!(
+        !success,
+        "Expected solver to fail for contradictory struct field constraints"
+    );
+
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(
+        combined.contains("UNSAT")
+            || combined.contains("Unsat")
+            || combined.contains("cannot be satisfied")
+            || combined.contains("Solver error"),
+        "Expected UNSAT error, got: {}",
+        combined
+    );
+}

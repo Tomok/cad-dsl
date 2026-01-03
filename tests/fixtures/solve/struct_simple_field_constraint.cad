@@ -1,0 +1,10 @@
+// Simple struct field constraint: p.x + p.y = 15, p.x = 10
+// Expected: p.x = 10, p.y = 5
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+let p: Point;
+p.x + p.y == 15;
+p.x == 10;

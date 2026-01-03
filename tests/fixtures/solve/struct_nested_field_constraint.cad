@@ -1,0 +1,16 @@
+// Nested struct field constraint
+// Expected: line.start.x + line.end.x = 20
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Line {
+    start: Point,
+    end: Point,
+}
+
+let line: Line;
+line.start.x + line.end.x == 20;
+line.start.x == 5;
+line.end.x == 15;

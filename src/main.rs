@@ -257,6 +257,7 @@ fn main() {
                 parser::function_def(parser::expr_inner()),
                 parser::let_stmt(parser::expr_inner()),
                 parser::assignment_stmt(parser::expr_inner()),
+                parser::field_assignment_stmt(parser::expr_inner()),
                 parser::expression_stmt(parser::expr_inner()),
             ))
             .repeated()
