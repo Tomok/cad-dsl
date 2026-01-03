@@ -339,17 +339,20 @@ The project integrates Z3 constraint solver to solve for unknown variables in co
 - Condition must be a boolean expression
 - Nested if-statements are not supported
 
-**Limitations for Structs:**
-- Type inference from struct literals not yet implemented (require explicit type annotations)
-  - Use `let p: Point = Point { x: 5, y: 10 };` instead of `let p = Point { x: 5, y: 10 };`
+**Note:** Struct support is fully functional for constraint solving, including type inference from struct literals. All integration tests pass.
 
-**Note:** Struct support is fully functional for constraint solving. All integration tests pass.
-
-**Not Supported (Out of Scope):**
+**Not Supported (Current Scope):**
 - For loops and with statements
 - Functions and function calls
 - Standard library functions
 - Transforms and geometric operations
+
+**Future Features (Low Priority):**
+- Units system (Length, Angle, Area with mm/cm/m/deg/rad suffixes)
+  - Language spec defines units extensively, but implementation deferred
+  - Current constraint solver works with dimensionless numeric types
+  - Units add complexity across lexer, parser, type system, and solver
+  - Recommended as later enhancement after core functionality is stable
 
 ### Usage Example
 
