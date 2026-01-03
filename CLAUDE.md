@@ -340,11 +340,10 @@ The project integrates Z3 constraint solver to solve for unknown variables in co
 - Nested if-statements are not supported
 
 **Limitations for Structs:**
-- Struct literal handling implemented but end-to-end tests fail with UNSAT (needs investigation)
-- Field assignment handling implemented but end-to-end tests fail (needs investigation)
-- Field access in constraints has Z3 bridge support but end-to-end pipeline has issues (needs investigation)
+- Type inference from struct literals not yet implemented (require explicit type annotations)
+  - Use `let p: Point = Point { x: 5, y: 10 };` instead of `let p = Point { x: 5, y: 10 };`
 
-**Note:** The Z3 bridge and constraint extractor have full implementation for struct literals, field assignments, and field access expressions. However, end-to-end integration tests reveal issues in the pipeline that produce unexpected UNSAT results. The individual components work correctly in unit tests.
+**Note:** Struct support is fully functional for constraint solving. All integration tests pass.
 
 **Not Supported (Out of Scope):**
 - For loops and with statements
@@ -425,8 +424,6 @@ p.y = 5
 ```
 
 **Explanation:** The struct variable `p` is automatically flattened into two primitive variables `p.x` and `p.y`. The solver finds values that satisfy both constraints.
-
-**Note:** Currently, field access in constraints is not yet implemented. The above example shows the intended behavior once field access resolution is complete.
 
 ### Pipeline
 
