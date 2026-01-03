@@ -1947,5 +1947,112 @@ mod tests {
             let type_result = type_checker::type_check(&arena, source, &hir);
             assert!(type_result.is_ok(), "Type checking should succeed");
         }
+
+        /// Test 18: Top-Level Struct Literal Type Inference
+        #[test]
+        fn test_e2e_top_level_struct_literal_inference() {
+            use crate::ast::StructLitField;
+            let arena = Bump::new();
+            let source = "struct Point { x: i32, y: i32, } let p = Point { x: 5, y: 10 };";
+
+            let ast = vec![
+                Stmt::StructDef {
+                    name: "Point".to_string(),
+                    name_span: make_span(1, 8),
+                    container: None,
+                    fields: vec![
+                        StructField {
+                            name: "x".to_string(),
+                            name_span: make_span(1, 16),
+                            type_annotation: Type::I32 {
+                                span: make_span(1, 19),
+                            },
+                            span: make_span(1, 16),
+                        },
+                        StructField {
+                            name: "y".to_string(),
+                            name_span: make_span(1, 24),
+                            type_annotation: Type::I32 {
+                                span: make_span(1, 27),
+                            },
+                            span: make_span(1, 24),
+                        },
+                    ],
+                    methods: vec![],
+                    span: make_span(1, 1),
+                },
+                Stmt::Let {
+                    dot_prefix: false,
+                    name_path: vec![("p", make_span(1, 39))],
+                    type_annotation: None, // NO explicit type annotation - should be inferred
+                    init: Some(Expr::StructLit {
+                        name: "Point",
+                        fields: vec![
+                            StructLitField::Field {
+                                name: "x",
+                                value: Expr::IntLit {
+                                    value: 5,
+                                    span: make_span(1, 54),
+                                },
+                                span: make_span(1, 51),
+                            },
+                            StructLitField::Field {
+                                name: "y",
+                                value: Expr::IntLit {
+                                    value: 10,
+                                    span: make_span(1, 60),
+                                },
+                                span: make_span(1, 57),
+                            },
+                        ],
+                        span: make_span(1, 43),
+                    }),
+                    span: make_span(1, 35),
+                },
+            ];
+
+            // Test semantic analysis with Pass 1 + Pass 2
+            let result = analyze(&arena, source, &ast);
+            if let Err(ref errors) = result {
+                for err in errors {
+                    eprintln!("Semantic Error: {}", err);
+                }
+            }
+            assert!(result.is_ok(), "Semantic analysis should succeed");
+
+            let hir = result.unwrap();
+            assert_eq!(
+                hir.len(),
+                2,
+                "Should have 2 HIR statements (struct def + let)"
+            );
+
+            // Verify the let statement
+            let let_stmt = &hir[1];
+            assert_matches!(
+                &let_stmt.kind,
+                crate::hir::expr::ResolvedStmtKind::Let {
+                    var_def,
+                    init: Some(_),
+                    ..
+                } if var_def.name == "p"
+            );
+
+            // CRITICAL: Verify that var_type was inferred from the struct literal
+            if let crate::hir::expr::ResolvedStmtKind::Let { var_def, .. } = &let_stmt.kind {
+                assert!(
+                    var_def.var_type.is_some(),
+                    "var_type should be inferred from struct literal"
+                );
+                assert_matches!(
+                    var_def.var_type.as_ref().unwrap(),
+                    crate::hir::types::ResolvedType::UserDefined { name, .. } if *name == "Point"
+                );
+            }
+
+            // Test type checking
+            let type_result = type_checker::type_check(&arena, source, &hir);
+            assert!(type_result.is_ok(), "Type checking should succeed");
+        }
     }
 }

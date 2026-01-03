@@ -232,35 +232,34 @@ fn resolve_let_statement<'src, 'arena>(
         let (name, name_span) = name_path[0];
 
         // Resolve type annotation if present
-        let resolved_type = type_annotation.and_then(|ty| resolve_type(ctx, ty));
+        let mut resolved_type = type_annotation.and_then(|ty| resolve_type(ctx, ty));
 
         // Resolve initializer expression if present
         let init_expr = init.and_then(|expr| resolve_expression(ctx, expr));
+
+        // Type inference: if no type annotation but initializer is present, infer from initializer
+        if resolved_type.is_none()
+            && let Some(expr) = init_expr
+        {
+            resolved_type = Some(*expr.ty);
+        }
 
         // Get current scope level
         let scope_level: ScopeLevel = ctx.scope_stack.current_scope_level();
 
         // Look up or create the variable definition
         let var_def = if scope_level == 0 {
-            // Top-level let statement - should already exist from Pass 1
-            let existing = ctx.scope_stack.lookup_variable(name);
-            if let Some(existing) = existing {
-                existing
-            } else {
-                // If not found, create it now (shouldn't happen normally)
-                let new_def = VarDefinition::new(
-                    name,
-                    name_span,
-                    resolved_type,
-                    init_expr,
-                    scope_level,
-                    span,
-                );
-                let new_def_ref: &'arena VarDefinition<'src, 'arena> = ctx.arena.alloc(new_def);
-                let result = new_def_ref;
-                ctx.scope_stack.declare_variable(name, new_def_ref);
-                result
-            }
+            // Top-level let statement - was created in Pass 1, but we need to update it
+            // with the resolved type and initializer from Pass 2
+            // Since VarDefinition is immutable, create a new one with updated values
+            let new_def =
+                VarDefinition::new(name, name_span, resolved_type, init_expr, scope_level, span);
+            let new_def_ref: &'arena VarDefinition<'src, 'arena> = ctx.arena.alloc(new_def);
+
+            // Replace the old definition in the scope
+            // (declare_variable returns the old definition, which we ignore)
+            ctx.scope_stack.declare_variable(name, new_def_ref);
+            new_def_ref
         } else {
             // Non-top-level let statement - declare it now
             let new_def =
@@ -307,7 +306,15 @@ fn resolve_let_statement<'src, 'arena>(
         // For dot-prefix lets, we need to create a variable definition
         // The variable is implicitly scoped to the with-context
         let (name, name_span) = name_path[0];
-        let resolved_type = type_annotation.and_then(|ty| resolve_type(ctx, ty));
+        let mut resolved_type = type_annotation.and_then(|ty| resolve_type(ctx, ty));
+
+        // Type inference: if no type annotation but initializer is present, infer from initializer
+        if resolved_type.is_none()
+            && let Some(expr) = init_expr
+        {
+            resolved_type = Some(*expr.ty);
+        }
+
         let scope_level = ctx.scope_stack.current_scope_level();
 
         let var_def = ctx.arena.alloc(VarDefinition::new(
@@ -347,7 +354,15 @@ fn resolve_let_statement<'src, 'arena>(
         }
 
         let (name, name_span) = name_path[name_path.len() - 1];
-        let resolved_type = type_annotation.and_then(|ty| resolve_type(ctx, ty));
+        let mut resolved_type = type_annotation.and_then(|ty| resolve_type(ctx, ty));
+
+        // Type inference: if no type annotation but initializer is present, infer from initializer
+        if resolved_type.is_none()
+            && let Some(expr) = init_expr
+        {
+            resolved_type = Some(*expr.ty);
+        }
+
         let scope_level = ctx.scope_stack.current_scope_level();
 
         let var_def = ctx.arena.alloc(VarDefinition::new(
@@ -2386,6 +2401,301 @@ mod tests {
         let errors = ctx.take_errors();
         assert_eq!(errors.len(), 1);
         assert_matches!(&errors[0], SemanticError::UndefinedField { .. });
+    }
+
+    #[test]
+    fn test_resolve_let_with_struct_literal_inference() {
+        // Test: let p = Point { x: 5, y: 10 }; (without explicit type annotation)
+        let arena = Bump::new();
+        let source = "let p = Point { x: 5, y: 10 };";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::hir::definitions::{FieldDefinition, StructDefinition};
+        use crate::hir::types::ResolvedType;
+
+        // Create struct definition for Point
+        let field_x = arena.alloc(FieldDefinition::new(
+            "x",
+            make_span(1, 1),
+            ResolvedType::I32 {
+                span: make_span(1, 1),
+            },
+            make_span(1, 1),
+        ));
+        let field_y = arena.alloc(FieldDefinition::new(
+            "y",
+            make_span(1, 1),
+            ResolvedType::I32 {
+                span: make_span(1, 1),
+            },
+            make_span(1, 1),
+        ));
+        let struct_def = arena.alloc(StructDefinition::new(
+            "Point",
+            make_span(1, 1),
+            vec![field_x, field_y],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        ctx.register_struct("Point", struct_def).unwrap();
+
+        use crate::ast::StructLitField;
+        let stmt = Stmt::Let {
+            dot_prefix: false,
+            name_path: vec![("p", make_span(1, 5))],
+            type_annotation: None, // No explicit type annotation
+            init: Some(Expr::StructLit {
+                name: "Point",
+                fields: vec![
+                    StructLitField::Field {
+                        name: "x",
+                        value: Expr::IntLit {
+                            value: 5,
+                            span: make_span(1, 20),
+                        },
+                        span: make_span(1, 17),
+                    },
+                    StructLitField::Field {
+                        name: "y",
+                        value: Expr::IntLit {
+                            value: 10,
+                            span: make_span(1, 26),
+                        },
+                        span: make_span(1, 23),
+                    },
+                ],
+                span: make_span(1, 9),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        // Verify the variable has the inferred type
+        let var_def = ctx.scope_stack.lookup_variable("p");
+        assert!(var_def.is_some());
+        let var_def = var_def.unwrap();
+        assert!(var_def.var_type.is_some());
+        assert_matches!(var_def.var_type.as_ref().unwrap(), ResolvedType::UserDefined { name, .. } if *name == "Point");
+    }
+
+    #[test]
+    fn test_resolve_let_with_struct_literal_inference_nested() {
+        // Test: let line = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } };
+        let arena = Bump::new();
+        let source =
+            "let line = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } };";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::hir::definitions::{FieldDefinition, StructDefinition};
+        use crate::hir::types::ResolvedType;
+
+        // Create Point struct
+        let point_field_x = arena.alloc(FieldDefinition::new(
+            "x",
+            make_span(1, 1),
+            ResolvedType::I32 {
+                span: make_span(1, 1),
+            },
+            make_span(1, 1),
+        ));
+        let point_field_y = arena.alloc(FieldDefinition::new(
+            "y",
+            make_span(1, 1),
+            ResolvedType::I32 {
+                span: make_span(1, 1),
+            },
+            make_span(1, 1),
+        ));
+        let point_def = arena.alloc(StructDefinition::new(
+            "Point",
+            make_span(1, 1),
+            vec![point_field_x, point_field_y],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        ctx.register_struct("Point", point_def).unwrap();
+
+        // Create Line struct
+        let line_field_start = arena.alloc(FieldDefinition::new(
+            "start",
+            make_span(1, 1),
+            ResolvedType::UserDefined {
+                name: "Point",
+                definition: point_def,
+                span: make_span(1, 1),
+            },
+            make_span(1, 1),
+        ));
+        let line_field_end = arena.alloc(FieldDefinition::new(
+            "end",
+            make_span(1, 1),
+            ResolvedType::UserDefined {
+                name: "Point",
+                definition: point_def,
+                span: make_span(1, 1),
+            },
+            make_span(1, 1),
+        ));
+        let line_def = arena.alloc(StructDefinition::new(
+            "Line",
+            make_span(1, 1),
+            vec![line_field_start, line_field_end],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        ctx.register_struct("Line", line_def).unwrap();
+
+        use crate::ast::StructLitField;
+        let stmt = Stmt::Let {
+            dot_prefix: false,
+            name_path: vec![("line", make_span(1, 5))],
+            type_annotation: None,
+            init: Some(Expr::StructLit {
+                name: "Line",
+                fields: vec![
+                    StructLitField::Field {
+                        name: "start",
+                        value: Expr::StructLit {
+                            name: "Point",
+                            fields: vec![
+                                StructLitField::Field {
+                                    name: "x",
+                                    value: Expr::IntLit {
+                                        value: 0,
+                                        span: make_span(1, 1),
+                                    },
+                                    span: make_span(1, 1),
+                                },
+                                StructLitField::Field {
+                                    name: "y",
+                                    value: Expr::IntLit {
+                                        value: 0,
+                                        span: make_span(1, 1),
+                                    },
+                                    span: make_span(1, 1),
+                                },
+                            ],
+                            span: make_span(1, 1),
+                        },
+                        span: make_span(1, 1),
+                    },
+                    StructLitField::Field {
+                        name: "end",
+                        value: Expr::StructLit {
+                            name: "Point",
+                            fields: vec![
+                                StructLitField::Field {
+                                    name: "x",
+                                    value: Expr::IntLit {
+                                        value: 10,
+                                        span: make_span(1, 1),
+                                    },
+                                    span: make_span(1, 1),
+                                },
+                                StructLitField::Field {
+                                    name: "y",
+                                    value: Expr::IntLit {
+                                        value: 10,
+                                        span: make_span(1, 1),
+                                    },
+                                    span: make_span(1, 1),
+                                },
+                            ],
+                            span: make_span(1, 1),
+                        },
+                        span: make_span(1, 1),
+                    },
+                ],
+                span: make_span(1, 1),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        // Verify the variable has the inferred type
+        let var_def = ctx.scope_stack.lookup_variable("line");
+        assert!(var_def.is_some());
+        let var_def = var_def.unwrap();
+        assert!(var_def.var_type.is_some());
+        assert_matches!(var_def.var_type.as_ref().unwrap(), ResolvedType::UserDefined { name, .. } if *name == "Line");
+    }
+
+    #[test]
+    fn test_resolve_let_struct_literal_inference_with_partial_fields() {
+        // Test: let p = Point { x: 5 }; (partial initialization, should still infer type)
+        let arena = Bump::new();
+        let source = "let p = Point { x: 5 };";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::hir::definitions::{FieldDefinition, StructDefinition};
+        use crate::hir::types::ResolvedType;
+
+        // Create struct definition for Point with two fields
+        let field_x = arena.alloc(FieldDefinition::new(
+            "x",
+            make_span(1, 1),
+            ResolvedType::I32 {
+                span: make_span(1, 1),
+            },
+            make_span(1, 1),
+        ));
+        let field_y = arena.alloc(FieldDefinition::new(
+            "y",
+            make_span(1, 1),
+            ResolvedType::I32 {
+                span: make_span(1, 1),
+            },
+            make_span(1, 1),
+        ));
+        let struct_def = arena.alloc(StructDefinition::new(
+            "Point",
+            make_span(1, 1),
+            vec![field_x, field_y],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        ctx.register_struct("Point", struct_def).unwrap();
+
+        use crate::ast::StructLitField;
+        let stmt = Stmt::Let {
+            dot_prefix: false,
+            name_path: vec![("p", make_span(1, 5))],
+            type_annotation: None,
+            init: Some(Expr::StructLit {
+                name: "Point",
+                fields: vec![StructLitField::Field {
+                    name: "x",
+                    value: Expr::IntLit {
+                        value: 5,
+                        span: make_span(1, 20),
+                    },
+                    span: make_span(1, 17),
+                }],
+                span: make_span(1, 9),
+            }),
+            span: make_span(1, 1),
+        };
+
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_some());
+        assert!(!ctx.has_errors());
+
+        // Verify the variable has the inferred type
+        let var_def = ctx.scope_stack.lookup_variable("p");
+        assert!(var_def.is_some());
+        let var_def = var_def.unwrap();
+        assert!(var_def.var_type.is_some());
+        assert_matches!(var_def.var_type.as_ref().unwrap(), ResolvedType::UserDefined { name, .. } if *name == "Point");
     }
 
     #[test]
