@@ -1253,13 +1253,19 @@ pub fn resolve_expression<'src, 'arena>(
             let resolved_array = resolve_expression(ctx, array)?;
             let resolved_index = resolve_expression(ctx, index)?;
 
+            // Determine element type from array type
+            let element_type = match resolved_array.ty {
+                ResolvedType::Array { element_type, .. } => element_type,
+                // If not an array type, fallback to i32 for backward compatibility
+                // Type checker will report an error if this is incorrect
+                _ => &*ctx.arena.alloc(ResolvedType::I32 { span: *span }),
+            };
+
             let kind = ResolvedExprKind::Index {
                 array: resolved_array,
                 index: resolved_index,
             };
-            // TODO: Determine element type from array type
-            let ty = &*ctx.arena.alloc(ResolvedType::I32 { span: *span });
-            (kind, ty)
+            (kind, element_type)
         }
 
         // Range
