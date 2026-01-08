@@ -147,13 +147,13 @@ Source Code → Lexer → Parser → AST → Semantic Analyzer → HIR → Type 
 
 **Solver Pipeline (`src/solver/`)**
 - Orchestrates: semantic analysis → type checking → constraint extraction → Z3 solving
-- **Struct Flattening**: Nested structs become primitive fields (e.g., `line.start.x`)
+- **Struct and Array Flattening**: Nested structs and arrays become primitive fields (e.g., `line.start.x`, `points[0].x`)
 - **Z3 Bridge**: Translates HIR expressions to Z3 constraints
 - Returns SAT (with solution) or UNSAT (no solution exists)
 
 **Solver Submodules:**
 - `constraint_extractor.rs` - Extracts variables and constraints from typed HIR
-- `struct_flattener.rs` - Flattens nested structs to primitive fields
+- `struct_flattener.rs` - Flattens nested structs and arrays to primitive fields
 - `recursive_struct_detector.rs` - Detects cycles in struct definitions
 - `z3_bridge.rs` - Translates to Z3 solver format
 - `solution_formatter.rs` - Formats Z3 solutions for display
@@ -173,10 +173,13 @@ Source Code → Lexer → Parser → AST → Semantic Analyzer → HIR → Type 
 - String slices use `&'src str` directly from source code
 - Clean separation between source lifetime and arena lifetime
 
-**Struct Flattening for Constraints**:
-- Structs are flattened to primitive fields for Z3 solving
-- Example: `Point { x: i32, y: i32 }` becomes two variables `p.x` and `p.y`
+**Struct and Array Flattening for Constraints**:
+- Structs and arrays are flattened to primitive fields for Z3 solving
+- Struct example: `Point { x: i32, y: i32 }` becomes two variables `p.x` and `p.y`
+- Array example: `[i32; 3]` becomes three variables `arr[0]`, `arr[1]`, `arr[2]`
+- Array of structs: `[Point; 2]` becomes four variables `points[0].x`, `points[0].y`, `points[1].x`, `points[1].y`
 - Supports arbitrary nesting depth with qualified names
+- Array indexing supports only constant integer literals (not variable indices)
 
 ## Testing
 
@@ -200,6 +203,8 @@ The project has comprehensive test suites for each component. All major componen
 - **Constraint Solver**:
   - Basic types: `i32`, `f64`, `bool`
   - Struct types (flattened to primitive fields)
+  - Array types (fixed-size, flattened to indexed primitive fields)
+  - Array indexing with constant integer indices
   - Arithmetic operators: `+`, `-`, `*`, `/`
   - Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=`
   - If-statements with conditional constraints (Z3 ITE)
@@ -210,7 +215,6 @@ The project has comprehensive test suites for each component. All major componen
 
 These features have parser and HIR support but **not yet in constraint solver**:
 
-- **Arrays**: Fixed-size arrays parsed and in HIR, needs constraint extractor support
 - **For Loops**: Parsed and in HIR, needs loop unrolling in constraint extractor
 - **Functions**: Definitions parsed and in HIR, function calls need solver support
 - **With Statements**: Parsed and in HIR, transform semantics not in solver
@@ -235,27 +239,22 @@ These features have parser and HIR support but **not yet in constraint solver**:
 
 ### Recommended Priority Order
 
-1. **Arrays** (High Priority)
-   - Extend constraint extractor to flatten arrays like structs
-   - Example: `points[0].x`, `points[1].x`, etc.
-   - Enables parametric designs
-
-2. **For Loops** (High Priority)
-   - Requires arrays to be useful
+1. **For Loops** (High Priority)
+   - Requires arrays to be useful (arrays are now implemented)
    - Implement loop unrolling in constraint extractor
    - Generate constraints for each iteration
 
-3. **Function Calls** (High Priority - Game Changer)
+2. **Function Calls** (High Priority - Game Changer)
    - Function call inlining/expansion in HIR
    - Standard library basics: `point()`, `distance()`
    - Makes language practically usable for CAD workflows
 
-4. **Reference Types** (Medium Priority)
+3. **Reference Types** (Medium Priority)
    - Entity vs. reference distinction
    - Reference type validation
    - Important for correct semantics
 
-5. **With Statements + Transforms** (Low Priority)
+4. **With Statements + Transforms** (Low Priority)
    - Coordinate transformations
    - Requires container structs
    - Complex feature, defer until core is stable
@@ -265,7 +264,7 @@ These features have parser and HIR support but **not yet in constraint solver**:
 When adding new features to the constraint solver:
 
 1. **Check Parser/HIR Support**: Many features already parsed, just need solver support
-2. **Follow Struct Flattening Pattern**: Arrays should work similarly to struct flattening
+2. **Follow Struct Flattening Pattern**: Arrays are now implemented using this pattern
 3. **Add Tests First**: Write integration tests before implementation
 4. **Update This File**: Keep implementation status current
 
@@ -275,6 +274,8 @@ When adding new features to the constraint solver:
 
 - Basic types: `i32`, `f64`, `bool`
 - Struct types (automatically flattened to primitive fields)
+- Array types (fixed-size, automatically flattened to indexed primitive fields)
+- Array indexing with constant integer indices (e.g., `arr[0]`, `points[1].x`)
 - Let statements with/without initializers
 - Arithmetic: `+`, `-`, `*`, `/`
 - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
@@ -288,9 +289,12 @@ When adding new features to the constraint solver:
 - No assignments inside if-statement branches
 - Only constraint expressions in if-statement branches
 - No nested if-statements
-- No arrays, for loops, functions, or with statements (yet)
+- Array indexing only supports constant integer indices (not variable indices)
+- No for loops, functions, or with statements (yet)
 
-### Example
+### Examples
+
+#### Struct Example
 
 **Input file (struct_example.cad):**
 ```
@@ -316,6 +320,37 @@ p.y = 5
 ```
 
 **How it works:** The struct variable `p` is automatically flattened into two primitive variables `p.x` and `p.y`. The Z3 solver finds values that satisfy both constraints.
+
+#### Array Example
+
+**Input file (array_example.cad):**
+```
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+let points: [Point; 2];
+points[0].x == 1;
+points[0].y == 2;
+points[1].x == 3;
+points[1].y == 4;
+```
+
+**Command:**
+```bash
+nix shell -c cargo run -- solve array_example.cad
+```
+
+**Output:**
+```
+points[0].x = 1
+points[0].y = 2
+points[1].x = 3
+points[1].y = 4
+```
+
+**How it works:** The array variable `points` is automatically flattened into four primitive variables: `points[0].x`, `points[0].y`, `points[1].x`, and `points[1].y`. The Z3 solver finds values that satisfy all constraints.
 
 ## Dependencies
 
