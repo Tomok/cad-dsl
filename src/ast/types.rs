@@ -23,6 +23,12 @@ pub enum Type {
     Reference { inner: Box<Type>, span: Span },
     /// User-defined type (e.g., Point, Circle)
     UserDefined { name: String, span: Span },
+    /// Fixed-size array type (e.g., [i32; 5], [Point; 3])
+    Array {
+        element_type: Box<Type>,
+        size: usize,
+        span: Span,
+    },
 }
 
 impl HasSpan for Type {
@@ -35,6 +41,7 @@ impl HasSpan for Type {
             Type::Algebraic { span } => *span,
             Type::Reference { span, .. } => *span,
             Type::UserDefined { span, .. } => *span,
+            Type::Array { span, .. } => *span,
         }
     }
 }

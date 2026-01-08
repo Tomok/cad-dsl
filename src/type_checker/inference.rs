@@ -291,13 +291,32 @@ pub fn infer_expr_type<'src, 'arena>(
         // ====================================================================
         // Index Expressions
         // ====================================================================
-        ResolvedExprKind::Index { array, .. } => {
-            // Arrays are not yet fully supported in the type system
-            ctx.add_error(TypeCheckError::CannotIndex {
-                array_type: type_name(array.ty),
-                span: expr.span,
-            });
-            None
+        ResolvedExprKind::Index { array, index } => {
+            // Check that array is actually an array type
+            match array.ty {
+                ResolvedType::Array { element_type, .. } => {
+                    // Check that index is i32
+                    let index_ty = index.ty;
+                    if !matches!(index_ty, ResolvedType::I32 { .. }) {
+                        ctx.add_error(TypeCheckError::TypeMismatch {
+                            expected: "i32".to_string(),
+                            found: type_name(index_ty),
+                            span: index.span,
+                        });
+                        return None;
+                    }
+                    // Return the element type
+                    Some(**element_type)
+                }
+                _ => {
+                    // Not an array type
+                    ctx.add_error(TypeCheckError::CannotIndex {
+                        array_type: type_name(array.ty),
+                        span: expr.span,
+                    });
+                    None
+                }
+            }
         }
 
         // ====================================================================
@@ -419,6 +438,9 @@ fn type_name(ty: &ResolvedType) -> String {
         ResolvedType::Algebraic { .. } => "algebraic".to_string(),
         ResolvedType::Reference { inner, .. } => format!("&{}", type_name(inner)),
         ResolvedType::UserDefined { name, .. } => name.to_string(),
+        ResolvedType::Array {
+            element_type, size, ..
+        } => format!("[{}; {}]", type_name(element_type), size),
     }
 }
 
@@ -440,6 +462,18 @@ fn types_equal(lhs: &ResolvedType, rhs: &ResolvedType) -> bool {
                 inner: rhs_inner, ..
             },
         ) => types_equal(lhs_inner, rhs_inner),
+        (
+            Array {
+                element_type: lhs_elem,
+                size: lhs_size,
+                ..
+            },
+            Array {
+                element_type: rhs_elem,
+                size: rhs_size,
+                ..
+            },
+        ) => lhs_size == rhs_size && types_equal(lhs_elem, rhs_elem),
         (
             UserDefined {
                 name: lhs_name,

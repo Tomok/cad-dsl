@@ -10,73 +10,122 @@ use chumsky::prelude::*;
 // Type Annotation Parser
 // ============================================================================
 
-/// Parse type annotations (bool, i32, f64, Real, Algebraic, &Type, UserType)
+/// Parse type annotations (bool, i32, f64, Real, Algebraic, [T; N], &Type, UserType)
 pub fn type_annotation<'src>()
 -> impl Parser<'src, &'src [Token<'src>], Type, ParseError<'src>> + Clone {
     use crate::lexer::Span;
 
-    let base_type = choice((
-        select! {
-            Token::BoolType(t) => Type::Bool {
-                span: Span { start: t.position, lines: 0, end_column: t.position.column + 4 }
+    recursive(|type_annotation| {
+        let base_type = choice((
+            select! {
+                Token::BoolType(t) => Type::Bool {
+                    span: Span { start: t.position, lines: 0, end_column: t.position.column + 4 }
+                },
             },
-        },
-        select! {
-            Token::I32Type(t) => Type::I32 {
-                span: Span { start: t.position, lines: 0, end_column: t.position.column + 3 }
+            select! {
+                Token::I32Type(t) => Type::I32 {
+                    span: Span { start: t.position, lines: 0, end_column: t.position.column + 3 }
+                },
             },
-        },
-        select! {
-            Token::F64Type(t) => Type::F64 {
-                span: Span { start: t.position, lines: 0, end_column: t.position.column + 3 }
+            select! {
+                Token::F64Type(t) => Type::F64 {
+                    span: Span { start: t.position, lines: 0, end_column: t.position.column + 3 }
+                },
             },
-        },
-        select! {
-            Token::RealType(t) => Type::Real {
-                span: Span { start: t.position, lines: 0, end_column: t.position.column + 4 }
+            select! {
+                Token::RealType(t) => Type::Real {
+                    span: Span { start: t.position, lines: 0, end_column: t.position.column + 4 }
+                },
             },
-        },
-        select! {
-            Token::AlgebraicType(t) => Type::Algebraic {
-                span: Span { start: t.position, lines: 0, end_column: t.position.column + 9 }
+            select! {
+                Token::AlgebraicType(t) => Type::Algebraic {
+                    span: Span { start: t.position, lines: 0, end_column: t.position.column + 9 }
+                },
             },
-        },
-        select! {
-            Token::Identifier(t) => Type::UserDefined {
-                name: t.name.to_string(),
-                span: t.span,
+            select! {
+                Token::Identifier(t) => Type::UserDefined {
+                    name: t.name.to_string(),
+                    span: t.span,
+                },
             },
-        },
-    ));
+        ));
 
-    // Reference type: &Type
-    // Only support single-level references (no &&Type)
-    let reference_type = select! {
-        Token::Ampersand(t) => t.position,
-    }
-    .then(base_type)
-    .map(|(amp_pos, inner_type)| {
-        let inner_span = inner_type.span();
-        let span = if amp_pos.line == inner_span.start.line {
-            Span {
-                start: amp_pos,
-                lines: 0,
-                end_column: inner_span.end_column,
-            }
-        } else {
-            Span {
-                start: amp_pos,
-                lines: inner_span.start.line - amp_pos.line + inner_span.lines,
-                end_column: inner_span.end_column,
-            }
-        };
-        Type::Reference {
-            inner: Box::new(inner_type),
-            span,
+        // Array type: [T; N]
+        // Supports nested arrays like [[i32; 2]; 3]
+        let array_type = select! {
+            Token::LeftBracket(t) => t.position,
         }
-    });
+        .then(type_annotation.clone())
+        .then_ignore(select! {
+            Token::SemiColon(_) => (),
+        })
+        .then(select! {
+            Token::IntLiteral(t) => (t.value, t.span),
+        })
+        .then(select! {
+            Token::RightBracket(t) => t.position,
+        })
+        .map(
+            |(((left_pos, element_type), (size_value, _size_span)), right_pos)| {
+                // Convert size to usize (negative sizes will wrap, but that's unlikely in practice)
+                // TODO: Add proper validation for negative array sizes
+                let size = size_value.max(0) as usize;
 
-    choice((reference_type, base_type)).labelled("type annotation")
+                // Calculate span from opening bracket to closing bracket
+                let type_span = if left_pos.line == right_pos.line {
+                    Span {
+                        start: left_pos,
+                        lines: 0,
+                        end_column: right_pos.column + 1,
+                    }
+                } else {
+                    Span {
+                        start: left_pos,
+                        lines: right_pos.line - left_pos.line,
+                        end_column: right_pos.column + 1,
+                    }
+                };
+
+                Type::Array {
+                    element_type: Box::new(element_type),
+                    size,
+                    span: type_span,
+                }
+            },
+        );
+
+        let non_ref_type = choice((array_type, base_type));
+
+        // Reference type: &Type
+        // Can reference any type including arrays (e.g., &[i32; 5])
+        let reference_type = select! {
+            Token::Ampersand(t) => t.position,
+        }
+        .then(non_ref_type.clone())
+        .map(|(amp_pos, inner_type)| {
+            let inner_span = inner_type.span();
+            let span = if amp_pos.line == inner_span.start.line {
+                Span {
+                    start: amp_pos,
+                    lines: 0,
+                    end_column: inner_span.end_column,
+                }
+            } else {
+                Span {
+                    start: amp_pos,
+                    lines: inner_span.start.line - amp_pos.line + inner_span.lines,
+                    end_column: inner_span.end_column,
+                }
+            };
+            Type::Reference {
+                inner: Box::new(inner_type),
+                span,
+            }
+        });
+
+        choice((reference_type, non_ref_type))
+    })
+    .labelled("type annotation")
 }
 
 // ============================================================================
