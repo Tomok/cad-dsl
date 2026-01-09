@@ -155,9 +155,21 @@ struct InlinerContext<'src, 'arena> {
     /// Stores function names currently being inlined
     call_stack: Vec<&'src str>,
 
-    /// Map of function name to function information
+    /// Map of qualified function name to function information
     /// Built during the first pass over statements
-    function_map: HashMap<&'src str, FunctionInfo<'src, 'arena>>,
+    /// Methods use "StructName::method_name" as keys to avoid collisions
+    function_map: HashMap<String, FunctionInfo<'src, 'arena>>,
+}
+
+/// Get a qualified name for a function or method
+/// For methods, returns "StructName::method_name"
+/// For functions, returns just the function name
+fn get_qualified_name<'src, 'arena>(func_def: &FunctionDefinition<'src, 'arena>) -> String {
+    if let Some(parent_struct) = func_def.parent_struct {
+        format!("{}::{}", parent_struct.name, func_def.name)
+    } else {
+        func_def.name.to_string()
+    }
 }
 
 impl<'src, 'arena> InlinerContext<'src, 'arena> {
@@ -219,8 +231,10 @@ impl<'src, 'arena> InlinerContext<'src, 'arena> {
             extract_return_from_body(func_def.name, body, span)?
         };
 
+        // Use qualified name for methods to avoid collisions
+        let key = get_qualified_name(func_def);
         self.function_map.insert(
-            func_def.name,
+            key,
             FunctionInfo {
                 definition: func_def,
                 return_expr: ret_expr,
@@ -233,6 +247,16 @@ impl<'src, 'arena> InlinerContext<'src, 'arena> {
     /// Get function information by name
     fn get_function(&self, name: &str) -> Option<&FunctionInfo<'src, 'arena>> {
         self.function_map.get(name)
+    }
+
+    /// Get function information by function definition
+    /// This is used for method calls where we have the resolved method definition
+    fn get_function_by_def(
+        &self,
+        func_def: &FunctionDefinition<'src, 'arena>,
+    ) -> Option<&FunctionInfo<'src, 'arena>> {
+        let key = get_qualified_name(func_def);
+        self.function_map.get(&key)
     }
 }
 
@@ -551,9 +575,10 @@ fn inline_expression<'src, 'arena>(
                 .map(|arg| inline_expression(arg, context))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            // Get the method information from the function map
-            // Methods are stored in the function map like regular functions
-            let func_info = context.get_function(method_name).ok_or_else(|| {
+            // Get the method information from the function map using the resolved definition
+            // This ensures we get the correct method even if multiple structs have methods
+            // with the same name
+            let func_info = context.get_function_by_def(method).ok_or_else(|| {
                 FunctionInlinerError::NoReturnStatement {
                     function_name: method_name.to_string(),
                     span: expr.span,
