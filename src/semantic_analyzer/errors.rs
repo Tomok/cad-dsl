@@ -54,6 +54,21 @@ pub enum SemanticError {
 
     /// Invalid use of dot prefix in this context
     InvalidDotPrefix { span: Span },
+
+    /// Multiple transform methods with the same return type
+    AmbiguousTransformer {
+        struct_name: String,
+        return_type: String,
+        first_span: Span,
+        second_span: Span,
+    },
+
+    /// Transform method has invalid first parameter (must be reference)
+    InvalidTransformParameter {
+        struct_name: String,
+        method_name: String,
+        span: Span,
+    },
 }
 
 impl fmt::Display for SemanticError {
@@ -157,6 +172,36 @@ impl fmt::Display for SemanticError {
                     f,
                     "Invalid dot prefix usage at line {}, column {}",
                     span.start.line, span.start.column
+                )
+            }
+            SemanticError::AmbiguousTransformer {
+                struct_name,
+                return_type,
+                first_span,
+                second_span,
+            } => {
+                write!(
+                    f,
+                    "Struct '{}' has multiple __transform__ methods with return type '{}': \
+                     first at line {}, column {}, second at line {}, column {}",
+                    struct_name,
+                    return_type,
+                    first_span.start.line,
+                    first_span.start.column,
+                    second_span.start.line,
+                    second_span.start.column
+                )
+            }
+            SemanticError::InvalidTransformParameter {
+                struct_name,
+                method_name,
+                span,
+            } => {
+                write!(
+                    f,
+                    "Transform method '{}' on struct '{}' must have a reference type as its first parameter \
+                     at line {}, column {}",
+                    method_name, struct_name, span.start.line, span.start.column
                 )
             }
         }

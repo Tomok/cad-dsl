@@ -232,7 +232,7 @@ pub fn types_compatible<'src, 'arena>(
 }
 
 /// Get a human-readable name for a type
-fn type_name(ty: &ResolvedType) -> String {
+pub fn type_name(ty: &ResolvedType) -> String {
     match ty {
         ResolvedType::Bool { .. } => "bool".to_string(),
         ResolvedType::I32 { .. } => "i32".to_string(),

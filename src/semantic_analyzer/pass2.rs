@@ -41,13 +41,15 @@
 use super::context::AnalyzerContext;
 use super::errors::SemanticError;
 use crate::ast::{Expr, Stmt, StructLitField as AstStructLitField};
-use crate::hir::context::WithContext;
-use crate::hir::definitions::{ScopeLevel, VarDefinition};
+use crate::hir::context::{TransformMethod, WithContext};
+use crate::hir::definitions::{ScopeLevel, StructDefinition, VarDefinition};
 use crate::hir::expr::{
     ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind, ResolvedStructLitField,
 };
 use crate::hir::types::ResolvedType;
 use crate::lexer::Span;
+use crate::type_checker::validation::type_name;
+use std::collections::HashMap;
 
 // ============================================================================
 // Main Resolution Functions
@@ -673,19 +675,16 @@ fn resolve_with_statement<'src, 'arena>(
                     container_field,
                 ))
             } else {
-                // Create a transform context
-                ctx.arena.alloc(WithContext::new_transform(
-                    resolved_context,
-                    vec![], // No transforms for now
-                ))
+                // Create a transform context with collected transform methods
+                let transforms = collect_transform_methods(ctx, definition);
+                ctx.arena
+                    .alloc(WithContext::new_transform(resolved_context, transforms))
             }
         }
         _ => {
-            // For non-struct types, create a transform context
-            ctx.arena.alloc(WithContext::new_transform(
-                resolved_context,
-                vec![], // No transforms for now
-            ))
+            // For non-struct types, create a transform context with no transforms
+            ctx.arena
+                .alloc(WithContext::new_transform(resolved_context, vec![]))
         }
     };
 
@@ -709,6 +708,90 @@ fn resolve_with_statement<'src, 'arena>(
     ));
 
     Some(stmt)
+}
+
+/// Collect transform methods from a struct definition.
+///
+/// This function filters methods where the name is "__transform__" and validates
+/// them for use as transform methods in transform with-contexts. It ensures:
+///
+/// - The first parameter must be a reference type (input type)
+/// - No two transform methods have the same return type (output type)
+///
+/// # Parameters
+///
+/// - `ctx`: The analyzer context (for error reporting)
+/// - `definition`: The struct definition to collect transform methods from
+///
+/// # Returns
+///
+/// A vector of valid `TransformMethod` objects. If errors are found, they are
+/// added to the context and the problematic methods are excluded.
+fn collect_transform_methods<'src, 'arena>(
+    ctx: &mut AnalyzerContext<'src, 'arena>,
+    definition: &'arena StructDefinition<'src, 'arena>,
+) -> Vec<TransformMethod<'src, 'arena>> {
+    let mut transforms = Vec::new();
+    let mut seen_return_types: HashMap<String, Span> = HashMap::new();
+
+    for method in &definition.methods {
+        // Only consider methods named "__transform__"
+        if method.name != "__transform__" {
+            continue;
+        }
+
+        // Validate: First parameter must be a reference type
+        if method.params.is_empty() {
+            ctx.errors.push(SemanticError::InvalidTransformParameter {
+                struct_name: definition.name.to_string(),
+                method_name: method.name.to_string(),
+                span: method.name_span,
+            });
+            continue;
+        }
+
+        let first_param_type = &method.params[0].param_type;
+
+        // Check if first parameter is a reference type
+        let input_type = match first_param_type {
+            ResolvedType::Reference { inner, .. } => *inner,
+            _ => {
+                ctx.errors.push(SemanticError::InvalidTransformParameter {
+                    struct_name: definition.name.to_string(),
+                    method_name: method.name.to_string(),
+                    span: method.params[0].name_span,
+                });
+                continue;
+            }
+        };
+
+        // Get output type (return type)
+        let output_type = &method.return_type;
+        let output_type_name = type_name(output_type);
+
+        // Check for duplicate return types
+        if let Some(first_span) = seen_return_types.get(&output_type_name) {
+            ctx.errors.push(SemanticError::AmbiguousTransformer {
+                struct_name: definition.name.to_string(),
+                return_type: output_type_name.clone(),
+                first_span: *first_span,
+                second_span: method.name_span,
+            });
+            continue;
+        }
+
+        // Record this return type
+        seen_return_types.insert(output_type_name, method.name_span);
+
+        // Create and add the transform method
+        transforms.push(TransformMethod {
+            function: method,
+            input_type,
+            output_type,
+        });
+    }
+
+    transforms
 }
 
 /// Resolve a for statement
@@ -3438,5 +3521,437 @@ mod tests {
 
         let resolved = resolved.unwrap();
         assert_matches!(resolved, ResolvedType::UserDefined { .. });
+    }
+
+    // ============================================================================
+    // Transform Method Collection Tests
+    // ============================================================================
+
+    #[test]
+    fn test_collect_transform_methods_single_valid() {
+        use crate::hir::definitions::{FunctionDefinition, FunctionParam, StructDefinition};
+
+        let arena = Bump::new();
+        let source = "struct Transform { fn __transform__(coord: &Point) -> ScreenPoint {} }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Create Point and ScreenPoint types
+        let point_def = arena.alloc(StructDefinition::new(
+            "Point",
+            make_span(1, 1),
+            vec![],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        let screen_point_def = arena.alloc(StructDefinition::new(
+            "ScreenPoint",
+            make_span(1, 1),
+            vec![],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        ctx.register_struct("Point", point_def).unwrap();
+        ctx.register_struct("ScreenPoint", screen_point_def)
+            .unwrap();
+
+        // Create reference type for input
+        let point_type = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: point_def,
+            span: make_span(1, 1),
+        });
+        let ref_point_type = arena.alloc(ResolvedType::Reference {
+            inner: point_type,
+            span: make_span(1, 1),
+        });
+
+        // Create output type
+        let screen_point_type = arena.alloc(ResolvedType::UserDefined {
+            name: "ScreenPoint",
+            definition: screen_point_def,
+            span: make_span(1, 1),
+        });
+
+        // Create transform method
+        let param = FunctionParam::new("coord", make_span(1, 1), *ref_point_type, make_span(1, 1));
+
+        let transform_fn = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(1, 1),
+            vec![param],
+            *screen_point_type,
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Create struct with the transform method
+        let transform_struct = arena.alloc(StructDefinition::new(
+            "Transform",
+            make_span(1, 1),
+            vec![],
+            vec![transform_fn],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Collect transform methods
+        let transforms = collect_transform_methods(&mut ctx, transform_struct);
+
+        // Verify
+        assert!(!ctx.has_errors());
+        assert_eq!(transforms.len(), 1);
+        assert_eq!(transforms[0].function.name, "__transform__");
+        assert_matches!(
+            transforms[0].input_type,
+            ResolvedType::UserDefined { name: "Point", .. }
+        );
+        assert_matches!(
+            transforms[0].output_type,
+            ResolvedType::UserDefined {
+                name: "ScreenPoint",
+                ..
+            }
+        );
+    }
+
+    #[test]
+    fn test_collect_transform_methods_multiple_different_return_types() {
+        use crate::hir::definitions::{FunctionDefinition, FunctionParam, StructDefinition};
+
+        let arena = Bump::new();
+        let source = "struct Transform { ... }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Create types
+        let point_def = arena.alloc(StructDefinition::new(
+            "Point",
+            make_span(1, 1),
+            vec![],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        let screen_point_def = arena.alloc(StructDefinition::new(
+            "ScreenPoint",
+            make_span(1, 1),
+            vec![],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        let world_point_def = arena.alloc(StructDefinition::new(
+            "WorldPoint",
+            make_span(1, 1),
+            vec![],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        ctx.register_struct("Point", point_def).unwrap();
+        ctx.register_struct("ScreenPoint", screen_point_def)
+            .unwrap();
+        ctx.register_struct("WorldPoint", world_point_def).unwrap();
+
+        // Create reference type for input
+        let point_type = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: point_def,
+            span: make_span(1, 1),
+        });
+        let ref_point_type = arena.alloc(ResolvedType::Reference {
+            inner: point_type,
+            span: make_span(1, 1),
+        });
+
+        // Create output types
+        let screen_point_type = arena.alloc(ResolvedType::UserDefined {
+            name: "ScreenPoint",
+            definition: screen_point_def,
+            span: make_span(1, 1),
+        });
+        let world_point_type = arena.alloc(ResolvedType::UserDefined {
+            name: "WorldPoint",
+            definition: world_point_def,
+            span: make_span(1, 1),
+        });
+
+        // Create first transform method
+        let param1 = FunctionParam::new("coord", make_span(1, 1), *ref_point_type, make_span(1, 1));
+
+        let transform_fn1 = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(1, 1),
+            vec![param1],
+            *screen_point_type,
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Create second transform method
+        let param2 = FunctionParam::new("coord", make_span(2, 1), *ref_point_type, make_span(2, 1));
+
+        let transform_fn2 = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(2, 1),
+            vec![param2],
+            *world_point_type,
+            vec![],
+            None,
+            make_span(2, 1),
+        ));
+
+        // Create struct with both transform methods
+        let transform_struct = arena.alloc(StructDefinition::new(
+            "Transform",
+            make_span(1, 1),
+            vec![],
+            vec![transform_fn1, transform_fn2],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Collect transform methods
+        let transforms = collect_transform_methods(&mut ctx, transform_struct);
+
+        // Verify
+        assert!(!ctx.has_errors());
+        assert_eq!(transforms.len(), 2);
+    }
+
+    #[test]
+    fn test_collect_transform_methods_ambiguous_duplicate_return_type() {
+        use crate::hir::definitions::{FunctionDefinition, FunctionParam, StructDefinition};
+
+        let arena = Bump::new();
+        let source = "struct Transform { ... }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Create types
+        let point_def = arena.alloc(StructDefinition::new(
+            "Point",
+            make_span(1, 1),
+            vec![],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        let screen_point_def = arena.alloc(StructDefinition::new(
+            "ScreenPoint",
+            make_span(1, 1),
+            vec![],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        ctx.register_struct("Point", point_def).unwrap();
+        ctx.register_struct("ScreenPoint", screen_point_def)
+            .unwrap();
+
+        // Create reference type for input
+        let point_type = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: point_def,
+            span: make_span(1, 1),
+        });
+        let ref_point_type = arena.alloc(ResolvedType::Reference {
+            inner: point_type,
+            span: make_span(1, 1),
+        });
+
+        // Create output type (same for both)
+        let screen_point_type = arena.alloc(ResolvedType::UserDefined {
+            name: "ScreenPoint",
+            definition: screen_point_def,
+            span: make_span(1, 1),
+        });
+
+        // Create first transform method
+        let param1 = FunctionParam::new("coord", make_span(1, 1), *ref_point_type, make_span(1, 1));
+
+        let transform_fn1 = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(1, 1),
+            vec![param1],
+            *screen_point_type,
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Create second transform method with SAME return type
+        let param2 = FunctionParam::new("coord", make_span(2, 1), *ref_point_type, make_span(2, 1));
+
+        let transform_fn2 = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(2, 1),
+            vec![param2],
+            *screen_point_type, // DUPLICATE!
+            vec![],
+            None,
+            make_span(2, 1),
+        ));
+
+        // Create struct with both transform methods
+        let transform_struct = arena.alloc(StructDefinition::new(
+            "Transform",
+            make_span(1, 1),
+            vec![],
+            vec![transform_fn1, transform_fn2],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Collect transform methods
+        let transforms = collect_transform_methods(&mut ctx, transform_struct);
+
+        // Verify error was reported
+        assert!(ctx.has_errors());
+        assert_eq!(ctx.errors.len(), 1);
+        assert_matches!(
+            ctx.errors[0],
+            SemanticError::AmbiguousTransformer {
+                struct_name: _,
+                return_type: _,
+                first_span: _,
+                second_span: _
+            }
+        );
+
+        // Only the first transform should be collected
+        assert_eq!(transforms.len(), 1);
+    }
+
+    #[test]
+    fn test_collect_transform_methods_invalid_parameter_non_reference() {
+        use crate::hir::definitions::{FunctionDefinition, FunctionParam, StructDefinition};
+
+        let arena = Bump::new();
+        let source = "struct Transform { ... }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Create types
+        let point_def = arena.alloc(StructDefinition::new(
+            "Point",
+            make_span(1, 1),
+            vec![],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        let screen_point_def = arena.alloc(StructDefinition::new(
+            "ScreenPoint",
+            make_span(1, 1),
+            vec![],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        ctx.register_struct("Point", point_def).unwrap();
+        ctx.register_struct("ScreenPoint", screen_point_def)
+            .unwrap();
+
+        // Create NON-reference type for input (invalid!)
+        let point_type = arena.alloc(ResolvedType::UserDefined {
+            name: "Point",
+            definition: point_def,
+            span: make_span(1, 1),
+        });
+
+        // Create output type
+        let screen_point_type = arena.alloc(ResolvedType::UserDefined {
+            name: "ScreenPoint",
+            definition: screen_point_def,
+            span: make_span(1, 1),
+        });
+
+        // Create transform method with non-reference parameter
+        let param = FunctionParam::new(
+            "coord",
+            make_span(1, 1),
+            *point_type, // NOT a reference!
+            make_span(1, 1),
+        );
+
+        let transform_fn = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(1, 1),
+            vec![param],
+            *screen_point_type,
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Create struct with the invalid transform method
+        let transform_struct = arena.alloc(StructDefinition::new(
+            "Transform",
+            make_span(1, 1),
+            vec![],
+            vec![transform_fn],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Collect transform methods
+        let transforms = collect_transform_methods(&mut ctx, transform_struct);
+
+        // Verify error was reported
+        assert!(ctx.has_errors());
+        assert_eq!(ctx.errors.len(), 1);
+        assert_matches!(
+            ctx.errors[0],
+            SemanticError::InvalidTransformParameter {
+                struct_name: _,
+                method_name: _,
+                span: _
+            }
+        );
+
+        // No transforms should be collected
+        assert_eq!(transforms.len(), 0);
+    }
+
+    #[test]
+    fn test_collect_transform_methods_no_transform_methods() {
+        use crate::hir::definitions::{FunctionDefinition, StructDefinition};
+
+        let arena = Bump::new();
+        let source = "struct Transform { fn other_method() {} }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Create a regular method (not __transform__)
+        let i32_type = arena.alloc(ResolvedType::I32 {
+            span: make_span(1, 1),
+        });
+        let regular_fn = arena.alloc(FunctionDefinition::new(
+            "other_method",
+            make_span(1, 1),
+            vec![],
+            *i32_type,
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Create struct with a regular method
+        let transform_struct = arena.alloc(StructDefinition::new(
+            "Transform",
+            make_span(1, 1),
+            vec![],
+            vec![regular_fn],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Collect transform methods
+        let transforms = collect_transform_methods(&mut ctx, transform_struct);
+
+        // Verify
+        assert!(!ctx.has_errors());
+        assert_eq!(transforms.len(), 0);
     }
 }
