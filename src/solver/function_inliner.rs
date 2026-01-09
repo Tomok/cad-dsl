@@ -266,11 +266,21 @@ pub fn inline_functions<'src, 'arena>(
         collect_functions(stmt, &mut context)?;
     }
 
-    // Pass 2: Inline function calls
+    // Pass 2: Inline function calls and filter out definitions
     let mut result = Vec::new();
     for stmt in statements {
         let inlined_stmt = inline_statement(stmt, &mut context)?;
-        result.push(inlined_stmt);
+
+        // Filter out function and struct definitions - they're not executable statements
+        // and have already been processed during collection phase
+        match &inlined_stmt.kind {
+            ResolvedStmtKind::FunctionDef { .. } | ResolvedStmtKind::StructDef { .. } => {
+                // Skip definitions - they don't contribute to constraints
+            }
+            _ => {
+                result.push(inlined_stmt);
+            }
+        }
     }
 
     Ok(result)
