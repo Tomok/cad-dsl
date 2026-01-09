@@ -1,0 +1,6 @@
+fn square(x: i32) -> i32 {
+    return x * x;
+}
+
+let a: i32;
+square(a) == 16;

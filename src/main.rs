@@ -291,7 +291,7 @@ fn main() {
             }
 
             // Step 5: Constraint Solving
-            match solver::solve(&hir[..]) {
+            match solver::solve(&hir[..], &arena) {
                 Ok(solution) => {
                     print!("{}", solution);
                 }

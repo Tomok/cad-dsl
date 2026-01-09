@@ -393,3 +393,44 @@ fn test_struct_unsat() {
         combined
     );
 }
+
+// ============================================================================
+// Function Call Tests
+// ============================================================================
+//
+// NOTE: These tests are currently ignored because function call support
+// is not yet fully implemented in the constraint solver. The function inliner
+// exists, but the constraint extractor needs to be updated to handle
+// function definitions. See CLAUDE.md "Next Implementation Steps" for details.
+//
+// To enable these tests, remove the #[ignore] attribute once function call
+// support is complete in the solver pipeline.
+
+#[test]
+#[ignore = "Function calls not yet implemented in constraint solver"]
+fn test_function_call_simple() {
+    let (success, stdout, stderr) = solve_fixture("function_call_simple.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "result", "10");
+    verify_solution(&stdout, "x", "7");
+}
+
+#[test]
+#[ignore = "Function calls not yet implemented in constraint solver"]
+fn test_function_call_nested() {
+    let (success, stdout, stderr) = solve_fixture("function_call_nested.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "z", "15");
+    verify_solution(&stdout, "y", "5");
+}
+
+#[test]
+#[ignore = "Function calls not yet implemented in constraint solver"]
+fn test_function_call_in_constraint() {
+    let (success, stdout, stderr) = solve_fixture("function_call_in_constraint.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    // square(a) == 16 means a = 4 or a = -4
+    // Z3 will pick one solution - we just verify it satisfies the constraint
+    let a = extract_value(&stdout, "a");
+    assert_eq!(a * a, 16, "Solution should satisfy square(a) = 16");
+}
