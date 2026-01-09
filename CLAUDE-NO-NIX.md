@@ -1,57 +1,40 @@
 # Running CAD-DSL Without Nix
 
-Quick reference for environments where Nix is not available.
+**NOTE:** Environment setup is now automated. Simply run:
 
-## Install System Dependencies
+```bash
+./.claude_env.sh
+```
+
+This script automatically handles:
+- Detection of Nix (exits if already available)
+- Proxy configuration for apt-get
+- Installation of system dependencies (mold, z3, libz3-dev)
+- Creation of transparent command wrappers
+
+After running the setup script, all `nix shell -c` commands in CLAUDE.md work identically whether Nix is installed or not.
+
+## Manual Setup (Not Recommended)
+
+If you need to set up the environment manually without the automated script:
+
+### Install System Dependencies
 
 ```bash
 sudo apt-get update && sudo apt-get install -y mold z3 libz3-dev
 ```
 
-## Commands
+### Commands
 
-Use standard Cargo commands directly (no `nix shell -c` wrapper):
+All commands in CLAUDE.md use `nix shell -c` prefix. Without the automated wrapper, use standard Cargo commands directly:
 
 ```bash
-# Build
+# Instead of: nix shell -c cargo build
 cargo build
 
-# Test
+# Instead of: nix shell -c cargo test
 cargo test
 
-# Format
+# Instead of: nix shell -c cargo fmt
 cargo fmt
-
-# Lint (no warnings)
-cargo clippy -- -D warnings
-
-# Run CLI
-cargo run -- lex <file.cad>
-cargo run -- parse <file.cad>
-cargo run -- solve <file.cad>
-```
-
-## Troubleshooting
-
-### Proxy Configuration for apt-get
-
-If `apt-get` fails with "Temporary failure resolving" errors but `curl` works, the issue is likely that `curl` uses proxy environment variables (`http_proxy`, `https_proxy`) but `apt-get` doesn't automatically. Configure apt to use the proxy:
-
-```bash
-# Configure apt to use the same proxy as curl
-sudo tee /etc/apt/apt.conf.d/95proxy > /dev/null <<EOF
-Acquire::http::Proxy "$http_proxy";
-Acquire::https::Proxy "$https_proxy";
-EOF
-
-# Now apt-get should work normally
-sudo apt-get update
-sudo apt-get install -y mold z3 libz3-dev
-```
-
-### Z3 Missing
-
-If Z3 is missing and `apt-get` works normally:
-```bash
-sudo apt-get update && sudo apt-get install --reinstall -y z3 libz3-dev
 ```
