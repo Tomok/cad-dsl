@@ -407,7 +407,6 @@ fn test_struct_unsat() {
 // support is complete in the solver pipeline.
 
 #[test]
-#[ignore = "Function calls not yet implemented in constraint solver"]
 fn test_function_call_simple() {
     let (success, stdout, stderr) = solve_fixture("function_call_simple.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);
@@ -416,7 +415,6 @@ fn test_function_call_simple() {
 }
 
 #[test]
-#[ignore = "Function calls not yet implemented in constraint solver"]
 fn test_function_call_nested() {
     let (success, stdout, stderr) = solve_fixture("function_call_nested.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);
@@ -425,7 +423,6 @@ fn test_function_call_nested() {
 }
 
 #[test]
-#[ignore = "Function calls not yet implemented in constraint solver"]
 fn test_function_call_in_constraint() {
     let (success, stdout, stderr) = solve_fixture("function_call_in_constraint.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);
@@ -448,7 +445,6 @@ fn test_function_call_in_constraint() {
 // support is complete in the solver pipeline.
 
 #[test]
-#[ignore = "Method calls not yet fully implemented in constraint solver"]
 fn test_method_call_simple() {
     let (success, stdout, stderr) = solve_fixture("method_call_simple.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);
@@ -457,7 +453,6 @@ fn test_method_call_simple() {
 }
 
 #[test]
-#[ignore = "Method calls not yet fully implemented in constraint solver"]
 fn test_method_call_with_args() {
     let (success, stdout, stderr) = solve_fixture("method_call_with_args.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);
@@ -467,7 +462,6 @@ fn test_method_call_with_args() {
 }
 
 #[test]
-#[ignore = "Method calls not yet fully implemented in constraint solver"]
 fn test_method_call_in_constraint() {
     let (success, stdout, stderr) = solve_fixture("method_call_in_constraint.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);

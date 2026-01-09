@@ -230,7 +230,7 @@ fn collect_struct_def<'src, 'arena>(
     name_span: Span,
     container: Option<&(String, Span)>,
     fields: &[AstStructField],
-    _methods: &[Stmt<'src>], // Methods not processed in pass 1
+    methods: &[Stmt<'src>],
     span: Span,
 ) {
     // Resolve field types and create field definitions
@@ -263,12 +263,70 @@ fn collect_struct_def<'src, 'arena>(
             cf
         });
 
-    // Create complete struct definition
+    // Create a placeholder struct definition first (needed for parent_struct reference in methods)
+    let placeholder_struct_def = ctx.arena.alloc(StructDefinition::new(
+        name,
+        name_span,
+        resolved_fields.clone(),
+        vec![],
+        container_field,
+        span,
+    ));
+
+    // Process methods and create method definitions
+    let mut resolved_methods: Vec<&'arena FunctionDefinition<'src, 'arena>> = Vec::new();
+
+    for method_stmt in methods {
+        if let Stmt::FunctionDef {
+            name: method_name,
+            name_span: method_name_span,
+            params,
+            return_type,
+            body: _body,
+            return_expr: _return_expr,
+            span: method_span,
+        } = method_stmt
+        {
+            // Resolve parameter types
+            let mut resolved_params = Vec::new();
+            for param in params {
+                if let Some(param_type) = resolve_type(ctx, &param.type_annotation) {
+                    let param_name = extract_name(ctx.source, &param.name);
+                    let param_def =
+                        FunctionParam::new(param_name, param.name_span, param_type, param.span);
+                    resolved_params.push(param_def);
+                }
+            }
+
+            // Resolve return type
+            let method_name_src = extract_name(ctx.source, method_name);
+            let resolved_return_type =
+                resolve_type(ctx, return_type).unwrap_or(ResolvedType::I32 { span: *method_span });
+
+            // Create method definition with parent_struct reference
+            let method_def = ctx.arena.alloc(FunctionDefinition::new(
+                method_name_src,
+                *method_name_span,
+                resolved_params,
+                resolved_return_type,
+                vec![], // Body not processed in pass 1
+                Some(placeholder_struct_def),
+                *method_span,
+            ));
+
+            resolved_methods.push(method_def);
+
+            // Also register the method as a function so it can be found during inlining
+            let _ = ctx.function_definitions.insert(method_name_src, method_def);
+        }
+    }
+
+    // Create complete struct definition with methods
     let struct_def = ctx.arena.alloc(StructDefinition::new(
         name,
         name_span,
         resolved_fields,
-        vec![], // Methods not processed in pass 1
+        resolved_methods,
         container_field,
         span,
     ));

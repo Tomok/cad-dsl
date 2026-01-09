@@ -588,8 +588,30 @@ fn resolve_function_body<'src, 'arena>(
     // Push a new scope for the function body
     ctx.scope_stack.push_scope();
 
-    // Add function parameters to the scope
     let scope_level = ctx.scope_stack.current_scope_level();
+
+    // If this is a method (has parent_struct), add implicit 'self' parameter
+    if let Some(parent_struct) = func_def.parent_struct {
+        let self_type = ResolvedType::UserDefined {
+            name: parent_struct.name,
+            definition: parent_struct,
+            span: name_span,
+        };
+
+        let self_var = ctx.arena.alloc(VarDefinition::new(
+            "self",
+            name_span,
+            Some(self_type),
+            None, // self doesn't have an initializer
+            scope_level,
+            name_span,
+        ));
+
+        // Declare 'self' as a variable in the method scope
+        ctx.scope_stack.declare_variable("self", self_var);
+    }
+
+    // Add function parameters to the scope
     for param in params {
         let param_name = extract_name(ctx.source, &param.name);
         let param_type = resolve_type(ctx, &param.type_annotation);

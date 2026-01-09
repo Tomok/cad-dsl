@@ -318,6 +318,13 @@ fn collect_functions<'src, 'arena>(
             }
         }
 
+        // Collect methods from struct definitions
+        ResolvedStmtKind::StructDef { methods, .. } => {
+            for method_stmt in methods {
+                collect_functions(method_stmt, context)?;
+            }
+        }
+
         // Other statement types don't contain function definitions
         _ => {}
     }
