@@ -10,19 +10,9 @@ CAD-DSL is a constraint-based domain-specific language for 2D geometric design. 
 
 ## Development Environment
 
-**FIRST TIME SETUP:** Run `./.claude_env.sh` to configure the environment. This script:
-- Detects if Nix is available and exits if already configured
-- Configures proxy settings for apt-get if needed
-- Installs required system dependencies (Z3, mold, etc.)
-- Creates transparent command wrappers so all `nix shell -c` commands work identically with or without Nix
+**FIRST TIME SETUP:** Run `./.claude_env.sh` to configure the environment.
 
-After running the setup script, all commands in this document work the same way regardless of whether Nix is installed.
-
-**Environment provides:**
-- Rust toolchain with rust-analyzer and LLVM tools
-- Z3 constraint solver (system dependency)
-- Code coverage tools (cargo-llvm-cov)
-- mold linker (Linux only, for fast memory-efficient builds)
+After running the setup script, all commands work identically with or without Nix installed.
 
 ## Common Commands
 
