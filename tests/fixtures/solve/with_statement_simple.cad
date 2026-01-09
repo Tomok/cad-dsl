@@ -1,0 +1,19 @@
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Sketch {
+    container entities,
+}
+
+let sketch: Sketch;
+
+with sketch {
+    let .p1: Point;
+    let .p2: Point;
+    .p1.x == 10;
+    .p1.y == 20;
+    .p2.x == 30;
+    .p2.y == 40;
+}

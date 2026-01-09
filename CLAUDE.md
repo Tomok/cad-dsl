@@ -256,6 +256,7 @@ The project has comprehensive test suites for each component. All major componen
   - If-statements with conditional constraints (Z3 ITE)
   - Nested structs with qualified names
   - Recursive struct detection
+  - **Container with-statements** (dot-prefix syntax for namespacing)
 
 ### 🚧 Partially Implemented (Parser/HIR Only)
 
@@ -263,14 +264,13 @@ These features have parser and HIR support but **not yet in constraint solver**:
 
 - **For Loops**: Parsed and in HIR, needs loop unrolling in constraint extractor
 - **Functions**: Definitions parsed and in HIR, function calls need solver support
-- **With Statements**: Parsed and in HIR, transform semantics not in solver
+- **Transform With-Statements**: Parsed and in HIR, transform semantics not in solver (container contexts fully supported)
 
 ### ❌ Not Yet Implemented
 
 - **Standard Library**: `point()`, `distance()`, math functions
 - **Reference Types**: Full entity vs. reference semantics
-- **Container Structs**: Dynamic entity namespacing
-- **Transform Pattern**: `__transform__` methods
+- **Transform Pattern**: `__transform__` methods (for coordinate transformations)
 - **Functional Operations**: `map`, `reduce`
 
 ### 🔮 Future Features (Low Priority)
@@ -328,6 +328,7 @@ When adding new features to the constraint solver:
 - If-statements with conditional constraints
 - Nested structs with qualified names (e.g., `line.start.x`)
 - Struct literal type inference
+- **Container with-statements** (dot-prefix syntax for container field namespacing)
 
 ### Limitations
 
@@ -336,7 +337,8 @@ When adding new features to the constraint solver:
 - Only constraint expressions in if-statement branches
 - No nested if-statements
 - Array indexing only supports constant integer indices (not variable indices)
-- No for loops, functions, or with statements (yet)
+- No for loops or function calls (yet)
+- Transform with-statements not supported (only container contexts)
 
 ### Examples
 
@@ -397,6 +399,46 @@ points[1].y = 4
 ```
 
 **How it works:** The array variable `points` is automatically flattened into four primitive variables: `points[0].x`, `points[0].y`, `points[1].x`, and `points[1].y`. The Z3 solver finds values that satisfy all constraints.
+
+#### Container With-Statement Example
+
+**Input file (with_statement_example.cad):**
+```
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Sketch {
+    container entities,
+}
+
+let sketch: Sketch;
+
+with sketch {
+    let .p1: Point;
+    let .p2: Point;
+    .p1.x == 0;
+    .p1.y == 0;
+    .p2.x == .p1.x + 10;
+    .p2.y == .p1.y + 10;
+}
+```
+
+**Command:**
+```bash
+cargo run -- solve with_statement_example.cad
+```
+
+**Output:**
+```
+sketch.entities.p1.x = 0
+sketch.entities.p1.y = 0
+sketch.entities.p2.x = 10
+sketch.entities.p2.y = 10
+```
+
+**How it works:** The `with sketch { ... }` block creates a container context. Inside the block, the dot-prefix syntax (`.p1`, `.p2`) creates variables in the container's namespace (`sketch.entities.p1`, `sketch.entities.p2`). These variables are automatically flattened and solved like regular struct variables.
 
 ## Dependencies
 

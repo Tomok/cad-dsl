@@ -1,0 +1,32 @@
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Sketch {
+    container entities,
+}
+
+let sketch: Sketch;
+
+with sketch {
+    // Primitive types with dot-prefix should be in container namespace
+    let .count: i32;
+    let .scale: f64;
+    let .visible: bool;
+
+    // Struct type for comparison
+    let .origin: Point;
+
+    // Constraints on primitives
+    .count == 42;
+    .scale == 2.5;
+    .visible == true;
+
+    // Constraints on struct
+    .origin.x == 0;
+    .origin.y == 0;
+
+    // Cross-type constraints
+    .origin.x == .count - 42;
+}

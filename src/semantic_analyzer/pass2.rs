@@ -662,12 +662,32 @@ fn resolve_with_statement<'src, 'arena>(
     // Resolve the context expression
     let resolved_context = resolve_expression(ctx, context_expr)?;
 
-    // Create a with-context
-    // For now, we create a simple transform context
-    let with_ctx = ctx.arena.alloc(WithContext::new_transform(
-        resolved_context,
-        vec![], // No transforms for now
-    ));
+    // Create a with-context based on the type of the context expression
+    let with_ctx = match resolved_context.ty {
+        ResolvedType::UserDefined { definition, .. } => {
+            // Check if the struct has a container field
+            if let Some(container_field) = definition.container_field {
+                // Create a container context
+                ctx.arena.alloc(WithContext::new_container(
+                    resolved_context,
+                    container_field,
+                ))
+            } else {
+                // Create a transform context
+                ctx.arena.alloc(WithContext::new_transform(
+                    resolved_context,
+                    vec![], // No transforms for now
+                ))
+            }
+        }
+        _ => {
+            // For non-struct types, create a transform context
+            ctx.arena.alloc(WithContext::new_transform(
+                resolved_context,
+                vec![], // No transforms for now
+            ))
+        }
+    };
 
     // Enter the with-context
     ctx.scope_stack.enter_with_context(with_ctx);

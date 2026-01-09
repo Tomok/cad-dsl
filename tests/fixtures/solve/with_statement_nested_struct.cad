@@ -1,0 +1,23 @@
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Line {
+    start: Point,
+    end: Point,
+}
+
+struct Sketch {
+    container entities,
+}
+
+let sketch: Sketch;
+
+with sketch {
+    let .line: Line;
+    .line.start.x == 0;
+    .line.start.y == 0;
+    .line.end.x == 10;
+    .line.end.y == 10;
+}
