@@ -498,13 +498,13 @@ fn process_statement_with_context<'src, 'arena>(
 
                         // If there's a struct literal initializer, extract constraints from it
                         if let Some(init_expr) = init {
-                            process_struct_literal_init(var_def.name, init_expr, problem)?;
+                            process_struct_literal_init(&base_name, init_expr, problem)?;
                         }
 
                         Ok(())
                     } else {
                         // Reference to primitive type - create single variable
-                        let variable = Variable::new(var_def.name, *var_type, *init, *span);
+                        let variable = Variable::new(&base_name, *var_type, *init, *span);
                         problem.add_variable(variable);
                         Ok(())
                     }
@@ -512,7 +512,7 @@ fn process_statement_with_context<'src, 'arena>(
 
                 // Primitive types - create single variable
                 _ => {
-                    let variable = Variable::new(var_def.name, *var_type, *init, *span);
+                    let variable = Variable::new(&base_name, *var_type, *init, *span);
                     problem.add_variable(variable);
                     Ok(())
                 }
@@ -625,8 +625,19 @@ fn process_statement_with_context<'src, 'arena>(
         ResolvedStmtKind::With {
             with_context: ctx,
             body,
-            ..
+            span,
         } => {
+            // Verify this is a container context (not a transform context)
+            if ctx.container_field.is_none() || !ctx.transforms.is_empty() {
+                // Transform contexts are not yet supported
+                todo!(
+                    "Transform with-statements are not implemented in constraint solver. \
+                     Only container with-statements (with dot-prefix syntax) are supported. \
+                     See language spec for transform semantics at span {:?}",
+                    span
+                );
+            }
+
             // Process with-statement body recursively, passing the with-context down
             // The body is already fully resolved by the semantic analyzer
             for inner_stmt in body {
