@@ -28,18 +28,20 @@
 //! - Struct types (flattened into primitive fields)
 //! - Expression statements with comparison operators (==, !=, <, >, <=, >=)
 //! - Conditional constraints (if-statements)
+//! - Container with-statements (field access namespacing)
 //!
 //! # Unsupported Constructs
 //!
 //! - Recursive struct types
 //! - Control flow: for, return
 //! - Definitions: function definitions
-//! - Advanced features: with blocks
+//! - Transform with-statements (coordinate transformations)
 //!
 //! These will generate errors as they're out of scope for constraint solving.
 
 #![allow(dead_code)] // Public API for future constraint solving implementation
 
+use crate::hir::context::WithContext;
 use crate::hir::expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind};
 use crate::hir::types::ResolvedType;
 use crate::lexer::Span;
@@ -349,9 +351,19 @@ fn process_statement<'src, 'arena>(
     stmt: &'arena ResolvedStmt<'src, 'arena>,
     problem: &mut ConstraintProblem<'src, 'arena>,
 ) -> Result<(), ConstraintExtractorError> {
+    process_statement_with_context(stmt, problem, None)
+}
+
+/// Process a single statement with an optional with-context for container field declarations
+fn process_statement_with_context<'src, 'arena>(
+    stmt: &'arena ResolvedStmt<'src, 'arena>,
+    problem: &mut ConstraintProblem<'src, 'arena>,
+    with_context: Option<&WithContext<'src, 'arena>>,
+) -> Result<(), ConstraintExtractorError> {
     match &stmt.kind {
         // Handle let statements - extract variable information
         ResolvedStmtKind::Let {
+            dot_prefix,
             var_def,
             init,
             span,
@@ -364,6 +376,38 @@ fn process_statement<'src, 'arena>(
                     span: *span,
                 }
             })?;
+
+            // Determine the base variable name
+            // For dot-prefix declarations inside with-statements, build the full qualified name
+            let base_name = if *dot_prefix {
+                if let Some(ctx) = with_context {
+                    // Build qualified name: "container_var.container_field.var_name"
+                    let container_var_name = extract_container_var_name(ctx)?;
+                    let container_field = ctx.container_field.ok_or_else(|| {
+                        ConstraintExtractorError::UnsupportedStatement {
+                            statement_type: "transform with-context".to_string(),
+                            span: *span,
+                            message: "Transform contexts are not supported in constraint solver"
+                                .to_string(),
+                        }
+                    })?;
+                    let container_field_name = container_field.name;
+                    format!(
+                        "{}.{}.{}",
+                        container_var_name, container_field_name, var_def.name
+                    )
+                } else {
+                    // This shouldn't happen - semantic analyzer should catch it
+                    return Err(ConstraintExtractorError::UnsupportedStatement {
+                        statement_type: "dot-prefix let outside with-context".to_string(),
+                        span: *span,
+                        message: "Dot-prefix let statements must be inside a with-context"
+                            .to_string(),
+                    });
+                }
+            } else {
+                var_def.name.to_string()
+            };
 
             // Check if this is a struct type - if so, flatten it
             match var_type {
@@ -381,7 +425,7 @@ fn process_statement<'src, 'arena>(
                     }
 
                     // Flatten the struct into primitive fields
-                    let flattened_fields = flatten_type(var_def.name, *var_type);
+                    let flattened_fields = flatten_type(&base_name, *var_type);
 
                     // Create a variable for each flattened field
                     for field in flattened_fields {
@@ -396,7 +440,7 @@ fn process_statement<'src, 'arena>(
 
                     // If there's a struct literal initializer, extract constraints from it
                     if let Some(init_expr) = init {
-                        process_struct_literal_init(var_def.name, init_expr, problem)?;
+                        process_struct_literal_init(&base_name, init_expr, problem)?;
                     }
 
                     Ok(())
@@ -405,7 +449,7 @@ fn process_statement<'src, 'arena>(
                 // Array types - flatten into indexed elements
                 ResolvedType::Array { .. } => {
                     // Flatten the array into primitive fields
-                    let flattened_fields = flatten_type(var_def.name, *var_type);
+                    let flattened_fields = flatten_type(&base_name, *var_type);
 
                     // Create a variable for each flattened field
                     for field in flattened_fields {
@@ -440,7 +484,7 @@ fn process_statement<'src, 'arena>(
                         }
 
                         // Flatten the referenced struct
-                        let flattened_fields = flatten_type(var_def.name, **inner);
+                        let flattened_fields = flatten_type(&base_name, **inner);
 
                         for field in flattened_fields {
                             let variable = Variable::new(
@@ -578,18 +622,23 @@ fn process_statement<'src, 'arena>(
             }
         }
 
-        ResolvedStmtKind::With { span, .. } => {
-            Err(ConstraintExtractorError::UnsupportedStatement {
-                statement_type: "with".to_string(),
-                span: *span,
-                message: "With blocks are not supported in constraint problems".to_string(),
-            })
+        ResolvedStmtKind::With {
+            with_context: ctx,
+            body,
+            ..
+        } => {
+            // Process with-statement body recursively, passing the with-context down
+            // The body is already fully resolved by the semantic analyzer
+            for inner_stmt in body {
+                process_statement_with_context(inner_stmt, problem, Some(ctx))?;
+            }
+            Ok(())
         }
 
-        // Block: recursively process statements
+        // Block: recursively process statements (pass through with-context if any)
         ResolvedStmtKind::Block { statements, .. } => {
             for inner_stmt in statements {
-                process_statement(inner_stmt, problem)?;
+                process_statement_with_context(inner_stmt, problem, with_context)?;
             }
             Ok(())
         }
@@ -833,10 +882,57 @@ fn build_qualified_field_name<'src, 'arena>(
                 }),
             }
         }
+
+        // Container field access from with-statement context
+        ResolvedExprKind::ContainerFieldAccess {
+            resolved_path,
+            with_context,
+            ..
+        } => {
+            // Verify this is a container context (not a transform context)
+            let container_field = with_context
+                .container_field
+                .ok_or_else(|| ConstraintExtractorError::UnsupportedStatement {
+                    statement_type: "transform with-context".to_string(),
+                    span: target.span,
+                    message: "Transform contexts are not supported in constraint solver. Only container contexts are supported.".to_string(),
+                })?;
+
+            // Build qualified name: "container_var.container_field.path"
+            let container_var_name = extract_container_var_name(with_context)?;
+            let container_field_name = container_field.name;
+
+            // Build full path: container_var + container_field + resolved_path
+            let mut parts = vec![container_var_name, container_field_name.to_string()];
+            parts.extend(resolved_path.iter().map(|s| s.to_string()));
+            Ok(parts.join("."))
+        }
+
         _ => Err(ConstraintExtractorError::UnsupportedStatement {
             statement_type: "field assignment with invalid target".to_string(),
             span: target.span,
             message: "Field assignment target must be a field access expression".to_string(),
+        }),
+    }
+}
+
+/// Extract the container variable name from a WithContext
+///
+/// For "with sketch { ... }", extracts "sketch"
+/// For "with obj.field { ... }", extracts "obj.field"
+fn extract_container_var_name<'src, 'arena>(
+    with_context: &WithContext<'src, 'arena>,
+) -> Result<String, ConstraintExtractorError> {
+    match &with_context.context_expr.kind {
+        ResolvedExprKind::Var { name, .. } => Ok(name.to_string()),
+        ResolvedExprKind::FieldAccess { .. } => {
+            // For nested field access, build the full path
+            build_qualified_field_name(with_context.context_expr)
+        }
+        _ => Err(ConstraintExtractorError::UnsupportedStatement {
+            statement_type: "complex with-context expression".to_string(),
+            span: with_context.context_expr.span,
+            message: "With-context expression must be a variable or field access".to_string(),
         }),
     }
 }

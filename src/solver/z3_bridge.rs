@@ -515,6 +515,71 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
         }
     }
 
+    /// Build a variable name for a container field access expression
+    ///
+    /// Handles container field access from with-statements like `.p1.x`
+    /// which gets expanded to `sketch.entities.p1.x`
+    fn build_container_field_access_name<'src2, 'arena2>(
+        resolved_path: &[&'src2 str],
+        with_context: &crate::hir::context::WithContext<'src2, 'arena2>,
+    ) -> Result<String, Z3BridgeError> {
+        // Get the container variable name (e.g., "sketch")
+        let container_var_name = match &with_context.context_expr.kind {
+            ResolvedExprKind::Var { name, .. } => name.to_string(),
+            ResolvedExprKind::FieldAccess { .. } => {
+                // For nested field access, build the full path recursively
+                Self::build_field_access_name_from_expr(with_context.context_expr)?
+            }
+            _ => {
+                return Err(Z3BridgeError::UnsupportedExpression {
+                    expr_type: format!("{:?}", with_context.context_expr.kind),
+                    span: with_context.context_expr.span,
+                    message: "With-context expression must be a variable or field access"
+                        .to_string(),
+                });
+            }
+        };
+
+        // Get the container field name (e.g., "entities")
+        let container_field =
+            with_context
+                .container_field
+                .ok_or_else(|| Z3BridgeError::UnsupportedExpression {
+                    expr_type: "transform with-context".to_string(),
+                    span: with_context.context_expr.span,
+                    message: "Transform contexts are not supported in constraint solver"
+                        .to_string(),
+                })?;
+        let container_field_name = container_field.name;
+
+        // Build full path: container_var.container_field.path
+        let mut parts = vec![container_var_name, container_field_name.to_string()];
+        parts.extend(resolved_path.iter().map(|s| s.to_string()));
+        Ok(parts.join("."))
+    }
+
+    /// Helper to build a field access name from an expression recursively
+    fn build_field_access_name_from_expr<'src2, 'arena2>(
+        expr: &'arena2 ResolvedExpr<'src2, 'arena2>,
+    ) -> Result<String, Z3BridgeError> {
+        match &expr.kind {
+            ResolvedExprKind::Var { name, .. } => Ok(name.to_string()),
+            ResolvedExprKind::FieldAccess {
+                receiver,
+                field_name,
+                ..
+            } => {
+                let prefix = Self::build_field_access_name_from_expr(receiver)?;
+                Ok(format!("{}.{}", prefix, field_name))
+            }
+            _ => Err(Z3BridgeError::UnsupportedExpression {
+                expr_type: format!("{:?}", expr.kind),
+                span: expr.span,
+                message: "Expected variable or field access expression".to_string(),
+            }),
+        }
+    }
+
     /// Translate a HIR expression to a Z3 AST
     fn translate_expr(
         &self,
@@ -635,6 +700,22 @@ impl<'src, 'arena> Z3Bridge<'src, 'arena> {
                 self.variables.get(&index_name[..]).cloned().ok_or(
                     Z3BridgeError::VariableNotFound {
                         var_name: index_name,
+                        span: expr.span,
+                    },
+                )
+            }
+
+            // Container field access - translate to flattened variable name
+            ResolvedExprKind::ContainerFieldAccess {
+                resolved_path,
+                with_context,
+                ..
+            } => {
+                let qualified_name =
+                    Self::build_container_field_access_name(resolved_path, with_context)?;
+                self.variables.get(&qualified_name[..]).cloned().ok_or(
+                    Z3BridgeError::VariableNotFound {
+                        var_name: qualified_name,
                         span: expr.span,
                     },
                 )

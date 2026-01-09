@@ -253,15 +253,19 @@ fn main() {
 
             // Step 2: Parse the program (may have multiple statements)
             use chumsky::IterParser;
+            use chumsky::prelude::recursive;
             use chumsky::primitive::choice;
-            let stmt_parser = choice((
-                parser::struct_def(parser::expr_inner()),
-                parser::function_def(parser::expr_inner()),
-                parser::let_stmt(parser::expr_inner()),
-                parser::assignment_stmt(parser::expr_inner()),
-                parser::field_assignment_stmt(parser::expr_inner()),
-                parser::expression_stmt(parser::expr_inner()),
-            ))
+            let stmt_parser = recursive(|stmt_rec| {
+                choice((
+                    parser::struct_def(parser::expr_inner()),
+                    parser::function_def(parser::expr_inner()),
+                    parser::let_stmt(parser::expr_inner()),
+                    parser::assignment_stmt(parser::expr_inner()),
+                    parser::field_assignment_stmt(parser::expr_inner()),
+                    parser::with_stmt(parser::expr_inner(), stmt_rec.clone()),
+                    parser::expression_stmt(parser::expr_inner()),
+                ))
+            })
             .repeated()
             .collect::<Vec<_>>();
 
