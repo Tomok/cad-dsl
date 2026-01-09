@@ -1203,9 +1203,17 @@ fn substitute_parameters<'src, 'arena>(
         | ResolvedExprKind::FloatLit { .. }
         | ResolvedExprKind::BoolLit { .. } => expr.kind.clone(),
 
-        // Other expression types - for now, just clone
-        // These would need proper implementation for full support
-        _ => expr.kind.clone(),
+        // Unsupported expression types - fail explicitly instead of silently
+        // These would need proper implementation for full parameter substitution
+        _ => {
+            todo!(
+                "Parameter substitution not implemented for this expression type: {:?}. \
+                 This expression contains unhandled variants (Range, Closure, or ContainerFieldAccess). \
+                 Parameters within these expressions will not be substituted, leading to undefined \
+                 variable errors. Please report this case to the maintainers.",
+                expr.kind
+            )
+        }
     };
 
     Ok(context.arena.alloc(ResolvedExpr {
