@@ -434,3 +434,45 @@ fn test_function_call_in_constraint() {
     let a = extract_value(&stdout, "a");
     assert_eq!(a * a, 16, "Solution should satisfy square(a) = 16");
 }
+
+// ============================================================================
+// Method Call Tests
+// ============================================================================
+//
+// NOTE: These tests are currently ignored because method call support
+// is not yet fully implemented in the constraint solver. The semantic
+// analyzer now resolves method calls, and the function inliner supports
+// them, but the constraint extractor needs to handle method definitions.
+//
+// To enable these tests, remove the #[ignore] attribute once method call
+// support is complete in the solver pipeline.
+
+#[test]
+#[ignore = "Method calls not yet fully implemented in constraint solver"]
+fn test_method_call_simple() {
+    let (success, stdout, stderr) = solve_fixture("method_call_simple.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "c.radius", "5");
+    verify_solution(&stdout, "a", "75");
+}
+
+#[test]
+#[ignore = "Method calls not yet fully implemented in constraint solver"]
+fn test_method_call_with_args() {
+    let (success, stdout, stderr) = solve_fixture("method_call_with_args.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "r.width", "4");
+    verify_solution(&stdout, "r.height", "3");
+    verify_solution(&stdout, "a", "24");
+}
+
+#[test]
+#[ignore = "Method calls not yet fully implemented in constraint solver"]
+fn test_method_call_in_constraint() {
+    let (success, stdout, stderr) = solve_fixture("method_call_in_constraint.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    // s.area() == 16 means s.side = 4 or s.side = -4
+    // Z3 will pick one solution - we just verify it satisfies the constraint
+    let side = extract_value(&stdout, "s.side");
+    assert_eq!(side * side, 16, "Solution should satisfy s.area() = 16");
+}

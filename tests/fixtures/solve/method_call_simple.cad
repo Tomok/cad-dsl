@@ -1,0 +1,12 @@
+struct Circle {
+    radius: i32,
+
+    fn area() -> i32 {
+        return self.radius * self.radius * 3;
+    }
+}
+
+let c: Circle;
+c.radius == 5;
+let a = c.area();
+a == 75;

@@ -515,6 +515,54 @@ fn inline_expression<'src, 'arena>(
             return Ok(inlined_body);
         }
 
+        // Method call - similar to function call but with receiver as implicit first parameter
+        ResolvedExprKind::MethodCall {
+            receiver,
+            method_name,
+            method,
+            args,
+        } => {
+            // Check for recursion using the method name
+            context.push_call(method_name, expr.span)?;
+
+            // Inline receiver first (it might contain function/method calls)
+            let inlined_receiver = inline_expression(receiver, context)?;
+
+            // Inline arguments (they might contain function/method calls too)
+            let inlined_args = args
+                .iter()
+                .map(|arg| inline_expression(arg, context))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // Get the method information from the function map
+            // Methods are stored in the function map like regular functions
+            let func_info = context.get_function(method_name).ok_or_else(|| {
+                FunctionInlinerError::NoReturnStatement {
+                    function_name: method_name.to_string(),
+                    span: expr.span,
+                }
+            })?;
+
+            // Create parameter substitution map
+            // First, map "self" to the receiver
+            let mut param_map = HashMap::new();
+            param_map.insert("self", inlined_receiver);
+
+            // Then, map the explicit parameters to the arguments
+            for (param, arg) in method.params.iter().zip(inlined_args.iter()) {
+                param_map.insert(param.name, *arg);
+            }
+
+            // Substitute parameters in the return expression
+            let inlined_body = substitute_parameters(func_info.return_expr, &param_map, context)?;
+
+            // Pop the call from the stack
+            context.pop_call();
+
+            // Return the inlined expression directly
+            return Ok(inlined_body);
+        }
+
         // Binary operations - inline both operands
         ResolvedExprKind::And { lhs, rhs } => {
             let inlined_lhs = inline_expression(lhs, context)?;
@@ -752,26 +800,7 @@ fn inline_expression<'src, 'arena>(
         | ResolvedExprKind::BoolLit { .. }
         | ResolvedExprKind::Var { .. } => expr.kind.clone(),
 
-        // Method calls, field access, container field access - inline receivers
-        ResolvedExprKind::MethodCall {
-            receiver,
-            method_name,
-            method,
-            args,
-        } => {
-            let inlined_receiver = inline_expression(receiver, context)?;
-            let inlined_args = args
-                .iter()
-                .map(|arg| inline_expression(arg, context))
-                .collect::<Result<Vec<_>, _>>()?;
-            ResolvedExprKind::MethodCall {
-                receiver: inlined_receiver,
-                method_name,
-                method,
-                args: inlined_args,
-            }
-        }
-
+        // Field access, container field access - inline receivers
         ResolvedExprKind::FieldAccess {
             receiver,
             field_name,
@@ -1073,6 +1102,57 @@ fn substitute_parameters<'src, 'arena>(
                 .collect::<Result<Vec<_>, _>>()?;
             ResolvedExprKind::ArrayLit {
                 elements: sub_elements,
+            }
+        }
+
+        // Field access - substitute in receiver
+        ResolvedExprKind::FieldAccess {
+            receiver,
+            field_name,
+            field,
+        } => {
+            let sub_receiver = substitute_parameters(receiver, param_map, context)?;
+            ResolvedExprKind::FieldAccess {
+                receiver: sub_receiver,
+                field_name,
+                field,
+            }
+        }
+
+        // Method call - substitute in receiver and arguments
+        ResolvedExprKind::MethodCall {
+            receiver,
+            method_name,
+            method,
+            args,
+        } => {
+            let sub_receiver = substitute_parameters(receiver, param_map, context)?;
+            let sub_args = args
+                .iter()
+                .map(|arg| substitute_parameters(arg, param_map, context))
+                .collect::<Result<Vec<_>, _>>()?;
+            ResolvedExprKind::MethodCall {
+                receiver: sub_receiver,
+                method_name,
+                method,
+                args: sub_args,
+            }
+        }
+
+        // Function call - substitute in arguments
+        ResolvedExprKind::FunctionCall {
+            name,
+            function,
+            args,
+        } => {
+            let sub_args = args
+                .iter()
+                .map(|arg| substitute_parameters(arg, param_map, context))
+                .collect::<Result<Vec<_>, _>>()?;
+            ResolvedExprKind::FunctionCall {
+                name,
+                function,
+                args: sub_args,
             }
         }
 

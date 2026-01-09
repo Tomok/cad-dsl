@@ -898,24 +898,65 @@ pub fn resolve_expression<'src, 'arena>(
         Expr::MethodCall {
             receiver,
             method,
-            args: _,
+            args,
             span,
         } => {
             // Resolve receiver
-            let _resolved_receiver = resolve_expression(ctx, receiver)?;
+            let resolved_receiver = resolve_expression(ctx, receiver)?;
 
-            // TODO: Look up method on receiver type
-            // For now, create a placeholder
-            let kind = ResolvedExprKind::IntLit { value: 0 };
-            let ty = &*ctx.arena.alloc(ResolvedType::I32 { span: *span });
+            // Get the receiver type and look up the method
+            let receiver_type = resolved_receiver.ty;
 
-            // Add error for unimplemented method resolution
-            ctx.add_error(SemanticError::UndefinedFunction {
-                name: format!("{}.{}", "receiver", method),
-                span: *span,
-            });
+            // Unwrap reference types to get to the underlying type
+            let base_type = match receiver_type {
+                ResolvedType::Reference { inner, .. } => *inner,
+                _ => receiver_type,
+            };
 
-            (kind, ty)
+            // Look up method on the receiver type
+            match base_type {
+                ResolvedType::UserDefined { definition, .. } => {
+                    // Look up the method in the struct definition
+                    if let Some(method_def) = definition.find_method(method) {
+                        // Resolve arguments
+                        let resolved_args: Vec<_> = args
+                            .iter()
+                            .filter_map(|arg| resolve_expression(ctx, arg))
+                            .collect();
+
+                        let kind = ResolvedExprKind::MethodCall {
+                            receiver: resolved_receiver,
+                            method_name: method,
+                            method: method_def,
+                            args: resolved_args,
+                        };
+                        let ty = &*ctx.arena.alloc(method_def.return_type);
+                        (kind, ty)
+                    } else {
+                        // Method not found in struct
+                        ctx.add_error(SemanticError::UndefinedMethod {
+                            struct_name: definition.name.to_string(),
+                            method_name: method.to_string(),
+                            span: *span,
+                        });
+                        // Return placeholder
+                        let kind = ResolvedExprKind::IntLit { value: 0 };
+                        let ty = &*ctx.arena.alloc(ResolvedType::I32 { span: *span });
+                        (kind, ty)
+                    }
+                }
+                _ => {
+                    // Method call on non-struct type
+                    ctx.add_error(SemanticError::MethodCallOnNonStruct {
+                        method_name: method.to_string(),
+                        span: *span,
+                    });
+                    // Return placeholder
+                    let kind = ResolvedExprKind::IntLit { value: 0 };
+                    let ty = &*ctx.arena.alloc(ResolvedType::I32 { span: *span });
+                    (kind, ty)
+                }
+            }
         }
 
         // Field access
