@@ -65,6 +65,8 @@ fn report_semantic_errors(filename: &str, source: &str, errors: Vec<SemanticErro
             | SemanticError::UndefinedFunction { span, .. }
             | SemanticError::UndefinedType { span, .. }
             | SemanticError::UndefinedField { span, .. }
+            | SemanticError::UndefinedMethod { span, .. }
+            | SemanticError::MethodCallOnNonStruct { span, .. }
             | SemanticError::TypeMismatch { span, .. }
             | SemanticError::NotInWithContext { span }
             | SemanticError::NoContainerField { span, .. }
@@ -291,7 +293,7 @@ fn main() {
             }
 
             // Step 5: Constraint Solving
-            match solver::solve(&hir[..]) {
+            match solver::solve(&hir[..], &arena) {
                 Ok(solution) => {
                     print!("{}", solution);
                 }

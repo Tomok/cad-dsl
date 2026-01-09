@@ -526,13 +526,10 @@ fn process_statement<'src, 'arena>(
         }
 
         // Unsupported: definitions
-        ResolvedStmtKind::FunctionDef { span, .. } => {
-            Err(ConstraintExtractorError::UnsupportedStatement {
-                statement_type: "function definition".to_string(),
-                span: *span,
-                message: "Function definitions are not supported in constraint problems"
-                    .to_string(),
-            })
+        ResolvedStmtKind::FunctionDef { .. } => {
+            // Function definitions are needed for inlining but don't contribute constraints
+            // They are inlined before constraint extraction, so skip them silently
+            Ok(())
         }
 
         ResolvedStmtKind::StructDef { .. } => {
@@ -1292,7 +1289,9 @@ mod tests {
     }
 
     #[test]
-    fn test_error_unsupported_function_def() {
+    fn test_function_def_skipped() {
+        // Function definitions are skipped during constraint extraction
+        // because they are inlined before this stage
         let arena = Bump::new();
         let func_def = arena.alloc(crate::hir::definitions::FunctionDefinition {
             name: "foo",
@@ -1315,15 +1314,10 @@ mod tests {
         );
 
         let result = extract_constraints(&[stmt]);
-        assert!(result.is_err());
+        assert!(result.is_ok());
 
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert_matches!(
-            errors[0],
-            ConstraintExtractorError::UnsupportedStatement { ref statement_type, .. }
-            if statement_type == "function definition"
-        );
+        let problem = result.unwrap();
+        assert_eq!(problem.constraints.len(), 0); // No constraints from function definition
     }
 
     #[test]

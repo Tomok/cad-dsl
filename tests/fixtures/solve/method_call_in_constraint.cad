@@ -1,0 +1,10 @@
+struct Square {
+    side: i32,
+
+    fn area() -> i32 {
+        return self.side * self.side;
+    }
+}
+
+let s: Square;
+s.area() == 16;

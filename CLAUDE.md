@@ -46,6 +46,57 @@ This project uses Nix for development environment management. Use `nix develop` 
 
 - **Use `assert_matches!` macro**: Always use `assert_matches!(value, Pattern { .. })` instead of `assert!(matches!(value, Pattern { .. }))` in tests. The `assert_matches!` macro provides clearer error messages when assertions fail.
 
+### Error Handling Best Practices
+
+**IMPORTANT**: When implementing features, always fail explicitly rather than silently when encountering unsupported cases.
+
+#### Prefer `todo!()` Over Silent Failures
+
+- **Never silently ignore or clone unhandled cases**: Using fallback patterns like `_ => value.clone()` hides missing functionality and can produce incorrect results
+- **Use `todo!()` for unsupported features**: This makes it immediately clear when unimplemented code paths are reached
+- **Include descriptive messages**: Explain what feature is missing and why it matters
+- **Report to user**: The `todo!()` panic will inform users they've hit an unsupported feature
+
+**Example - BAD (Silent failure):**
+```rust
+match expr {
+    SupportedCase => handle_it(),
+    _ => expr.clone()  // Silently ignores unsupported cases!
+}
+```
+
+**Example - GOOD (Explicit failure):**
+```rust
+match expr {
+    SupportedCase => handle_it(),
+    _ => todo!(
+        "Feature X not implemented for this expression type: {:?}. \
+         This will cause incorrect behavior. Please report this case.",
+        expr
+    )
+}
+```
+
+#### When to Use Different Error Strategies
+
+- **`todo!()`**: For features you know should be implemented but aren't yet
+  - Missing expression types in pattern matching
+  - Unimplemented optimization passes
+  - Placeholder functions
+
+- **`Result<T, E>`**: For recoverable errors that should be propagated
+  - Parse errors
+  - Type errors
+  - Constraint solver failures
+
+- **`unreachable!()`**: For cases that are impossible by construction
+  - After exhaustive matches that are proven complete
+  - Type system guarantees
+
+- **`panic!()`**: For unrecoverable errors indicating bugs
+  - Invariant violations
+  - Internal consistency failures
+
 ## Commit Guidelines
 
 When creating commits, follow these quality standards:

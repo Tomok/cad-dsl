@@ -393,3 +393,91 @@ fn test_struct_unsat() {
         combined
     );
 }
+
+// ============================================================================
+// Function Call Tests
+// ============================================================================
+//
+// NOTE: These tests are currently ignored because function call support
+// is not yet fully implemented in the constraint solver. The function inliner
+// exists, but the constraint extractor needs to be updated to handle
+// function definitions. See CLAUDE.md "Next Implementation Steps" for details.
+//
+// To enable these tests, remove the #[ignore] attribute once function call
+// support is complete in the solver pipeline.
+
+#[test]
+fn test_function_call_simple() {
+    let (success, stdout, stderr) = solve_fixture("function_call_simple.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "result", "10");
+    verify_solution(&stdout, "x", "7");
+}
+
+#[test]
+fn test_function_call_nested() {
+    let (success, stdout, stderr) = solve_fixture("function_call_nested.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "z", "15");
+    verify_solution(&stdout, "y", "5");
+}
+
+#[test]
+fn test_function_call_in_constraint() {
+    let (success, stdout, stderr) = solve_fixture("function_call_in_constraint.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    // square(a) == 16 means a = 4 or a = -4
+    // Z3 will pick one solution - we just verify it satisfies the constraint
+    let a = extract_value(&stdout, "a");
+    assert_eq!(a * a, 16, "Solution should satisfy square(a) = 16");
+}
+
+#[test]
+fn test_function_call_shadowing() {
+    let (success, stdout, stderr) = solve_fixture("function_call_shadowing.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    // Global variables
+    verify_solution(&stdout, "b", "42");
+    verify_solution(&stdout, "a", "1");
+    // sub(b, 2) should use global b (42) as first arg: 42 - 2 = 40
+    verify_solution(&stdout, "result", "40");
+}
+
+// ============================================================================
+// Method Call Tests
+// ============================================================================
+//
+// NOTE: These tests are currently ignored because method call support
+// is not yet fully implemented in the constraint solver. The semantic
+// analyzer now resolves method calls, and the function inliner supports
+// them, but the constraint extractor needs to handle method definitions.
+//
+// To enable these tests, remove the #[ignore] attribute once method call
+// support is complete in the solver pipeline.
+
+#[test]
+fn test_method_call_simple() {
+    let (success, stdout, stderr) = solve_fixture("method_call_simple.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "c.radius", "5");
+    verify_solution(&stdout, "a", "75");
+}
+
+#[test]
+fn test_method_call_with_args() {
+    let (success, stdout, stderr) = solve_fixture("method_call_with_args.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "r.width", "4");
+    verify_solution(&stdout, "r.height", "3");
+    verify_solution(&stdout, "a", "24");
+}
+
+#[test]
+fn test_method_call_in_constraint() {
+    let (success, stdout, stderr) = solve_fixture("method_call_in_constraint.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    // s.area() == 16 means s.side = 4 or s.side = -4
+    // Z3 will pick one solution - we just verify it satisfies the constraint
+    let side = extract_value(&stdout, "s.side");
+    assert_eq!(side * side, 16, "Solution should satisfy s.area() = 16");
+}

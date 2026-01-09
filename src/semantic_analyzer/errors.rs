@@ -22,6 +22,16 @@ pub enum SemanticError {
         span: Span,
     },
 
+    /// Reference to an undefined method on a struct
+    UndefinedMethod {
+        struct_name: String,
+        method_name: String,
+        span: Span,
+    },
+
+    /// Method call on non-struct type
+    MethodCallOnNonStruct { method_name: String, span: Span },
+
     /// Duplicate definition of a name (variable, function, type, etc.)
     DuplicateDefinition {
         name: String,
@@ -79,6 +89,24 @@ impl fmt::Display for SemanticError {
                     f,
                     "Struct '{}' has no field named '{}' at line {}, column {}",
                     struct_name, field_name, span.start.line, span.start.column
+                )
+            }
+            SemanticError::UndefinedMethod {
+                struct_name,
+                method_name,
+                span,
+            } => {
+                write!(
+                    f,
+                    "Struct '{}' has no method named '{}' at line {}, column {}",
+                    struct_name, method_name, span.start.line, span.start.column
+                )
+            }
+            SemanticError::MethodCallOnNonStruct { method_name, span } => {
+                write!(
+                    f,
+                    "Cannot call method '{}' on non-struct type at line {}, column {}",
+                    method_name, span.start.line, span.start.column
                 )
             }
             SemanticError::DuplicateDefinition {

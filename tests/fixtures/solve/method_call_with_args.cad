@@ -1,0 +1,14 @@
+struct Rectangle {
+    width: i32,
+    height: i32,
+
+    fn scaled_area(factor: i32) -> i32 {
+        return self.width * self.height * factor;
+    }
+}
+
+let r: Rectangle;
+r.width == 4;
+r.height == 3;
+let a = r.scaled_area(2);
+a == 24;

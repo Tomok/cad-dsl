@@ -1,6 +1,7 @@
 //! Solver Pipeline for Constraint Solving
 //!
 //! This module orchestrates the complete constraint solving pipeline, integrating:
+//! - Function call inlining
 //! - Constraint extraction from HIR
 //! - Z3 solver bridge
 //! - Solution formatting
@@ -13,10 +14,11 @@
 //!
 //! # Pipeline Stages
 //!
-//! 1. **Constraint Extraction**: Extract variables and constraints from HIR statements
-//! 2. **Z3 Translation**: Translate HIR expressions to Z3 assertions
-//! 3. **Solving**: Run Z3 solver to find a satisfying assignment
-//! 4. **Formatting**: Format the solution for human-readable output
+//! 1. **Function Inlining**: Inline function calls to eliminate function calls from HIR
+//! 2. **Constraint Extraction**: Extract variables and constraints from HIR statements
+//! 3. **Z3 Translation**: Translate HIR expressions to Z3 assertions
+//! 4. **Solving**: Run Z3 solver to find a satisfying assignment
+//! 5. **Formatting**: Format the solution for human-readable output
 //!
 //! # Example
 //!
@@ -46,6 +48,7 @@
 // ============================================================================
 
 pub mod constraint_extractor;
+pub mod function_inliner;
 pub mod recursive_struct_detector;
 pub mod solution_formatter;
 pub mod struct_flattener;
@@ -58,6 +61,8 @@ pub mod z3_bridge;
 #[allow(unused_imports)]
 pub use constraint_extractor::{ConstraintExtractorError, extract_constraints};
 #[allow(unused_imports)]
+pub use function_inliner::{FunctionInlinerError, inline_functions};
+#[allow(unused_imports)]
 pub use solution_formatter::{SolutionFormatter, SolutionFormatterError};
 #[allow(unused_imports)]
 pub use z3_bridge::{Z3Bridge, Z3BridgeError};
@@ -67,6 +72,7 @@ pub use z3_bridge::{Z3Bridge, Z3BridgeError};
 // ============================================================================
 
 use crate::hir::expr::ResolvedStmt;
+use bumpalo::Bump;
 use std::fmt;
 
 // ============================================================================
@@ -84,6 +90,9 @@ pub enum SolverError {
 
     /// No constraints found in the program
     NoConstraints,
+
+    /// Function inlining failed
+    FunctionInlining { error: FunctionInlinerError },
 
     /// Constraint extraction failed
     ConstraintExtraction {
@@ -115,6 +124,9 @@ impl fmt::Display for SolverError {
                     "No constraints found: program must include at least one constraint"
                 )
             }
+            SolverError::FunctionInlining { error } => {
+                write!(f, "Function inlining failed: {}", error)
+            }
             SolverError::ConstraintExtraction { errors } => {
                 writeln!(
                     f,
@@ -139,6 +151,12 @@ impl fmt::Display for SolverError {
 impl std::error::Error for SolverError {}
 
 // Convert from individual error types
+impl From<FunctionInlinerError> for SolverError {
+    fn from(error: FunctionInlinerError) -> Self {
+        SolverError::FunctionInlining { error }
+    }
+}
+
 impl From<Z3BridgeError> for SolverError {
     fn from(error: Z3BridgeError) -> Self {
         SolverError::Z3Bridge { error }
@@ -164,6 +182,7 @@ impl From<SolutionFormatterError> for SolverError {
 /// # Arguments
 ///
 /// * `statements` - Slice of HIR statements (from semantic analyzer + type checker)
+/// * `arena` - Arena allocator for creating new HIR nodes during inlining
 ///
 /// # Returns
 ///
@@ -175,7 +194,7 @@ impl From<SolutionFormatterError> for SolverError {
 /// ```ignore
 /// let arena = Bump::new();
 /// let statements = vec![/* HIR statements */];
-/// let solution = solve(&statements)?;
+/// let solution = solve(&statements, &arena)?;
 /// println!("{}", solution);
 /// // Output:
 /// // x = 10
@@ -183,14 +202,18 @@ impl From<SolutionFormatterError> for SolverError {
 /// ```
 pub fn solve<'src, 'arena>(
     statements: &[&'arena ResolvedStmt<'src, 'arena>],
+    arena: &'arena Bump,
 ) -> Result<String, SolverError> {
     // Step 0: Validate input
     if statements.is_empty() {
         return Err(SolverError::EmptyProgram);
     }
 
-    // Step 1: Extract constraints from HIR
-    let problem = extract_constraints(statements)
+    // Step 1: Inline function calls
+    let inlined_statements = inline_functions(statements, arena)?;
+
+    // Step 2: Extract constraints from HIR
+    let problem = extract_constraints(&inlined_statements)
         .map_err(|errors| SolverError::ConstraintExtraction { errors })?;
 
     // Validate that we have variables and constraints
@@ -207,14 +230,14 @@ pub fn solve<'src, 'arena>(
         return Err(SolverError::NoConstraints);
     }
 
-    // Step 2: Create Z3 bridge and add the problem
+    // Step 3: Create Z3 bridge and add the problem
     let mut bridge = Z3Bridge::new();
     bridge.add_problem(&problem)?;
 
-    // Step 3: Get the solver (already has all assertions added)
+    // Step 4: Get the solver (already has all assertions added)
     let solver = bridge.solver();
 
-    // Step 4: Format the solution
+    // Step 5: Format the solution
     let var_list: Vec<_> = problem.variables.iter().collect();
     let formatter = SolutionFormatter::new(bridge.variables(), var_list);
     let solution = formatter.format_solution(solver)?;
@@ -332,7 +355,7 @@ mod tests {
             },
         );
 
-        let result = solve(&[stmt_x, stmt_constraint]);
+        let result = solve(&[stmt_x, stmt_constraint], &arena);
         assert!(result.is_ok());
         let solution = result.unwrap();
         assert_eq!(solution.trim(), "x = 10");
@@ -429,7 +452,7 @@ mod tests {
             },
         );
 
-        let result = solve(&[stmt_x, stmt_y, stmt_constraint]);
+        let result = solve(&[stmt_x, stmt_y, stmt_constraint], &arena);
         assert!(result.is_ok());
         let solution = result.unwrap();
         // Variables should be sorted alphabetically
@@ -568,7 +591,10 @@ mod tests {
             },
         );
 
-        let result = solve(&[stmt_x, stmt_y, stmt_constraint1, stmt_constraint2]);
+        let result = solve(
+            &[stmt_x, stmt_y, stmt_constraint1, stmt_constraint2],
+            &arena,
+        );
         assert!(result.is_ok());
         let solution = result.unwrap();
         assert_eq!(solution, "x = 10\ny = 10\n");
@@ -637,7 +663,7 @@ mod tests {
             },
         );
 
-        let result = solve(&[stmt_x, stmt_constraint]);
+        let result = solve(&[stmt_x, stmt_constraint], &arena);
         assert!(result.is_ok());
         let solution = result.unwrap();
         assert!(solution.contains("x = 3.14"));
@@ -696,7 +722,7 @@ mod tests {
             },
         );
 
-        let result = solve(&[stmt_x, stmt_constraint]);
+        let result = solve(&[stmt_x, stmt_constraint], &arena);
         assert!(result.is_ok());
         let solution = result.unwrap();
         assert_eq!(solution.trim(), "x = true");
@@ -782,7 +808,7 @@ mod tests {
             },
         );
 
-        let result = solve(&[stmt_x, stmt_constraint1, stmt_constraint2]);
+        let result = solve(&[stmt_x, stmt_constraint1, stmt_constraint2], &arena);
         assert!(result.is_err());
         assert_matches!(
             result.unwrap_err(),
@@ -882,7 +908,7 @@ mod tests {
             },
         );
 
-        let result = solve(&[stmt_x, stmt_y, stmt_constraint]);
+        let result = solve(&[stmt_x, stmt_y, stmt_constraint], &arena);
         assert!(result.is_ok());
         let solution = result.unwrap();
         // Solution should have x and y values that sum to 20
@@ -893,7 +919,8 @@ mod tests {
 
     #[test]
     fn test_error_empty_program() {
-        let result = solve(&[]);
+        let arena = Bump::new();
+        let result = solve(&[], &arena);
         assert!(result.is_err());
         assert_matches!(result.unwrap_err(), SolverError::EmptyProgram);
     }
@@ -917,7 +944,7 @@ mod tests {
             },
         );
 
-        let result = solve(&[stmt]);
+        let result = solve(&[stmt], &arena);
         assert!(result.is_err());
         assert_matches!(result.unwrap_err(), SolverError::NoVariables);
     }
@@ -947,7 +974,7 @@ mod tests {
             },
         );
 
-        let result = solve(&[stmt]);
+        let result = solve(&[stmt], &arena);
         assert!(result.is_err());
         assert_matches!(result.unwrap_err(), SolverError::NoConstraints);
     }
@@ -969,7 +996,7 @@ mod tests {
             },
         );
 
-        let result = solve(&[stmt]);
+        let result = solve(&[stmt], &arena);
         assert!(result.is_err());
         assert_matches!(result.unwrap_err(), SolverError::NoVariables);
     }
