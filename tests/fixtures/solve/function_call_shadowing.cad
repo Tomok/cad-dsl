@@ -1,0 +1,20 @@
+// Test variable shadowing with function parameters
+// Function parameters should shadow global variables with the same name
+
+fn sub(a: i32, b: i32) -> i32 {
+    return a - b;
+}
+
+// Define global variables with the same names as function parameters
+let b: i32;
+let a: i32;
+
+// Constrain the global variables
+b == 42;
+a == 1;
+
+// Call function with arguments that shadow the parameter names
+// sub(b, 2) should use the value of global 'b' (42) as first arg
+// and literal 2 as second arg, resulting in 42 - 2 = 40
+let result: i32;
+result == sub(b, 2);

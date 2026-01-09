@@ -432,6 +432,17 @@ fn test_function_call_in_constraint() {
     assert_eq!(a * a, 16, "Solution should satisfy square(a) = 16");
 }
 
+#[test]
+fn test_function_call_shadowing() {
+    let (success, stdout, stderr) = solve_fixture("function_call_shadowing.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    // Global variables
+    verify_solution(&stdout, "b", "42");
+    verify_solution(&stdout, "a", "1");
+    // sub(b, 2) should use global b (42) as first arg: 42 - 2 = 40
+    verify_solution(&stdout, "result", "40");
+}
+
 // ============================================================================
 // Method Call Tests
 // ============================================================================
