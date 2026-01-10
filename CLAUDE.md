@@ -257,6 +257,7 @@ The project has comprehensive test suites for each component. All major componen
   - Nested structs with qualified names
   - Recursive struct detection
   - **Container with-statements** (dot-prefix syntax for namespacing)
+  - **Transform with-statements** (coordinate transformations with `__transform__` methods)
 
 ### 🚧 Partially Implemented (Parser/HIR Only)
 
@@ -264,7 +265,6 @@ These features have parser and HIR support but **not yet in constraint solver**:
 
 - **For Loops**: Parsed and in HIR, needs loop unrolling in constraint extractor
 - **Functions**: Definitions parsed and in HIR, function calls need solver support
-- **Transform With-Statements**: Parsed and in HIR, transform semantics not in solver (container contexts fully supported)
 
 ### ❌ Not Yet Implemented
 
@@ -285,24 +285,25 @@ These features have parser and HIR support but **not yet in constraint solver**:
 
 ### Recommended Priority Order
 
-1. **For Loops** (High Priority)
-   - Requires arrays to be useful (arrays are now implemented)
-   - Implement loop unrolling in constraint extractor
-   - Generate constraints for each iteration
-
-2. **Function Calls** (High Priority - Game Changer)
+1. **Function Calls** (High Priority - Game Changer)
    - Function call inlining/expansion in HIR
    - Standard library basics: `point()`, `distance()`
    - Makes language practically usable for CAD workflows
+
+2. **For Loops** (High Priority)
+   - Requires arrays to be useful (arrays are now implemented)
+   - Implement loop unrolling in constraint extractor
+   - Generate constraints for each iteration
 
 3. **Reference Types** (Medium Priority)
    - Entity vs. reference distinction
    - Reference type validation
    - Important for correct semantics
 
-4. **With Statements + Transforms** (Low Priority)
-   - Coordinate transformations
-   - Requires container structs
+4. **Combined Container + Transform Contexts** (Low Priority)
+   - Structs with both container field and `__transform__` methods
+   - Bidirectional transformations (inverse transforms)
+   - Variables declared in transform contexts that leak out
    - Complex feature, defer until core is stable
 
 ### Extension Guidelines
@@ -329,6 +330,7 @@ When adding new features to the constraint solver:
 - Nested structs with qualified names (e.g., `line.start.x`)
 - Struct literal type inference
 - **Container with-statements** (dot-prefix syntax for container field namespacing)
+- **Transform with-statements** (coordinate transformations with `__transform__` methods)
 
 ### Limitations
 
@@ -338,7 +340,7 @@ When adding new features to the constraint solver:
 - No nested if-statements
 - Array indexing only supports constant integer indices (not variable indices)
 - No for loops or function calls (yet)
-- Transform with-statements not supported (only container contexts)
+- Transform functions must return struct literals (not expressions or computed values)
 
 ### Examples
 
@@ -439,6 +441,68 @@ sketch.entities.p2.y = 10
 ```
 
 **How it works:** The `with sketch { ... }` block creates a container context. Inside the block, the dot-prefix syntax (`.p1`, `.p2`) creates variables in the container's namespace (`sketch.entities.p1`, `sketch.entities.p2`). These variables are automatically flattened and solved like regular struct variables.
+
+#### Transform With-Statement Example
+
+**Input file (transform_translate_simple.cad):**
+```
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Translate {
+    offset_x: i32,
+    offset_y: i32,
+
+    fn __transform__(p: &Point) -> Point {
+        Point {
+            x: p.x + self.offset_x,
+            y: p.y + self.offset_y,
+        }
+    }
+}
+
+// Define the base point in original coordinates
+let base: Point;
+base.x == 10;
+base.y == 20;
+
+// Define the translation offsets
+let shift: Translate;
+shift.offset_x == 5;
+shift.offset_y == 3;
+
+// Transform context: constraints on transformed coordinates
+with shift {
+    // Inside the block, base refers to transformed coordinates
+    // Constraint: base__transformed.x = base.x + shift.offset_x = 10 + 5 = 15
+    base.x == 15;
+    base.y == 23;
+}
+```
+
+**Command:**
+```bash
+cargo run -- solve transform_translate_simple.cad
+```
+
+**Output:**
+```
+base.x = 10
+base.y = 20
+shift.offset_x = 5
+shift.offset_y = 3
+base__transformed.x = 15
+base__transformed.y = 23
+```
+
+**How it works:** The `with shift { ... }` block creates a transform context. When `base` is referenced inside the block, it's automatically transformed using the `__transform__` method. The constraint extractor:
+1. Creates transformed variables (`base__transformed.x`, `base__transformed.y`)
+2. Inlines the transform function: `base__transformed.x = base.x + shift.offset_x`
+3. Rewrites references: `base.x` inside the block becomes `base__transformed.x`
+4. Generates constraints relating original and transformed coordinates
+5. Z3 solves for all variables including the transformed coordinates
 
 ## Dependencies
 

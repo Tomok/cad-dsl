@@ -547,7 +547,8 @@ fn inline_expression<'src, 'arena>(
             }
 
             // Substitute parameters in the return expression
-            let inlined_body = substitute_parameters(func_info.return_expr, &param_map, context)?;
+            let inlined_body =
+                substitute_parameters_impl(func_info.return_expr, &param_map, context)?;
 
             // Pop the call from the stack
             context.pop_call();
@@ -596,7 +597,8 @@ fn inline_expression<'src, 'arena>(
             }
 
             // Substitute parameters in the return expression
-            let inlined_body = substitute_parameters(func_info.return_expr, &param_map, context)?;
+            let inlined_body =
+                substitute_parameters_impl(func_info.return_expr, &param_map, context)?;
 
             // Pop the call from the stack
             context.pop_call();
@@ -924,7 +926,27 @@ fn extract_return_from_body<'src, 'arena>(
 ///
 /// This recursively walks the expression tree and replaces variable references
 /// to parameters with the corresponding argument expressions.
-fn substitute_parameters<'src, 'arena>(
+///
+/// # Public API
+///
+/// This function is made public to support transform with-statement processing
+/// in the constraint extractor, which needs to inline transform function bodies.
+pub fn substitute_parameters<'src, 'arena>(
+    expr: &'arena ResolvedExpr<'src, 'arena>,
+    param_map: &HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>>,
+    arena: &'arena Bump,
+) -> Result<&'arena ResolvedExpr<'src, 'arena>, FunctionInlinerError> {
+    // Create a minimal context for parameter substitution
+    let context = InlinerContext {
+        arena,
+        call_stack: Vec::new(),
+        function_map: HashMap::new(),
+    };
+    substitute_parameters_impl(expr, param_map, &context)
+}
+
+/// Implementation of parameter substitution
+fn substitute_parameters_impl<'src, 'arena>(
     expr: &'arena ResolvedExpr<'src, 'arena>,
     param_map: &HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>>,
     context: &InlinerContext<'src, 'arena>,
@@ -944,8 +966,8 @@ fn substitute_parameters<'src, 'arena>(
 
         // Binary operations - recursively substitute in both operands
         ResolvedExprKind::And { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::And {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -953,8 +975,8 @@ fn substitute_parameters<'src, 'arena>(
         }
 
         ResolvedExprKind::Or { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::Or {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -962,8 +984,8 @@ fn substitute_parameters<'src, 'arena>(
         }
 
         ResolvedExprKind::Eq { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::Eq {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -971,8 +993,8 @@ fn substitute_parameters<'src, 'arena>(
         }
 
         ResolvedExprKind::NotEq { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::NotEq {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -980,8 +1002,8 @@ fn substitute_parameters<'src, 'arena>(
         }
 
         ResolvedExprKind::Lt { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::Lt {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -989,8 +1011,8 @@ fn substitute_parameters<'src, 'arena>(
         }
 
         ResolvedExprKind::Gt { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::Gt {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -998,8 +1020,8 @@ fn substitute_parameters<'src, 'arena>(
         }
 
         ResolvedExprKind::LtEq { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::LtEq {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -1007,8 +1029,8 @@ fn substitute_parameters<'src, 'arena>(
         }
 
         ResolvedExprKind::GtEq { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::GtEq {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -1016,8 +1038,8 @@ fn substitute_parameters<'src, 'arena>(
         }
 
         ResolvedExprKind::Add { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::Add {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -1025,8 +1047,8 @@ fn substitute_parameters<'src, 'arena>(
         }
 
         ResolvedExprKind::Sub { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::Sub {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -1034,8 +1056,8 @@ fn substitute_parameters<'src, 'arena>(
         }
 
         ResolvedExprKind::Mul { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::Mul {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -1043,8 +1065,8 @@ fn substitute_parameters<'src, 'arena>(
         }
 
         ResolvedExprKind::Div { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::Div {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -1052,8 +1074,8 @@ fn substitute_parameters<'src, 'arena>(
         }
 
         ResolvedExprKind::Mod { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::Mod {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -1061,8 +1083,8 @@ fn substitute_parameters<'src, 'arena>(
         }
 
         ResolvedExprKind::Pow { lhs, rhs } => {
-            let sub_lhs = substitute_parameters(lhs, param_map, context)?;
-            let sub_rhs = substitute_parameters(rhs, param_map, context)?;
+            let sub_lhs = substitute_parameters_impl(lhs, param_map, context)?;
+            let sub_rhs = substitute_parameters_impl(rhs, param_map, context)?;
             ResolvedExprKind::Pow {
                 lhs: sub_lhs,
                 rhs: sub_rhs,
@@ -1071,24 +1093,24 @@ fn substitute_parameters<'src, 'arena>(
 
         // Unary operations - recursively substitute in the inner expression
         ResolvedExprKind::Neg { inner } => {
-            let sub_inner = substitute_parameters(inner, param_map, context)?;
+            let sub_inner = substitute_parameters_impl(inner, param_map, context)?;
             ResolvedExprKind::Neg { inner: sub_inner }
         }
 
         ResolvedExprKind::Ref { inner } => {
-            let sub_inner = substitute_parameters(inner, param_map, context)?;
+            let sub_inner = substitute_parameters_impl(inner, param_map, context)?;
             ResolvedExprKind::Ref { inner: sub_inner }
         }
 
         ResolvedExprKind::Paren { inner } => {
-            let sub_inner = substitute_parameters(inner, param_map, context)?;
+            let sub_inner = substitute_parameters_impl(inner, param_map, context)?;
             ResolvedExprKind::Paren { inner: sub_inner }
         }
 
         // Array indexing - substitute in array and index
         ResolvedExprKind::Index { array, index } => {
-            let sub_array = substitute_parameters(array, param_map, context)?;
-            let sub_index = substitute_parameters(index, param_map, context)?;
+            let sub_array = substitute_parameters_impl(array, param_map, context)?;
+            let sub_index = substitute_parameters_impl(index, param_map, context)?;
             ResolvedExprKind::Index {
                 array: sub_array,
                 index: sub_index,
@@ -1106,7 +1128,7 @@ fn substitute_parameters<'src, 'arena>(
                         field_def,
                         span,
                     } => {
-                        let sub_value = substitute_parameters(value, param_map, context)?;
+                        let sub_value = substitute_parameters_impl(value, param_map, context)?;
                         Ok(ResolvedStructLitField::Field {
                             name,
                             value: sub_value,
@@ -1120,7 +1142,7 @@ fn substitute_parameters<'src, 'arena>(
                         method_def,
                         span,
                     } => {
-                        let sub_value = substitute_parameters(value, param_map, context)?;
+                        let sub_value = substitute_parameters_impl(value, param_map, context)?;
                         Ok(ResolvedStructLitField::ComputedProperty {
                             name,
                             value: sub_value,
@@ -1140,7 +1162,7 @@ fn substitute_parameters<'src, 'arena>(
         ResolvedExprKind::ArrayLit { elements } => {
             let sub_elements = elements
                 .iter()
-                .map(|elem| substitute_parameters(elem, param_map, context))
+                .map(|elem| substitute_parameters_impl(elem, param_map, context))
                 .collect::<Result<Vec<_>, _>>()?;
             ResolvedExprKind::ArrayLit {
                 elements: sub_elements,
@@ -1153,7 +1175,7 @@ fn substitute_parameters<'src, 'arena>(
             field_name,
             field,
         } => {
-            let sub_receiver = substitute_parameters(receiver, param_map, context)?;
+            let sub_receiver = substitute_parameters_impl(receiver, param_map, context)?;
             ResolvedExprKind::FieldAccess {
                 receiver: sub_receiver,
                 field_name,
@@ -1168,10 +1190,10 @@ fn substitute_parameters<'src, 'arena>(
             method,
             args,
         } => {
-            let sub_receiver = substitute_parameters(receiver, param_map, context)?;
+            let sub_receiver = substitute_parameters_impl(receiver, param_map, context)?;
             let sub_args = args
                 .iter()
-                .map(|arg| substitute_parameters(arg, param_map, context))
+                .map(|arg| substitute_parameters_impl(arg, param_map, context))
                 .collect::<Result<Vec<_>, _>>()?;
             ResolvedExprKind::MethodCall {
                 receiver: sub_receiver,
@@ -1189,7 +1211,7 @@ fn substitute_parameters<'src, 'arena>(
         } => {
             let sub_args = args
                 .iter()
-                .map(|arg| substitute_parameters(arg, param_map, context))
+                .map(|arg| substitute_parameters_impl(arg, param_map, context))
                 .collect::<Result<Vec<_>, _>>()?;
             ResolvedExprKind::FunctionCall {
                 name,
