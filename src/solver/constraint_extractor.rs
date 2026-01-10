@@ -330,7 +330,7 @@ impl<'src, 'arena> Default for ConstraintProblem<'src, 'arena> {
 ///
 /// Returns a `ConstraintProblem` or a list of errors if unsupported
 /// constructs are encountered.
-pub fn extract_constraints<'src, 'arena>(
+pub fn extract_constraints<'src, 'arena: 'src>(
     statements: &[&'arena ResolvedStmt<'src, 'arena>],
     arena: &'arena bumpalo::Bump,
 ) -> Result<ConstraintProblem<'src, 'arena>, Vec<ConstraintExtractorError>> {
@@ -351,7 +351,7 @@ pub fn extract_constraints<'src, 'arena>(
 }
 
 /// Process a single statement
-fn process_statement<'src, 'arena>(
+fn process_statement<'src, 'arena: 'src>(
     stmt: &'arena ResolvedStmt<'src, 'arena>,
     problem: &mut ConstraintProblem<'src, 'arena>,
     arena: &'arena bumpalo::Bump,
@@ -360,7 +360,7 @@ fn process_statement<'src, 'arena>(
 }
 
 /// Process a single statement with an optional with-context for container field declarations
-fn process_statement_with_context<'src, 'arena>(
+fn process_statement_with_context<'src, 'arena: 'src>(
     stmt: &'arena ResolvedStmt<'src, 'arena>,
     problem: &mut ConstraintProblem<'src, 'arena>,
     with_context: Option<&WithContext<'src, 'arena>>,
@@ -968,7 +968,7 @@ fn extract_container_var_name<'src, 'arena>(
 /// 2. Create new "transformed" variables with the transformer's output type
 /// 3. Inline the transformer function to create constraints relating original -> transformed
 /// 4. Rewrite the with-block to use transformed variables
-fn process_transform_with_statement<'src, 'arena>(
+fn process_transform_with_statement<'src, 'arena: 'src>(
     ctx: &WithContext<'src, 'arena>,
     body: &[&'arena ResolvedStmt<'src, 'arena>],
     problem: &mut ConstraintProblem<'src, 'arena>,
@@ -997,17 +997,20 @@ fn process_transform_with_statement<'src, 'arena>(
     for var_name in &outer_vars {
         // Find the variable definition to get its type
         let var_def = find_var_definition_in_problem(problem, var_name)?;
+        // Clone the var_type to avoid borrowing issues
+        let var_type = var_def.var_type.clone();
 
         // Find applicable transformer for this variable's type
-        if let Some(transformer) = find_transformer_for_type(&var_def.var_type, &ctx.transforms) {
+        if let Some(transformer) = find_transformer_for_type(&var_type, &ctx.transforms) {
             // Generate unique transformed variable name
-            let transformed_name = format!("{}__transformed_{}", var_name, counter);
+            let transformed_name_string = format!("{}__transformed_{}", var_name, counter);
+            let transformed_name = arena.alloc_str(&transformed_name_string);
             counter += 1;
 
-            transform_map.insert(var_name, transformed_name.clone());
+            transform_map.insert(var_name, transformed_name_string);
 
             // Create flattened variables for the transformed type
-            let flattened_fields = flatten_type(&transformed_name, transformer.output_type);
+            let flattened_fields = flatten_type(&transformed_name, *transformer.output_type);
             for field in flattened_fields {
                 let variable = Variable::new(
                     &field.full_name,
@@ -1024,9 +1027,9 @@ fn process_transform_with_statement<'src, 'arena>(
             inline_transform_and_create_constraints(
                 transformer,
                 var_name,
-                &transformed_name,
+                transformed_name,
                 ctx.context_expr,
-                &var_def.var_type,
+                &var_type,
                 problem,
                 arena,
                 span,
@@ -1187,10 +1190,10 @@ fn collect_declared_vars_from_stmt<'src, 'arena>(
 }
 
 /// Find variable definition in the constraint problem by name
-fn find_var_definition_in_problem<'src, 'arena>(
-    problem: &ConstraintProblem<'src, 'arena>,
+fn find_var_definition_in_problem<'src, 'arena, 'a>(
+    problem: &'a ConstraintProblem<'src, 'arena>,
     var_name: &str,
-) -> Result<&Variable<'src, 'arena>, ConstraintExtractorError> {
+) -> Result<&'a Variable<'src, 'arena>, ConstraintExtractorError> {
     problem
         .variables
         .iter()
@@ -1206,10 +1209,10 @@ fn find_var_definition_in_problem<'src, 'arena>(
 }
 
 /// Find a transformer that matches the given input type
-fn find_transformer_for_type<'src, 'arena>(
+fn find_transformer_for_type<'src, 'arena, 'a>(
     input_type: &ResolvedType<'src, 'arena>,
-    transformers: &[crate::hir::context::TransformMethod<'src, 'arena>],
-) -> Option<&crate::hir::context::TransformMethod<'src, 'arena>> {
+    transformers: &'a [crate::hir::context::TransformMethod<'src, 'arena>],
+) -> Option<&'a crate::hir::context::TransformMethod<'src, 'arena>> {
     transformers
         .iter()
         .find(|t| types_match(t.input_type, input_type))
@@ -1226,10 +1229,10 @@ fn types_match<'src, 'arena>(
 }
 
 /// Inline transform function and create constraints
-fn inline_transform_and_create_constraints<'src, 'arena>(
+fn inline_transform_and_create_constraints<'src, 'arena: 'src>(
     transformer: &crate::hir::context::TransformMethod<'src, 'arena>,
-    original_var_name: &str,
-    transformed_var_name: &str,
+    original_var_name: &'src str,
+    transformed_var_name: &'src str,
     context_expr: &'arena ResolvedExpr<'src, 'arena>,
     _original_var_type: &ResolvedType<'src, 'arena>,
     problem: &mut ConstraintProblem<'src, 'arena>,
@@ -1318,7 +1321,7 @@ fn inline_transform_and_create_constraints<'src, 'arena>(
                                         definition: arena.alloc(VarDefinition {
                                             name: arena.alloc_str(&qualified_name),
                                             name_span: span,
-                                            var_type: Some(value.ty),
+                                            var_type: Some(*value.ty),
                                             init: None,
                                             scope_level: 0,
                                             span,
@@ -1331,7 +1334,7 @@ fn inline_transform_and_create_constraints<'src, 'arena>(
                             ty: arena.alloc(ResolvedType::Bool { span }),
                         });
 
-                        problem.constraints.push(constraint_expr);
+                        problem.constraints.push(Constraint::new(constraint_expr, span));
                     }
                     crate::hir::expr::ResolvedStructLitField::ComputedProperty { .. } => {
                         // Skip computed properties for now
@@ -1358,7 +1361,7 @@ fn inline_transform_and_create_constraints<'src, 'arena>(
 }
 
 /// Rewrite a statement to use transformed variable names
-fn rewrite_statement_with_transforms<'src, 'arena>(
+fn rewrite_statement_with_transforms<'src, 'arena: 'src>(
     stmt: &'arena ResolvedStmt<'src, 'arena>,
     transform_map: &HashMap<&'src str, String>,
     arena: &'arena bumpalo::Bump,
@@ -1408,7 +1411,7 @@ fn rewrite_statement_with_transforms<'src, 'arena>(
 }
 
 /// Rewrite an expression to use transformed variable names
-fn rewrite_expr_with_transforms<'src, 'arena>(
+fn rewrite_expr_with_transforms<'src, 'arena: 'src>(
     expr: &'arena ResolvedExpr<'src, 'arena>,
     transform_map: &HashMap<&'src str, String>,
     arena: &'arena bumpalo::Bump,

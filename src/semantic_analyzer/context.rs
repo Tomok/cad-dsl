@@ -11,6 +11,7 @@
 
 use super::errors::SemanticError;
 use crate::hir::definitions::{FunctionDefinition, StructDefinition};
+use crate::hir::expr::{ResolvedExpr, ResolvedStmt};
 use crate::hir::scope::ScopeStack;
 use bumpalo::Bump;
 use std::collections::HashMap;

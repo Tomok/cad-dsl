@@ -55,7 +55,7 @@
 //! nesting level and available transforms.
 
 use super::definitions::{ContainerField, FunctionDefinition};
-use super::expr::ResolvedExpr;
+use super::expr::{ResolvedExpr, ResolvedStmt};
 use super::types::ResolvedType;
 
 /// A with-context tracks the state of a `with` statement during HIR resolution.
@@ -131,6 +131,18 @@ pub struct TransformMethod<'src, 'arena> {
     /// The transform function returns values of this type.
     /// In a transform chain, this must match the input type of the next transform.
     pub output_type: &'arena ResolvedType<'src, 'arena>,
+
+    /// The processed function body (HIR statements).
+    ///
+    /// This contains the transform function's body as resolved HIR statements,
+    /// which can be used for inlining during constraint extraction.
+    pub body: Vec<&'arena ResolvedStmt<'src, 'arena>>,
+
+    /// The return expression from the transform function.
+    ///
+    /// This expression computes the transformed value from the input.
+    /// During constraint extraction, this expression is inlined with parameters substituted.
+    pub return_expr: Option<&'arena ResolvedExpr<'src, 'arena>>,
 }
 
 impl<'src, 'arena> WithContext<'src, 'arena> {
@@ -187,15 +199,21 @@ impl<'src, 'arena> TransformMethod<'src, 'arena> {
     /// - `function`: The transform function definition
     /// - `input_type`: The type accepted by this transform
     /// - `output_type`: The type produced by this transform
+    /// - `body`: The resolved function body statements
+    /// - `return_expr`: The return expression from the function
     pub fn new(
         function: &'arena FunctionDefinition<'src, 'arena>,
         input_type: &'arena ResolvedType<'src, 'arena>,
         output_type: &'arena ResolvedType<'src, 'arena>,
+        body: Vec<&'arena ResolvedStmt<'src, 'arena>>,
+        return_expr: Option<&'arena ResolvedExpr<'src, 'arena>>,
     ) -> Self {
         Self {
             function,
             input_type,
             output_type,
+            body,
+            return_expr,
         }
     }
 }

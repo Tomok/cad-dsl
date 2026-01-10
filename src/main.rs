@@ -70,7 +70,9 @@ fn report_semantic_errors(filename: &str, source: &str, errors: Vec<SemanticErro
             | SemanticError::TypeMismatch { span, .. }
             | SemanticError::NotInWithContext { span }
             | SemanticError::NoContainerField { span, .. }
-            | SemanticError::InvalidDotPrefix { span } => span,
+            | SemanticError::InvalidDotPrefix { span }
+            | SemanticError::InvalidTransformSignature { span, .. }
+            | SemanticError::AmbiguousTransformer { first_span: span, .. } => span,
             SemanticError::DuplicateDefinition { second_span, .. } => second_span,
         };
 

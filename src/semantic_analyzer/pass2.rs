@@ -42,7 +42,7 @@ use super::context::AnalyzerContext;
 use super::errors::SemanticError;
 use crate::ast::{Expr, Stmt, StructLitField as AstStructLitField};
 use crate::hir::context::{TransformMethod, WithContext};
-use crate::hir::definitions::{ScopeLevel, StructDefinition, VarDefinition};
+use crate::hir::definitions::{FunctionDefinition, ScopeLevel, StructDefinition, VarDefinition};
 use crate::hir::expr::{
     ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind, ResolvedStructLitField,
 };
@@ -746,7 +746,7 @@ fn collect_transform_methods<'src, 'arena>(
         // Check for duplicate input types
         if let Some((_, first_span)) = seen_input_types
             .iter()
-            .find(|(seen_type, _)| **seen_type == input_type)
+            .find(|(seen_type, _)| **seen_type == *input_type)
         {
             // Found duplicate input type
             ctx.errors.push(SemanticError::AmbiguousTransformer {
@@ -762,7 +762,7 @@ fn collect_transform_methods<'src, 'arena>(
         seen_input_types.push((input_type_ref, method.span));
 
         // Look up resolved method body from the stored map
-        let key = method as *const FunctionDefinition<'src, 'arena>;
+        let key = *method as *const FunctionDefinition<'src, 'arena>;
         let (body, return_expr) = ctx
             .resolved_method_bodies
             .get(&key)
