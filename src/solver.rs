@@ -213,7 +213,7 @@ pub fn solve<'src, 'arena>(
     let inlined_statements = inline_functions(statements, arena)?;
 
     // Step 2: Extract constraints from HIR
-    let problem = extract_constraints(&inlined_statements)
+    let problem = extract_constraints(&inlined_statements, arena)
         .map_err(|errors| SolverError::ConstraintExtraction { errors })?;
 
     // Validate that we have variables and constraints
