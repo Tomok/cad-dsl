@@ -1,0 +1,40 @@
+// Transform with-statement test: scaling
+//
+// This tests a scaling transform that multiplies a point
+// by scale factors.
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Scale {
+    factor_x: i32,
+    factor_y: i32,
+
+    fn __transform__(p: &Point) -> Point {
+        Point {
+            x: p.x * self.factor_x,
+            y: p.y * self.factor_y,
+        }
+    }
+}
+
+// Define the scale factors
+let scaler: Scale;
+scaler.factor_x == 2;
+scaler.factor_y == 3;
+
+// Define an unknown point
+let base: Point;
+
+// Transform context: we know the scaled coordinates
+// and want to find the original coordinates
+with scaler {
+    // Scaled x = base.x * 2 should equal 20
+    // Therefore base.x = 10
+    base.x == 20;
+    // Scaled y = base.y * 3 should equal 30
+    // Therefore base.y = 10
+    base.y == 30;
+}

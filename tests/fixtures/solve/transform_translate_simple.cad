@@ -1,0 +1,42 @@
+// Simple transform with-statement test: translation
+//
+// This tests a basic translation transform that shifts a point
+// by adding offset values.
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Translate {
+    offset_x: i32,
+    offset_y: i32,
+
+    fn __transform__(p: &Point) -> Point {
+        Point {
+            x: p.x + self.offset_x,
+            y: p.y + self.offset_y,
+        }
+    }
+}
+
+// Define the base point in original coordinates
+let base: Point;
+base.x == 10;
+base.y == 20;
+
+// Define the translation offsets
+let shift: Translate;
+shift.offset_x == 5;
+shift.offset_y == 3;
+
+// Transform context: constraints on transformed coordinates
+// Inside the with-block, base.x refers to the transformed coordinate
+// The constraint: base__transformed.x = base.x + shift.offset_x
+// becomes: base__transformed.x = 10 + 5 = 15
+with shift {
+    // Expected transformed.x = 15
+    base.x == 15;
+    // Expected transformed.y = 23
+    base.y == 23;
+}
