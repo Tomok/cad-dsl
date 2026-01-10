@@ -1274,17 +1274,85 @@ fn inline_transform_and_create_constraints<'src, 'arena>(
     );
 
     // Get the return expression from the transform function
-    // For now, we'll skip actual inlining and just document this as TODO
-    // The full implementation would use substitute_parameters to inline the function body
+    let return_expr = match transformer.return_expr {
+        Some(expr) => expr,
+        None => {
+            // Transform function has no return expression - this shouldn't happen
+            // after semantic analysis validation, but handle it gracefully
+            return Ok(());
+        }
+    };
 
-    // TODO: Properly inline transform function body using substitute_parameters
-    // This would involve:
-    // 1. Extracting return expression from transform function body
-    // 2. Calling substitute_parameters(return_expr, &param_map, arena)
-    // 3. Creating constraints from the substituted expression
+    // Inline the transform function by substituting parameters
+    let inlined_expr = substitute_parameters(return_expr, &param_map, arena).map_err(|e| {
+        ConstraintExtractorError::UnsupportedStatement {
+            statement_type: "transform function inlining".to_string(),
+            span,
+            message: format!("Failed to inline transform function: {}", e),
+        }
+    })?;
 
-    // For now, we just add a placeholder - actual constraints will be added when
-    // the transform function body is properly inlined
+    // The inlined expression should produce the transformed value
+    // Create constraints that equate the transformed variable fields with the inlined expression
+    match &inlined_expr.kind {
+        ResolvedExprKind::StructLit { fields, .. } => {
+            // For struct literals, create field-by-field constraints
+            for field in fields {
+                match field {
+                    crate::hir::expr::ResolvedStructLitField::Field {
+                        name: field_name,
+                        value,
+                        ..
+                    } => {
+                        // Create constraint: transformed_var.field = inlined_value
+                        let qualified_name = format!("{}.{}", transformed_var_name, field_name);
+
+                        // Create a constraint expression: transformed_var.field == value
+                        let constraint_expr = arena.alloc(ResolvedExpr {
+                            span,
+                            kind: ResolvedExprKind::Eq {
+                                lhs: arena.alloc(ResolvedExpr {
+                                    span,
+                                    kind: ResolvedExprKind::Var {
+                                        name: arena.alloc_str(&qualified_name),
+                                        definition: arena.alloc(VarDefinition {
+                                            name: arena.alloc_str(&qualified_name),
+                                            name_span: span,
+                                            var_type: Some(value.ty),
+                                            init: None,
+                                            scope_level: 0,
+                                            span,
+                                        }),
+                                    },
+                                    ty: value.ty,
+                                }),
+                                rhs: *value,
+                            },
+                            ty: arena.alloc(ResolvedType::Bool { span }),
+                        });
+
+                        problem.constraints.push(constraint_expr);
+                    }
+                    crate::hir::expr::ResolvedStructLitField::ComputedProperty { .. } => {
+                        // Skip computed properties for now
+                        // TODO: Handle computed properties if needed
+                    }
+                }
+            }
+        }
+        _ => {
+            // For other expression types, we'd need to handle them case by case
+            // For now, this is unsupported
+            return Err(ConstraintExtractorError::UnsupportedStatement {
+                statement_type: "transform return expression".to_string(),
+                span,
+                message: format!(
+                    "Transform function must return a struct literal. Found: {:?}",
+                    inlined_expr.kind
+                ),
+            });
+        }
+    }
 
     Ok(())
 }
@@ -1292,14 +1360,189 @@ fn inline_transform_and_create_constraints<'src, 'arena>(
 /// Rewrite a statement to use transformed variable names
 fn rewrite_statement_with_transforms<'src, 'arena>(
     stmt: &'arena ResolvedStmt<'src, 'arena>,
-    _transform_map: &HashMap<&'src str, String>,
-    _arena: &'arena bumpalo::Bump,
+    transform_map: &HashMap<&'src str, String>,
+    arena: &'arena bumpalo::Bump,
 ) -> Result<&'arena ResolvedStmt<'src, 'arena>, ConstraintExtractorError> {
-    // TODO: Implement statement rewriting to use transformed variables
-    // For now, just return the statement as-is
-    // Full implementation would recursively rewrite variable references in expressions
+    // Recursively rewrite variable references in the statement
+    let new_kind = match &stmt.kind {
+        ResolvedStmtKind::Expression { expr, span } => {
+            let rewritten_expr = rewrite_expr_with_transforms(expr, transform_map, arena)?;
+            ResolvedStmtKind::Expression {
+                expr: rewritten_expr,
+                span: *span,
+            }
+        }
+        ResolvedStmtKind::FieldAssignment {
+            target,
+            value,
+            span,
+        } => {
+            let rewritten_target = rewrite_expr_with_transforms(target, transform_map, arena)?;
+            let rewritten_value = rewrite_expr_with_transforms(value, transform_map, arena)?;
+            ResolvedStmtKind::FieldAssignment {
+                target: rewritten_target,
+                value: rewritten_value,
+                span: *span,
+            }
+        }
+        ResolvedStmtKind::Assignment {
+            var_def,
+            value,
+            span,
+        } => {
+            let rewritten_value = rewrite_expr_with_transforms(value, transform_map, arena)?;
+            ResolvedStmtKind::Assignment {
+                var_def,
+                value: rewritten_value,
+                span: *span,
+            }
+        }
+        // Other statement types pass through unchanged
+        _ => stmt.kind.clone(),
+    };
 
-    Ok(stmt)
+    Ok(arena.alloc(ResolvedStmt {
+        span: stmt.span,
+        kind: new_kind,
+    }))
+}
+
+/// Rewrite an expression to use transformed variable names
+fn rewrite_expr_with_transforms<'src, 'arena>(
+    expr: &'arena ResolvedExpr<'src, 'arena>,
+    transform_map: &HashMap<&'src str, String>,
+    arena: &'arena bumpalo::Bump,
+) -> Result<&'arena ResolvedExpr<'src, 'arena>, ConstraintExtractorError> {
+    let new_kind = match &expr.kind {
+        ResolvedExprKind::Var { name, definition } => {
+            // Check if this variable should be transformed
+            if let Some(transformed_name) = transform_map.get(name) {
+                // Replace with transformed variable reference
+                ResolvedExprKind::Var {
+                    name: arena.alloc_str(transformed_name),
+                    definition: arena.alloc(VarDefinition {
+                        name: arena.alloc_str(transformed_name),
+                        name_span: definition.name_span,
+                        var_type: definition.var_type,
+                        init: definition.init,
+                        scope_level: definition.scope_level,
+                        span: definition.span,
+                    }),
+                }
+            } else {
+                // Keep as is
+                expr.kind.clone()
+            }
+        }
+        ResolvedExprKind::FieldAccess {
+            receiver,
+            field_name,
+            field,
+        } => {
+            let rewritten_receiver = rewrite_expr_with_transforms(receiver, transform_map, arena)?;
+            ResolvedExprKind::FieldAccess {
+                receiver: rewritten_receiver,
+                field_name,
+                field,
+            }
+        }
+        // Binary operations
+        ResolvedExprKind::Add { lhs, rhs } => {
+            let rewritten_lhs = rewrite_expr_with_transforms(lhs, transform_map, arena)?;
+            let rewritten_rhs = rewrite_expr_with_transforms(rhs, transform_map, arena)?;
+            ResolvedExprKind::Add {
+                lhs: rewritten_lhs,
+                rhs: rewritten_rhs,
+            }
+        }
+        ResolvedExprKind::Sub { lhs, rhs } => {
+            let rewritten_lhs = rewrite_expr_with_transforms(lhs, transform_map, arena)?;
+            let rewritten_rhs = rewrite_expr_with_transforms(rhs, transform_map, arena)?;
+            ResolvedExprKind::Sub {
+                lhs: rewritten_lhs,
+                rhs: rewritten_rhs,
+            }
+        }
+        ResolvedExprKind::Mul { lhs, rhs } => {
+            let rewritten_lhs = rewrite_expr_with_transforms(lhs, transform_map, arena)?;
+            let rewritten_rhs = rewrite_expr_with_transforms(rhs, transform_map, arena)?;
+            ResolvedExprKind::Mul {
+                lhs: rewritten_lhs,
+                rhs: rewritten_rhs,
+            }
+        }
+        ResolvedExprKind::Div { lhs, rhs } => {
+            let rewritten_lhs = rewrite_expr_with_transforms(lhs, transform_map, arena)?;
+            let rewritten_rhs = rewrite_expr_with_transforms(rhs, transform_map, arena)?;
+            ResolvedExprKind::Div {
+                lhs: rewritten_lhs,
+                rhs: rewritten_rhs,
+            }
+        }
+        ResolvedExprKind::Eq { lhs, rhs } => {
+            let rewritten_lhs = rewrite_expr_with_transforms(lhs, transform_map, arena)?;
+            let rewritten_rhs = rewrite_expr_with_transforms(rhs, transform_map, arena)?;
+            ResolvedExprKind::Eq {
+                lhs: rewritten_lhs,
+                rhs: rewritten_rhs,
+            }
+        }
+        ResolvedExprKind::NotEq { lhs, rhs } => {
+            let rewritten_lhs = rewrite_expr_with_transforms(lhs, transform_map, arena)?;
+            let rewritten_rhs = rewrite_expr_with_transforms(rhs, transform_map, arena)?;
+            ResolvedExprKind::NotEq {
+                lhs: rewritten_lhs,
+                rhs: rewritten_rhs,
+            }
+        }
+        ResolvedExprKind::Lt { lhs, rhs } => {
+            let rewritten_lhs = rewrite_expr_with_transforms(lhs, transform_map, arena)?;
+            let rewritten_rhs = rewrite_expr_with_transforms(rhs, transform_map, arena)?;
+            ResolvedExprKind::Lt {
+                lhs: rewritten_lhs,
+                rhs: rewritten_rhs,
+            }
+        }
+        ResolvedExprKind::Gt { lhs, rhs } => {
+            let rewritten_lhs = rewrite_expr_with_transforms(lhs, transform_map, arena)?;
+            let rewritten_rhs = rewrite_expr_with_transforms(rhs, transform_map, arena)?;
+            ResolvedExprKind::Gt {
+                lhs: rewritten_lhs,
+                rhs: rewritten_rhs,
+            }
+        }
+        ResolvedExprKind::LtEq { lhs, rhs } => {
+            let rewritten_lhs = rewrite_expr_with_transforms(lhs, transform_map, arena)?;
+            let rewritten_rhs = rewrite_expr_with_transforms(rhs, transform_map, arena)?;
+            ResolvedExprKind::LtEq {
+                lhs: rewritten_lhs,
+                rhs: rewritten_rhs,
+            }
+        }
+        ResolvedExprKind::GtEq { lhs, rhs } => {
+            let rewritten_lhs = rewrite_expr_with_transforms(lhs, transform_map, arena)?;
+            let rewritten_rhs = rewrite_expr_with_transforms(rhs, transform_map, arena)?;
+            ResolvedExprKind::GtEq {
+                lhs: rewritten_lhs,
+                rhs: rewritten_rhs,
+            }
+        }
+        // Unary operations
+        ResolvedExprKind::Neg { inner } => {
+            let rewritten_inner = rewrite_expr_with_transforms(inner, transform_map, arena)?;
+            ResolvedExprKind::Neg {
+                inner: rewritten_inner,
+            }
+        }
+        // Literals and other expressions pass through unchanged
+        _ => expr.kind.clone(),
+    };
+
+    Ok(arena.alloc(ResolvedExpr {
+        span: expr.span,
+        kind: new_kind,
+        ty: expr.ty,
+    }))
 }
 
 // ============================================================================

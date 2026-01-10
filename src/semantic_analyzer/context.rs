@@ -85,6 +85,19 @@ pub struct AnalyzerContext<'src, 'arena> {
     /// All errors encountered during semantic analysis are collected here.
     /// This allows analysis to continue and report multiple errors at once.
     pub errors: Vec<SemanticError>,
+
+    /// Resolved method bodies
+    ///
+    /// Maps function definitions (by address) to their resolved bodies and return expressions.
+    /// Used when collecting transform methods to access the resolved HIR bodies.
+    /// The key is a raw pointer to allow using function definition addresses as identifiers.
+    pub resolved_method_bodies: HashMap<
+        *const FunctionDefinition<'src, 'arena>,
+        (
+            Vec<&'arena ResolvedStmt<'src, 'arena>>,
+            Option<&'arena ResolvedExpr<'src, 'arena>>,
+        ),
+    >,
 }
 
 impl<'src, 'arena> AnalyzerContext<'src, 'arena> {
@@ -113,6 +126,7 @@ impl<'src, 'arena> AnalyzerContext<'src, 'arena> {
             struct_definitions: HashMap::new(),
             function_definitions: HashMap::new(),
             errors: Vec::new(),
+            resolved_method_bodies: HashMap::new(),
         }
     }
 

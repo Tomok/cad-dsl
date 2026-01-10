@@ -174,6 +174,23 @@ pub fn resolve_statement<'src, 'arena>(
             // Resolve method bodies
             let resolved_methods = resolve_statements(ctx, methods);
 
+            // Store resolved method bodies for transform collection
+            // This allows collect_transform_methods to access the resolved HIR
+            for method_stmt in &resolved_methods {
+                if let ResolvedStmtKind::FunctionDef {
+                    func_def,
+                    body,
+                    return_expr,
+                    ..
+                } = &method_stmt.kind
+                {
+                    // Use function definition address as key
+                    let key = *func_def as *const FunctionDefinition<'src, 'arena>;
+                    ctx.resolved_method_bodies
+                        .insert(key, (body.clone(), *return_expr));
+                }
+            }
+
             // Create the HIR statement
             Some(ctx.arena.alloc(ResolvedStmt::new(
                 *span,
@@ -744,11 +761,21 @@ fn collect_transform_methods<'src, 'arena>(
         // Record this input type
         seen_input_types.push((input_type_ref, method.span));
 
-        // Create TransformMethod
+        // Look up resolved method body from the stored map
+        let key = method as *const FunctionDefinition<'src, 'arena>;
+        let (body, return_expr) = ctx
+            .resolved_method_bodies
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| (vec![], None));
+
+        // Create TransformMethod with resolved body and return expression
         transforms.push(TransformMethod::new(
             method,
             input_type_ref,
             output_type_ref,
+            body,
+            return_expr,
         ));
     }
 
