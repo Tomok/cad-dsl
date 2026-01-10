@@ -41,8 +41,8 @@
 use super::context::AnalyzerContext;
 use super::errors::SemanticError;
 use crate::ast::{Expr, Stmt, StructLitField as AstStructLitField};
-use crate::hir::context::WithContext;
-use crate::hir::definitions::{ScopeLevel, VarDefinition};
+use crate::hir::context::{TransformMethod, WithContext};
+use crate::hir::definitions::{ScopeLevel, StructDefinition, VarDefinition};
 use crate::hir::expr::{
     ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind, ResolvedStructLitField,
 };
@@ -652,6 +652,109 @@ fn resolve_function_body<'src, 'arena>(
     Some(stmt)
 }
 
+/// Collect transform methods from a struct definition
+///
+/// Filters methods by the name "__transform__", validates their signatures,
+/// and creates TransformMethod objects for valid methods.
+///
+/// # Validation Rules
+///
+/// - Method name must be exactly "__transform__"
+/// - Must have exactly one parameter
+/// - Parameter must be a reference type
+/// - Must have a return type
+/// - No duplicate input types (detected using PartialEq on ResolvedType)
+///
+/// # Errors
+///
+/// Adds errors to ctx.errors for:
+/// - Invalid signatures (wrong parameter count, non-reference parameter)
+/// - Ambiguous transformers (duplicate input types)
+///
+/// # Parameters
+///
+/// - `ctx`: The analyzer context (for error collection and arena allocation)
+/// - `definition`: The struct definition to collect transform methods from
+///
+/// # Returns
+///
+/// A vector of valid TransformMethod objects
+fn collect_transform_methods<'src, 'arena>(
+    ctx: &mut AnalyzerContext<'src, 'arena>,
+    definition: &'arena StructDefinition<'src, 'arena>,
+) -> Vec<TransformMethod<'src, 'arena>> {
+    let mut transforms = Vec::new();
+    let mut seen_input_types: Vec<(&'arena ResolvedType<'src, 'arena>, Span)> = Vec::new();
+
+    // Filter methods by name "__transform__"
+    for method in &definition.methods {
+        if method.name != "__transform__" {
+            continue;
+        }
+
+        // Validate: must have exactly one parameter
+        if method.params.len() != 1 {
+            ctx.errors.push(SemanticError::InvalidTransformSignature {
+                method_name: method.name.to_string(),
+                reason: format!(
+                    "expected exactly one parameter, found {}",
+                    method.params.len()
+                ),
+                span: method.span,
+            });
+            continue;
+        }
+
+        let param = &method.params[0];
+
+        // Validate: parameter must be a reference type
+        if !param.param_type.is_reference() {
+            ctx.errors.push(SemanticError::InvalidTransformSignature {
+                method_name: method.name.to_string(),
+                reason: "parameter must be a reference type".to_string(),
+                span: param.span,
+            });
+            continue;
+        }
+
+        // Extract input type (inner type of reference)
+        let input_type = param.param_type.as_reference().unwrap(); // Safe due to is_reference check
+
+        // Allocate input type in arena for TransformMethod
+        let input_type_ref = ctx.arena.alloc(*input_type);
+
+        // Allocate output type (return type) in arena for TransformMethod
+        let output_type_ref = ctx.arena.alloc(method.return_type);
+
+        // Check for duplicate input types
+        if let Some((_, first_span)) = seen_input_types
+            .iter()
+            .find(|(seen_type, _)| **seen_type == input_type)
+        {
+            // Found duplicate input type
+            ctx.errors.push(SemanticError::AmbiguousTransformer {
+                struct_name: definition.name.to_string(),
+                input_type: format!("{:?}", input_type), // Simple debug format for now
+                first_span: *first_span,
+                second_span: method.span,
+            });
+            continue;
+        }
+
+        // Record this input type
+        seen_input_types.push((input_type_ref, method.span));
+
+        // Create TransformMethod
+        transforms.push(TransformMethod::new(
+            method,
+            input_type_ref,
+            output_type_ref,
+        ));
+    }
+
+    transforms
+}
+
 /// Resolve a with statement
 fn resolve_with_statement<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
@@ -674,17 +777,16 @@ fn resolve_with_statement<'src, 'arena>(
                 ))
             } else {
                 // Create a transform context
-                ctx.arena.alloc(WithContext::new_transform(
-                    resolved_context,
-                    vec![], // No transforms for now
-                ))
+                let transforms = collect_transform_methods(ctx, definition);
+                ctx.arena
+                    .alloc(WithContext::new_transform(resolved_context, transforms))
             }
         }
         _ => {
             // For non-struct types, create a transform context
             ctx.arena.alloc(WithContext::new_transform(
                 resolved_context,
-                vec![], // No transforms for now
+                vec![], // No transforms for non-struct types
             ))
         }
     };
@@ -3438,5 +3540,308 @@ mod tests {
 
         let resolved = resolved.unwrap();
         assert_matches!(resolved, ResolvedType::UserDefined { .. });
+    }
+
+    // ============================================================================
+    // Transform Method Collection Tests
+    // ============================================================================
+
+    use crate::hir::definitions::{FieldDefinition, FunctionDefinition, FunctionParam};
+
+    /// Helper to create a function parameter with a reference type
+    fn make_ref_param<'src, 'arena>(
+        arena: &'arena Bump,
+        name: &'src str,
+        inner_type: ResolvedType<'src, 'arena>,
+    ) -> FunctionParam<'src, 'arena> {
+        let ref_type = arena.alloc(inner_type);
+        FunctionParam::new(
+            name,
+            make_span(1, 1),
+            ResolvedType::Reference {
+                inner: ref_type,
+                span: make_span(1, 1),
+            },
+            make_span(1, 1),
+        )
+    }
+
+    #[test]
+    fn test_collect_transform_methods_valid_single_transform() {
+        let arena = Bump::new();
+        let source = "struct Transform { fn __transform__(p: &Point) -> Point {} }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Create a Point type for reference
+        let point_type = ResolvedType::I32 {
+            span: make_span(1, 1),
+        };
+
+        // Create __transform__ method
+        let param = make_ref_param(&arena, "p", point_type);
+        let method = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(1, 20),
+            vec![param],
+            point_type,
+            vec![],
+            None,
+            make_span(1, 15),
+        ));
+
+        // Create struct definition with the method
+        let struct_def = arena.alloc(StructDefinition::new(
+            "Transform",
+            make_span(1, 8),
+            vec![],
+            vec![method],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Collect transforms
+        let transforms = collect_transform_methods(&mut ctx, struct_def);
+
+        // Verify
+        assert_eq!(transforms.len(), 1);
+        assert!(!ctx.has_errors());
+        assert_eq!(transforms[0].function.name, "__transform__");
+    }
+
+    #[test]
+    fn test_collect_transform_methods_valid_multiple_transforms() {
+        let arena = Bump::new();
+        let source = "struct Transform { ... }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Create different input types
+        let point_type = ResolvedType::I32 {
+            span: make_span(1, 1),
+        };
+        let vector_type = ResolvedType::F64 {
+            span: make_span(1, 1),
+        };
+
+        // Create first __transform__ method (Point input)
+        let param1 = make_ref_param(&arena, "p", point_type);
+        let method1 = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(1, 20),
+            vec![param1],
+            point_type,
+            vec![],
+            None,
+            make_span(1, 15),
+        ));
+
+        // Create second __transform__ method (Vector input)
+        let param2 = make_ref_param(&arena, "v", vector_type);
+        let method2 = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(2, 20),
+            vec![param2],
+            vector_type,
+            vec![],
+            None,
+            make_span(2, 15),
+        ));
+
+        // Create struct definition with both methods
+        let struct_def = arena.alloc(StructDefinition::new(
+            "Transform",
+            make_span(1, 8),
+            vec![],
+            vec![method1, method2],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Collect transforms
+        let transforms = collect_transform_methods(&mut ctx, struct_def);
+
+        // Verify
+        assert_eq!(transforms.len(), 2);
+        assert!(!ctx.has_errors());
+    }
+
+    #[test]
+    fn test_collect_transform_methods_no_transforms() {
+        let arena = Bump::new();
+        let source = "struct Point { x: i32, y: i32 }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Create struct definition with no methods
+        let struct_def = arena.alloc(StructDefinition::new(
+            "Point",
+            make_span(1, 8),
+            vec![],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Collect transforms
+        let transforms = collect_transform_methods(&mut ctx, struct_def);
+
+        // Verify
+        assert_eq!(transforms.len(), 0);
+        assert!(!ctx.has_errors());
+    }
+
+    #[test]
+    fn test_collect_transform_methods_invalid_param_count() {
+        let arena = Bump::new();
+        let source = "struct Transform { fn __transform__() -> Point {} }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let point_type = ResolvedType::I32 {
+            span: make_span(1, 1),
+        };
+
+        // Create __transform__ method with no parameters
+        let method = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(1, 20),
+            vec![], // No parameters
+            point_type,
+            vec![],
+            None,
+            make_span(1, 15),
+        ));
+
+        let struct_def = arena.alloc(StructDefinition::new(
+            "Transform",
+            make_span(1, 8),
+            vec![],
+            vec![method],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Collect transforms
+        let transforms = collect_transform_methods(&mut ctx, struct_def);
+
+        // Verify
+        assert_eq!(transforms.len(), 0);
+        assert!(ctx.has_errors());
+
+        let errors = ctx.take_errors();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(
+            &errors[0],
+            SemanticError::InvalidTransformSignature { method_name, reason, .. }
+            if method_name == "__transform__" && reason.contains("expected exactly one parameter")
+        );
+    }
+
+    #[test]
+    fn test_collect_transform_methods_invalid_non_reference_param() {
+        let arena = Bump::new();
+        let source = "struct Transform { fn __transform__(p: Point) -> Point {} }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let point_type = ResolvedType::I32 {
+            span: make_span(1, 1),
+        };
+
+        // Create __transform__ method with non-reference parameter
+        let param = FunctionParam::new(
+            "p",
+            make_span(1, 37),
+            point_type, // Not a reference!
+            make_span(1, 37),
+        );
+        let method = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(1, 20),
+            vec![param],
+            point_type,
+            vec![],
+            None,
+            make_span(1, 15),
+        ));
+
+        let struct_def = arena.alloc(StructDefinition::new(
+            "Transform",
+            make_span(1, 8),
+            vec![],
+            vec![method],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Collect transforms
+        let transforms = collect_transform_methods(&mut ctx, struct_def);
+
+        // Verify
+        assert_eq!(transforms.len(), 0);
+        assert!(ctx.has_errors());
+
+        let errors = ctx.take_errors();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(
+            &errors[0],
+            SemanticError::InvalidTransformSignature { method_name, reason, .. }
+            if method_name == "__transform__" && reason.contains("must be a reference type")
+        );
+    }
+
+    #[test]
+    fn test_collect_transform_methods_ambiguous_duplicate_input_types() {
+        let arena = Bump::new();
+        let source = "struct Transform { ... }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let point_type = ResolvedType::I32 {
+            span: make_span(1, 1),
+        };
+
+        // Create first __transform__ method with Point input
+        let param1 = make_ref_param(&arena, "p1", point_type);
+        let method1 = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(1, 20),
+            vec![param1],
+            point_type,
+            vec![],
+            None,
+            make_span(1, 15),
+        ));
+
+        // Create second __transform__ method with same Point input type
+        let param2 = make_ref_param(&arena, "p2", point_type);
+        let method2 = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(2, 20),
+            vec![param2],
+            point_type,
+            vec![],
+            None,
+            make_span(2, 15),
+        ));
+
+        let struct_def = arena.alloc(StructDefinition::new(
+            "Transform",
+            make_span(1, 8),
+            vec![],
+            vec![method1, method2],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Collect transforms
+        let transforms = collect_transform_methods(&mut ctx, struct_def);
+
+        // Verify - first method is valid, second is rejected
+        assert_eq!(transforms.len(), 1);
+        assert!(ctx.has_errors());
+
+        let errors = ctx.take_errors();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(
+            &errors[0],
+            SemanticError::AmbiguousTransformer { struct_name, .. }
+            if struct_name == "Transform"
+        );
     }
 }
