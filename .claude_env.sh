@@ -5,6 +5,14 @@
 
 set -e  # Exit on error
 
+# Detect if script is being sourced or executed
+# When sourced: use 'return', when executed: use 'exit'
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    SCRIPT_EXIT="exit"
+else
+    SCRIPT_EXIT="return"
+fi
+
 LOCAL_PREFIX="$HOME/.local"
 LOCAL_BIN="$LOCAL_PREFIX/usr/bin"
 LOCAL_LIB="$LOCAL_PREFIX/usr/lib/x86_64-linux-gnu"
@@ -12,7 +20,7 @@ LOCAL_PKGCONFIG="$LOCAL_LIB/pkgconfig"
 
 # 1. If nix exists, nothing to do - exit successfully
 if command -v nix >/dev/null 2>&1; then
-    exit 0
+    $SCRIPT_EXIT 0
 fi
 
 # 2. Check if we need to install dependencies
@@ -30,14 +38,14 @@ if [ "$NEED_INSTALL" = true ]; then
     # Download packages
     apt-get download mold z3 libz3-dev libz3-4 >/dev/null 2>&1 || {
         echo "Error: Failed to download packages" >&2
-        exit 1
+        $SCRIPT_EXIT 1
     }
 
     # Extract to ~/.local
     for deb in *.deb; do
         dpkg-deb -x "$deb" "$LOCAL_PREFIX" >/dev/null 2>&1 || {
             echo "Error: Failed to extract $deb" >&2
-            exit 1
+            $SCRIPT_EXIT 1
         }
     done
 
@@ -86,7 +94,7 @@ fi
 EOF
     chmod +x "$NIX_WRAPPER" || {
         echo "Error: Failed to make nix wrapper executable" >&2
-        exit 1
+        $SCRIPT_EXIT 1
     }
 fi
 
@@ -107,4 +115,4 @@ EOF
     fi
 done
 
-exit 0
+$SCRIPT_EXIT 0
