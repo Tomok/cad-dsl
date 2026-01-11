@@ -2,6 +2,8 @@
 
 This document describes the trait-based constraint solver architecture for CAD-DSL, including the tree-based variable management, scope handling with RAII guards, and transform mechanics for coordinate system transformations.
 
+> **Note**: This document describes the **target architecture**. For migrating from the existing solver implementation (~8500 lines), see **[MIGRATION_STRATEGY.md](MIGRATION_STRATEGY.md)** which provides an incremental migration plan that reuses existing code.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -13,6 +15,7 @@ This document describes the trait-based constraint solver architecture for CAD-D
   - [RAII Scope Guards](#raii-scope-guards)
 - [Solvable Trait](#solvable-trait)
 - [Transform Mechanics](#transform-mechanics)
+- [Module Structure](#module-structure)
 - [Implementation Guide](#implementation-guide)
 
 ## Overview
@@ -24,6 +27,15 @@ The solver architecture uses a **trait-based design** where HIR (High-level Inte
 - Maintains clean separation between HIR semantics and solver mechanics
 
 **Key Innovation**: Instead of flattening all variables to strings upfront, we maintain a **tree structure** that mirrors the type hierarchy and only generate flattened Z3 variable names when creating Z3 primitives.
+
+### Migration from Existing Implementation
+
+**Current state**: There is a working solver implementation in `src/solver/` (~8500 lines) using an imperative extraction approach with a monolithic `extract_constraints()` function.
+
+**This document** describes the target trait-based architecture. **For implementation**, see:
+- **[MIGRATION_STRATEGY.md](MIGRATION_STRATEGY.md)** - Incremental migration plan
+- Strategy preserves and reuses existing code (struct flattening, Z3 bridge, etc.)
+- Estimated: 21-42 hours over 3-6 working days
 
 ## Core Design Principles
 
@@ -75,13 +87,19 @@ Use Rust's RAII pattern for automatic scope cleanup:
 - `WithGuard` for with-statement contexts (both container and transform)
 - Impossible to forget cleanup thanks to `Drop` implementation
 
-### 4. Function Inlining for Transforms
+### 4. Function and Method Inlining
 
-Transform functions are **inlined** rather than called:
-- Transform function body is analyzed and substituted
-- Generates direct constraints between source and target variables
-- Enables complex transforms with type changes
-- Reuses existing expression-to-Z3 infrastructure
+User-defined functions and methods are **inlined** rather than called:
+- Function/method body is analyzed and substituted
+- Parameters bound to arguments in the function scope
+- Return expression evaluated to produce result
+- Works for all functions/methods, including `__transform__`
+- Generates direct constraints using existing expression-to-Z3 infrastructure
+
+**Special case - `__transform__` methods:**
+- `__transform__` is a regular method with a special name
+- The **only** difference: automatically invoked by with-statements
+- Inlining mechanism is identical to any other method
 
 ## Architecture Components
 
@@ -649,235 +667,204 @@ impl<'src, 'arena, 'ctx> Solvable<'src, 'arena, 'ctx> for ResolvedStmt<'src, 'ar
 
 ## Transform Mechanics
 
-Transform with-statements create **shadow variables** in multiple scopes linked by constraints derived from the transform function.
+Transform with-statements automatically invoke `__transform__` methods to create **shadow variables** linked by constraints.
 
-### Concept
+### Key Insight: __transform__ is Just a Method
+
+**`__transform__` is a regular method** - it uses the same inlining mechanism as any other method. The only special behavior is:
+
+1. **Lookup**: When entering a with-statement, collect **all** `__transform__` methods (a struct can have multiple overloads)
+2. **Selection**: When a variable is declared, select the appropriate `__transform__` based on declared type
+3. **Auto-call**: Automatically call the selected `__transform__` method
+4. **Shadow creation**: Create a shadow variable for that method's parameter type
+
+The **inlining mechanism is identical** to regular method calls!
+
+**Important**: The language spec allows **multiple `__transform__` overloads** for different types (e.g., one for `Point`, one for `Length`). The correct method must be selected based on the declared variable's type.
+
+### Example: Multiple Transform Overloads
+
+The language spec allows multiple `__transform__` methods for different types:
+
+```rust
+struct Scale {
+    factor: f64,
+    center: Point,
+
+    // Transform for Point type
+    fn __transform__(p: &Point) -> Point {
+        Point {
+            x: self.center.x + (p.x - self.center.x) * self.factor,
+            y: self.center.y + (p.y - self.center.y) * self.factor
+        }
+    }
+
+    // Transform for f64 type (lengths scale linearly)
+    fn __transform__(len: &f64) -> f64 {
+        len * self.factor
+    }
+}
+
+with scale_2x {
+    let .scaled_point: Point;   // Uses __transform__(&Point) -> Point
+    let .scaled_length: f64;     // Uses __transform__(&f64) -> f64
+}
+```
+
+**At declaration time**, the solver must:
+1. Look at the declared type (`Point` or `f64`)
+2. Find the matching `__transform__` method (by return type)
+3. Use that method's parameter type for the shadow variable
+4. Call that specific method
+
+### Concept: Single Transform
 
 When you write:
 ```
 struct Point2D { x: f64, y: f64 }
 struct Point3D { x: f64, y: f64, z: f64 }
 
-fn project(p: Point3D) -> Point2D {
-    return Point2D { x: p.x, y: p.y };
+struct Sketch2D {
+    container entities,
+    origin: Point3D,
+
+    // Transform method: Point3D -> Point2D (2D projection)
+    fn __transform__(p3d: &Point3D) -> Point2D {
+        Point2D {
+            x: p3d.x - self.origin.x,
+            y: p3d.y - self.origin.y
+        }
+    }
 }
 
-let sketch: Sketch;  // Has Point3D coordinate system
+let sketch: Sketch2D = Sketch2D {
+    origin: Point3D { x: 0.0, y: 0.0, z: 0.0 }
+};
 
-with sketch.transform(project) {
-    let p: Point2D;  // Declared in local 2D scope
-    p.x == 10.0;
-    p.y == 20.0;
+with sketch {
+    let .p: Point2D;  // Declared in local 2D scope
+    .p.x == 10.0;
+    .p.y == 20.0;
 }
 
-// After with-statement, 'sketch' has a new 3D point named 'p'
-// linked to the local 2D point via the projection
+// After with-statement, 'sketch.entities' contains a 2D point 'p'
+// linked to a 3D shadow variable via the __transform__ projection
 ```
 
 **What happens**:
-1. Local variable `p: Point2D` is declared in the with-statement scope
-2. Shadow variable `p: Point3D` is **automatically created** in the higher scope
-3. Constraints link them: `p_2d.x == p_3d.x` and `p_2d.y == p_3d.y`
-4. When solving: solver finds values for both, maintaining the relationship
+1. **With-statement enters**: Collect **all** `__transform__` methods from `Sketch2D` → push transform context
+   - In this case: one method `fn __transform__(&Point3D) -> Point2D`
+2. **Variable declaration** `.p: Point2D`:
+   - Create variable `sketch.entities.p` (type: Point2D)
+   - Detect transform context is active
+   - **Select** the `__transform__` method where return type matches declared type (Point2D)
+   - Found: `fn __transform__(p3d: &Point3D) -> Point2D`
+   - Extract parameter type from selected method: `Point3D`
+   - Create shadow variable of type `Point3D`
+3. **Auto-invoke the selected `__transform__`**:
+   - This is a **normal method call**: `sketch.__transform__(&shadow)`
+   - Uses standard method inlining mechanism
+   - Method body evaluated, returns Point2D expression
+   - Constraint created: `sketch.entities.p == <method result>`
+4. **User constraints** `.p.x == 10.0` and `.p.y == 20.0` are added normally
+5. **Z3 solving**: Finds values for both the 2D variable and its 3D shadow, maintaining the transformation relationship
 
 ### Implementation
 
+The implementation has two parts:
+
+**Part 1: General method/function inlining** (used for ALL methods):
+
 ```rust
-/// Link between local and shadow variables
-struct TransformLink<'src, 'arena, 'ctx> {
-    /// Shadow variable in higher scope (e.g., Point3D)
-    source_path: VariablePath<'src>,
-
-    /// Transform function defining the relationship
-    transform_fn: &'arena FunctionDefinition<'src, 'arena>,
-}
-
 impl<'src, 'arena, 'ctx> SolverContext<'src, 'arena, 'ctx> {
-    /// Create shadow variable with transform link
-    fn create_transform_shadow(
+    /// Inline any method call - works for ALL methods including __transform__
+    fn inline_method(
         &mut self,
-        local_path: &VariablePath<'src>,
-        local_type: &ResolvedType<'src, 'arena>,
-        with_info: &WithContextInfo<'src, 'arena>,
-    ) -> Result<(), SolverError> {
-        let (source_path, transform_fn, source_scope) = match with_info {
-            WithContextInfo::Transform { source_path, transform_fn, source_scope } => {
-                (source_path, transform_fn, *source_scope)
-            }
-            _ => return Ok(()), // Not a transform context
-        };
+        self_path: VariablePath<'src>,
+        method: &'arena MethodDefinition<'src, 'arena>,
+        args: &[&'arena ResolvedExpr<'src, 'arena>],
+    ) -> Result<Z3Ast<'ctx>, SolverError> {
+        // 1. Create new scope for method body
+        let _guard = ScopeGuard::new(self);
 
-        // 1. Get source type from transform return type
-        let source_type = transform_fn.return_type
-            .ok_or(SolverError::TransformNoReturnType)?;
+        // 2. Bind self
+        self.self_binding = Some(self_path);
 
-        // 2. Build source variable in higher scope
-        let temp_scope = self.scope_level;
-        self.scope_level = source_scope;
-
-        let source_node = self.build_variable_tree(source_path, source_type)?;
-
-        if let Some(PathComponent::Field(root_name)) = source_path.components.first() {
-            self.variables.insert(root_name, source_node);
+        // 3. Bind parameters to arguments
+        for (param, arg) in method.params.iter().zip(args.iter()) {
+            // For reference parameters: resolve to path
+            // For value parameters: evaluate expression
+            self.bind_parameter(param, arg)?;
         }
 
-        self.scope_level = temp_scope;
+        // 4. Process method body statements
+        for stmt in &method.body {
+            stmt.solve(self)?;
+        }
 
-        // 3. Inline transform function to generate constraints
-        let constraints = self.inline_function_as_constraint(
-            local_path,
-            transform_fn,
-            source_path,
+        // 5. Evaluate return expression
+        method.return_expr.solve(self)
+    }
+
+    /// Inline any function call
+    fn inline_function(
+        &mut self,
+        func: &'arena FunctionDefinition<'src, 'arena>,
+        args: &[&'arena ResolvedExpr<'src, 'arena>],
+    ) -> Result<Z3Ast<'ctx>, SolverError> {
+        // Similar to inline_method, but without self binding
+        // ...
+    }
+}
+```
+
+**Part 2: Transform auto-call logic** (only special handling for `__transform__`):
+
+```rust
+impl<'src, 'arena, 'ctx> SolverContext<'src, 'arena, 'ctx> {
+    /// Handle variable declaration in transform context
+    /// This is the ONLY transform-specific code!
+    fn declare_variable_in_transform_context(
+        &mut self,
+        var_name: &'src str,
+        declared_type: &ResolvedType<'src, 'arena>,
+    ) -> Result<(), SolverError> {
+        let transform_ctx = self.current_transform_context()?;
+
+        // 1. Create the declared variable (e.g., Point2D)
+        let local_path = self.declare_variable(var_name, declared_type)?;
+
+        // 2. Select the appropriate __transform__ method
+        //    Find method where return type matches declared_type
+        let selected_method = transform_ctx.methods
+            .iter()
+            .find(|m| m.return_type == declared_type)
+            .ok_or(SolverError::NoMatchingTransform(declared_type))?;
+
+        // 3. Get source type from selected method's parameter
+        let source_type = selected_method.params[0].ty.as_reference()?;
+
+        // 4. Create shadow variable with source type
+        let shadow_path = self.create_shadow_variable(source_type)?;
+
+        // 5. Call the selected __transform__ using normal method inlining
+        let result = self.inline_method(
+            transform_ctx.struct_path,           // self
+            selected_method,                      // the selected __transform__
+            &[&ResolvedExpr::Variable(shadow_path)],  // args
         )?;
 
-        // 4. Add constraints to solver
-        for constraint in constraints {
-            self.z3_solver.assert(&constraint);
-        }
-
-        // 5. Store transform link
-        if let Some(local_node) = self.get_variable_mut(local_path) {
-            let link = TransformLink {
-                source_path: source_path.clone(),
-                transform_fn,
-            };
-
-            match local_node {
-                VariableNode::Primitive { transform_link, .. } |
-                VariableNode::Struct { transform_link, .. } |
-                VariableNode::Array { transform_link, .. } => {
-                    *transform_link = Some(Box::new(link));
-                }
-            }
-        }
+        // 6. Constrain: local == result
+        self.add_constraint(local_path == result)?;
 
         Ok(())
     }
-
-    /// Inline function to generate constraints
-    /// Returns constraints of form: local = transform_fn(source)
-    fn inline_function_as_constraint(
-        &mut self,
-        target_path: &VariablePath<'src>,
-        func: &FunctionDefinition<'src, 'arena>,
-        source_path: &VariablePath<'src>,
-    ) -> Result<Vec<z3::ast::Bool<'ctx>>, SolverError> {
-        // 1. Extract return expression from function body
-        let body = func.body.as_ref()
-            .ok_or(SolverError::TransformNoBody)?;
-        let return_expr = self.find_return_expression(body)?;
-
-        // 2. Build parameter substitution map
-        let mut substitutions = HashMap::new();
-        if let Some(param) = func.parameters.first() {
-            substitutions.insert(param.name, source_path.clone());
-        }
-
-        // 3. Evaluate return expression with substitutions
-        //    This replaces parameter references with source_path references
-        let result_expr = self.eval_expr_with_substitution(return_expr, &substitutions)?;
-
-        // 4. Generate equality constraints between target and result
-        self.generate_equality_constraints(target_path, result_expr)
-    }
-
-    /// Evaluate expression with variable substitutions
-    fn eval_expr_with_substitution(
-        &mut self,
-        expr: &ResolvedExpr<'src, 'arena>,
-        substitutions: &HashMap<&'src str, VariablePath<'src>>,
-    ) -> Result<Z3Expression<'ctx>, SolverError> {
-        match &expr.kind {
-            ResolvedExprKind::Variable { name, .. } => {
-                // Check if this is a parameter reference that should be substituted
-                if let Some(substitute_path) = substitutions.get(name) {
-                    return self.path_to_z3(substitute_path);
-                }
-                // Normal variable
-                let path = VariablePath::from_name(name);
-                self.path_to_z3(&path)
-            }
-
-            ResolvedExprKind::FieldAccess { base, field, .. } => {
-                // Recursively evaluate base with substitutions
-                let base_expr = self.eval_expr_with_substitution(base, substitutions)?;
-                // Extend path with field
-                base_expr.with_field(field)
-            }
-
-            ResolvedExprKind::StructLiteral { fields, .. } => {
-                // Build struct from field expressions
-                let mut field_map = HashMap::new();
-                for (field_name, field_expr) in fields {
-                    let z3_expr = self.eval_expr_with_substitution(field_expr, substitutions)?;
-                    field_map.insert(*field_name, z3_expr);
-                }
-                Ok(Z3Expression::Struct { fields: field_map })
-            }
-
-            // Arithmetic, comparisons, etc.
-            _ => {
-                // Convert to Z3 with substitutions
-                self.expr_to_z3_with_substitutions(expr, substitutions)
-            }
-        }
-    }
-
-    /// Generate constraints equating two composite expressions
-    fn generate_equality_constraints(
-        &mut self,
-        target_path: &VariablePath<'src>,
-        source_expr: Z3Expression<'ctx>,
-    ) -> Result<Vec<z3::ast::Bool<'ctx>>, SolverError> {
-        let mut constraints = Vec::new();
-
-        match source_expr {
-            Z3Expression::Primitive(source_z3) => {
-                // Simple case: target primitive == source primitive
-                let target_node = self.get_variable(target_path)
-                    .ok_or_else(|| SolverError::UndefinedVariable(target_path.clone()))?;
-                let target_z3 = target_node.as_primitive()
-                    .ok_or_else(|| SolverError::NotAPrimitive(target_path.clone()))?;
-
-                let constraint = self.generate_primitive_equality(target_z3, &source_z3)?;
-                constraints.push(constraint);
-            }
-
-            Z3Expression::Struct { fields } => {
-                // Recursive case: equate each field
-                for (field_name, field_expr) in fields {
-                    let field_path = target_path.with_field(field_name);
-                    let field_constraints = self.generate_equality_constraints(&field_path, field_expr)?;
-                    constraints.extend(field_constraints);
-                }
-            }
-        }
-
-        Ok(constraints)
-    }
-
-    fn generate_primitive_equality(
-        &self,
-        target: &Z3Primitive<'ctx>,
-        source: &Z3Primitive<'ctx>,
-    ) -> Result<z3::ast::Bool<'ctx>, SolverError> {
-        match (target, source) {
-            (Z3Primitive::Int(t), Z3Primitive::Int(s)) => Ok(t._eq(s).into()),
-            (Z3Primitive::Real(t), Z3Primitive::Real(s)) => Ok(t._eq(s).into()),
-            (Z3Primitive::Bool(t), Z3Primitive::Bool(s)) => Ok(t._eq(s)),
-            _ => Err(SolverError::TypeMismatch),
-        }
-    }
-}
-
-/// Intermediate Z3 expression representation
-enum Z3Expression<'ctx> {
-    Primitive(Z3Primitive<'ctx>),
-    Struct {
-        fields: HashMap<&'static str, Z3Expression<'ctx>>,
-    },
 }
 ```
+
+**Critical Point**: The transform context stores **all** `__transform__` methods, not just one. At declaration time, we select the method whose return type matches the declared variable type.
+
+**Key Point**: The `inline_method()` function is used for **both** regular method calls (like `circle.area()`) **and** automatic `__transform__` calls. The only difference is **when** it gets invoked, not **how** it works.
 
 ### Transform Example Walkthrough
 
@@ -886,41 +873,279 @@ enum Z3Expression<'ctx> {
 struct Point2D { x: f64, y: f64 }
 struct Point3D { x: f64, y: f64, z: f64 }
 
-fn project(p: Point3D) -> Point2D {
-    return Point2D { x: p.x, y: p.y };
+struct Sketch2D {
+    container entities,
+    origin: Point3D,
+
+    // Transform method for Point3D -> Point2D (2D projection)
+    fn __transform__(p3d: &Point3D) -> Point2D {
+        Point2D {
+            x: p3d.x - self.origin.x,
+            y: p3d.y - self.origin.y
+        }
+    }
 }
 
-let world: World;
+let sketch: Sketch2D = Sketch2D {
+    origin: Point3D { x: 0.0, y: 0.0, z: 0.0 }
+};
 
-with world.transform(project) {
-    let p: Point2D;
-    p.x == 10.0;
+with sketch {
+    let .p: Point2D;
+    .p.x == 10.0;
+    .p.y == 20.0;
 }
 ```
 
 **Step-by-step**:
 
-1. **Enter with-statement**: `WithGuard` pushes `Transform` context
-2. **Declare `p: Point2D`** in local scope (scope_level = 1)
-   - Creates tree: `p -> Struct { x: Primitive(Real), y: Primitive(Real) }`
-3. **Detect transform context**, call `create_transform_shadow`
-4. **Create shadow variable** `p: Point3D` in higher scope (scope_level = 0)
-   - Creates tree: `p -> Struct { x: Primitive(Real), y: Primitive(Real), z: Primitive(Real) }`
-5. **Inline `project` function**:
-   - Return expression: `Point2D { x: p.x, y: p.y }`
-   - Substitute parameter `p` with source path (3D point)
-   - Generate constraints:
-     - `p_2d.x == p_3d.x`
-     - `p_2d.y == p_3d.y`
-6. **Add constraint** `p.x == 10.0` (refers to 2D point)
-7. **Solve**: Z3 finds `p_3d.x = 10.0`, `p_3d.y = <any>`, `p_3d.z = <any>`, `p_2d.x = 10.0`, `p_2d.y = <any>`
+1. **Enter with-statement**: `WithGuard` collects **all** `__transform__` methods → push transform context
+   - Found methods: `[fn __transform__(&Point3D) -> Point2D]`
+   - Store all methods in transform context
+2. **Declare `.p: Point2D`**:
+   - Create variable: `sketch.entities.p` (type: Point2D)
+   - Check: Are we in transform context? **Yes**
+   - **Select** method where return type matches Point2D
+   - Found: `fn __transform__(p3d: &Point3D) -> Point2D`
+   - Extract parameter type: `Point3D`
+   - Create shadow variable of type `Point3D` in higher scope
+3. **Auto-invoke the selected `__transform__`** (this is a **normal method call**!):
+   - Call: `sketch.__transform__(&shadow)` using `inline_method()`
+   - Create scope for method body
+   - Bind `self` to `sketch`
+   - Bind parameter `p3d` to `shadow` path
+   - Evaluate return expression:
+     ```rust
+     Point2D {
+         x: p3d.x - self.origin.x,  // = shadow.x - sketch.origin.x
+         y: p3d.y - self.origin.y   // = shadow.y - sketch.origin.y
+     }
+     ```
+   - Returns Z3 struct expression
+4. **Create constraint**: `sketch.entities.p == <method result>`
+   - Expands to field-wise constraints:
+     - `sketch.entities.p.x == shadow.x - sketch.origin.x`
+     - `sketch.entities.p.y == shadow.y - sketch.origin.y`
+5. **Add user constraints**: `.p.x == 10.0` and `.p.y == 20.0`
+6. **Z3 solving**: Finds values for all variables including shadow
+
+**Note**: In this example there's only one `__transform__` method, but the selection mechanism works the same way when multiple overloads exist.
+
+## Module Structure
+
+The solver implementation follows a clean separation between trait definitions and implementations, with the `impls/` submodule structure mirroring the HIR structure.
+
+### Directory Layout
+
+```
+src/
+  solver.rs                 # Solvable trait definition, core types, submodule declarations
+  solver/
+    context.rs              # SolverContext with variable management
+    constraint_extractor.rs # High-level constraint extraction pipeline
+    struct_flattener.rs     # Struct/array flattening for Z3
+    z3_bridge.rs            # Z3 interface and expression conversion
+    solution_formatter.rs   # Format Z3 solutions for display
+    function_inliner.rs     # Function/method inlining logic
+    impls.rs                # Submodule declarations for trait implementations
+    impls/
+      expr.rs               # impl Solvable for ResolvedExpr
+      stmt.rs               # impl Solvable for ResolvedStmt
+      definitions.rs        # impl Solvable for FunctionDefinition, etc.
+```
+
+**Note**: Following modern Rust conventions (since 2018 edition), we use `solver.rs` + `solver/` directory instead of `solver/mod.rs`. Similarly, `impls.rs` instead of `impls/mod.rs`.
+
+### Design Rationale
+
+**Why separate impls from the trait?**
+- **Modularity**: Each HIR type's solver logic is isolated
+- **Parallel structure**: `impls/` mirrors `hir/` for easy navigation
+- **Clarity**: Trait definition stays clean and focused
+- **Testing**: Each impl module can have its own test suite
+
+**Comparison with HIR structure:**
+
+```
+src/hir/                    src/solver/impls/
+  expr.rs                     expr.rs        (impl Solvable for ResolvedExpr)
+  definitions.rs              definitions.rs (impl Solvable for Function/Struct/etc.)
+  types.rs                    types.rs       (impl helpers for ResolvedType if needed)
+  scope.rs                    (not needed in solver impls)
+  context.rs                  (not needed in solver impls)
+```
+
+### Example: expr.rs
+
+```rust
+// src/solver/impls/expr.rs
+use crate::hir::expr::ResolvedExpr;
+use crate::solver::{Solvable, SolverContext, SolverError};
+
+impl<'src, 'arena, 'ctx> Solvable<'src, 'arena, 'ctx> for ResolvedExpr<'src, 'arena> {
+    fn solve(
+        &self,
+        ctx: &mut SolverContext<'src, 'arena, 'ctx>,
+    ) -> Result<Z3Ast<'ctx>, SolverError> {
+        match self {
+            ResolvedExpr::Literal(lit) => {
+                // Convert literal to Z3
+            }
+            ResolvedExpr::Variable(var) => {
+                // Lookup variable in context
+            }
+            ResolvedExpr::BinaryOp { op, left, right } => {
+                // Recursively solve operands
+                let left_z3 = left.solve(ctx)?;
+                let right_z3 = right.solve(ctx)?;
+                // Apply operator
+            }
+            ResolvedExpr::FunctionCall { func, args } => {
+                // Inline function
+                ctx.inline_function(func, args)
+            }
+            ResolvedExpr::MethodCall { receiver, method, args } => {
+                // Inline method
+                let self_path = ctx.resolve_expr_to_path(receiver)?;
+                ctx.inline_method(self_path, method, args)
+            }
+            // ... other expression types
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Tests specific to expression solving
+}
+```
+
+### Example: stmt.rs
+
+```rust
+// src/solver/impls/stmt.rs
+use crate::hir::ResolvedStmt;
+use crate::solver::{Solvable, SolverContext, SolverError};
+
+impl<'src, 'arena, 'ctx> Solvable<'src, 'arena, 'ctx> for ResolvedStmt<'src, 'arena> {
+    fn solve(
+        &self,
+        ctx: &mut SolverContext<'src, 'arena, 'ctx>,
+    ) -> Result<(), SolverError> {
+        match self {
+            ResolvedStmt::Let { name, ty, init, .. } => {
+                // Declare variable
+                ctx.declare_variable(name, ty)?;
+
+                // Handle initializer
+                if let Some(init_expr) = init {
+                    let value = init_expr.solve(ctx)?;
+                    ctx.add_initialization_constraint(name, value)?;
+                }
+
+                Ok(())
+            }
+            ResolvedStmt::Expression(expr) => {
+                // Expression statement (constraint)
+                let z3_expr = expr.solve(ctx)?;
+                ctx.assert_constraint(z3_expr)
+            }
+            ResolvedStmt::With { target, body, .. } => {
+                // Handle with-statement
+                let _guard = ctx.enter_with_context(target)?;
+                for stmt in body {
+                    stmt.solve(ctx)?;
+                }
+                Ok(())
+            }
+            // ... other statement types
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Tests specific to statement solving
+}
+```
+
+### Module Declarations
+
+```rust
+// src/solver/impls.rs
+// Declare submodules for trait implementations
+mod expr;
+mod stmt;
+mod definitions;
+
+// All impls are automatically available when the module is imported
+// No need to explicitly re-export since traits are implemented on foreign types
+```
+
+```rust
+// src/solver.rs
+// Declare submodules
+mod context;
+mod constraint_extractor;
+mod struct_flattener;
+mod z3_bridge;
+mod solution_formatter;
+mod function_inliner;
+mod impls;  // This pulls in all trait implementations
+
+// Public exports
+pub use context::SolverContext;
+
+// Trait definition
+pub trait Solvable<'src, 'arena, 'ctx> {
+    type Output;
+
+    fn solve(
+        &self,
+        ctx: &mut SolverContext<'src, 'arena, 'ctx>,
+    ) -> Result<Self::Output, SolverError>;
+}
+```
 
 ## Implementation Guide
 
+### Important: Reuse Existing Code
+
+**There is already a working solver implementation (~8500 lines) in `src/solver/`!**
+
+This guide describes building the trait-based architecture from scratch, but **you should not delete the existing code**. Instead:
+
+1. **See `MIGRATION_STRATEGY.md`** for the incremental migration approach
+2. **Reuse existing components**:
+   - ✅ `struct_flattener.rs` - Struct/array flattening logic (pure functions)
+   - ✅ `recursive_struct_detector.rs` - Cycle detection (independent utility)
+   - ✅ `solution_formatter.rs` - Output formatting (reusable as-is)
+   - 🔄 `z3_bridge.rs` - Z3 integration patterns (adapt to new context)
+   - 🔄 `function_inliner.rs` - Function inlining logic (adapt for trait-based)
+   - ❌ `constraint_extractor.rs` - Replaced by `Solvable` trait impls
+
+**Recommended approach**: Incremental migration (see `MIGRATION_STRATEGY.md`)
+- Preserve legacy as `solver_legacy/`
+- Build new trait-based solver in parallel
+- Extract reusable components
+- Test incrementally
+- Switch when ready
+
+The phases below describe the **new architecture** if building from scratch, but refer to `MIGRATION_STRATEGY.md` for how to migrate the existing implementation.
+
+---
+
+### Phase 0: Module Setup
+1. Create `src/solver.rs` with trait definition and submodule declarations
+2. Create `src/solver/` directory structure
+3. Create `src/solver/impls.rs` with submodule declarations
+4. Create `src/solver/impls/` subdirectory
+5. Create placeholder files: `solver/context.rs`, `solver/impls/expr.rs`, `solver/impls/stmt.rs`
+
 ### Phase 1: Core Infrastructure
-1. Implement `VariablePath` and `PathComponent`
-2. Implement `VariableNode` with tree operations
-3. Implement `SolverContext` with basic variable management
+1. Implement `VariablePath` and `PathComponent` in `src/solver.rs`
+2. Implement `VariableNode` with tree operations in `src/solver/context.rs`
+3. Implement `SolverContext` with basic variable management in `src/solver/context.rs`
 4. Write tests for tree navigation and lookup
 
 ### Phase 2: Guards and Scopes
@@ -930,20 +1155,33 @@ with world.transform(project) {
 4. Write tests for scope push/pop
 
 ### Phase 3: Basic Solving
-1. Implement `Solvable` for simple statements (`Let`, `Expression`)
-2. Implement expression-to-Z3 conversion
-3. Write end-to-end tests for simple constraint problems
+1. Implement `Solvable` for simple statements in `src/solver/impls/stmt.rs`
+   - `Let` statements (variable declaration)
+   - `Expression` statements (constraints)
+2. Implement `Solvable` for expressions in `src/solver/impls/expr.rs`
+   - Literals, variables, binary operations
+   - Expression-to-Z3 conversion
+3. Declare submodules in `src/solver/impls.rs`
+4. Write end-to-end tests for simple constraint problems
 
 ### Phase 4: Container With-Statements
 1. Implement container context handling in `WithGuard`
 2. Add dot-prefix variable name resolution
 3. Write tests for container namespacing
 
-### Phase 5: Transform With-Statements (Most Complex)
-1. Implement `create_transform_shadow`
-2. Implement `inline_function_as_constraint`
-3. Implement `eval_expr_with_substitution`
-4. Write comprehensive tests for transforms
+### Phase 5: Function and Method Inlining
+1. Add `FunctionCall` and `MethodCall` cases to `src/solver/impls/expr.rs`
+2. Implement `inline_function` helper in `src/solver/context.rs`
+3. Implement `inline_method` helper in `src/solver/context.rs`
+4. Add parameter binding and scope management to context
+5. Write tests for simple function/method calls
+
+### Phase 6: Transform With-Statements (Auto-call)
+1. Implement transform context detection in `WithGuard`
+2. Implement shadow variable creation
+3. Add auto-call logic in variable declaration
+4. **Reuse `inline_method`** from Phase 5 - no new inlining code needed!
+5. Write comprehensive tests for transforms
 
 ### Testing Strategy
 
