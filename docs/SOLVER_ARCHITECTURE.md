@@ -2,6 +2,8 @@
 
 This document describes the trait-based constraint solver architecture for CAD-DSL, including the tree-based variable management, scope handling with RAII guards, and transform mechanics for coordinate system transformations.
 
+> **Note**: This document describes the **target architecture**. For migrating from the existing solver implementation (~8500 lines), see **[MIGRATION_STRATEGY.md](MIGRATION_STRATEGY.md)** which provides an incremental migration plan that reuses existing code.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -25,6 +27,15 @@ The solver architecture uses a **trait-based design** where HIR (High-level Inte
 - Maintains clean separation between HIR semantics and solver mechanics
 
 **Key Innovation**: Instead of flattening all variables to strings upfront, we maintain a **tree structure** that mirrors the type hierarchy and only generate flattened Z3 variable names when creating Z3 primitives.
+
+### Migration from Existing Implementation
+
+**Current state**: There is a working solver implementation in `src/solver/` (~8500 lines) using an imperative extraction approach with a monolithic `extract_constraints()` function.
+
+**This document** describes the target trait-based architecture. **For implementation**, see:
+- **[MIGRATION_STRATEGY.md](MIGRATION_STRATEGY.md)** - Incremental migration plan
+- Strategy preserves and reuses existing code (struct flattening, Z3 bridge, etc.)
+- Estimated: 21-42 hours over 3-6 working days
 
 ## Core Design Principles
 
@@ -1097,6 +1108,32 @@ pub trait Solvable<'src, 'arena, 'ctx> {
 ```
 
 ## Implementation Guide
+
+### Important: Reuse Existing Code
+
+**There is already a working solver implementation (~8500 lines) in `src/solver/`!**
+
+This guide describes building the trait-based architecture from scratch, but **you should not delete the existing code**. Instead:
+
+1. **See `MIGRATION_STRATEGY.md`** for the incremental migration approach
+2. **Reuse existing components**:
+   - ✅ `struct_flattener.rs` - Struct/array flattening logic (pure functions)
+   - ✅ `recursive_struct_detector.rs` - Cycle detection (independent utility)
+   - ✅ `solution_formatter.rs` - Output formatting (reusable as-is)
+   - 🔄 `z3_bridge.rs` - Z3 integration patterns (adapt to new context)
+   - 🔄 `function_inliner.rs` - Function inlining logic (adapt for trait-based)
+   - ❌ `constraint_extractor.rs` - Replaced by `Solvable` trait impls
+
+**Recommended approach**: Incremental migration (see `MIGRATION_STRATEGY.md`)
+- Preserve legacy as `solver_legacy/`
+- Build new trait-based solver in parallel
+- Extract reusable components
+- Test incrementally
+- Switch when ready
+
+The phases below describe the **new architecture** if building from scratch, but refer to `MIGRATION_STRATEGY.md` for how to migrate the existing implementation.
+
+---
 
 ### Phase 0: Module Setup
 1. Create `src/solver.rs` with trait definition and submodule declarations
