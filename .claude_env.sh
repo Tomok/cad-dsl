@@ -49,16 +49,16 @@ fi
 # 4. Fix z3.pc file to point to local installation
 Z3_PC="$LOCAL_PKGCONFIG/z3.pc"
 if [ -f "$Z3_PC" ]; then
-    sed -i "s|^prefix=/usr|prefix=$LOCAL_PREFIX|" "$Z3_PC"
-    sed -i "s|^exec_prefix=/usr|exec_prefix=$LOCAL_PREFIX|" "$Z3_PC"
+    sed -i "s|^prefix=/usr|prefix=$LOCAL_PREFIX/usr|" "$Z3_PC"
+    sed -i "s|^exec_prefix=/usr|exec_prefix=$LOCAL_PREFIX/usr|" "$Z3_PC"
 fi
 
 # 5. Add to current session environment variables
 export PATH="$LOCAL_BIN:$PATH"
 export LD_LIBRARY_PATH="$LOCAL_LIB:${LD_LIBRARY_PATH:-}"
 export PKG_CONFIG_PATH="$LOCAL_PKGCONFIG:${PKG_CONFIG_PATH:-}"
-export C_INCLUDE_PATH="$LOCAL_PREFIX/include:${C_INCLUDE_PATH:-}"
-export CPLUS_INCLUDE_PATH="$LOCAL_PREFIX/include:${CPLUS_INCLUDE_PATH:-}"
+export C_INCLUDE_PATH="$LOCAL_PREFIX/usr/include:${C_INCLUDE_PATH:-}"
+export CPLUS_INCLUDE_PATH="$LOCAL_PREFIX/usr/include:${CPLUS_INCLUDE_PATH:-}"
 
 # 6. Create nix wrapper script in ~/.local/bin
 NIX_WRAPPER="$LOCAL_BIN/nix"
@@ -69,7 +69,7 @@ if [ ! -f "$NIX_WRAPPER" ]; then
 # Nix wrapper - forwards commands to actual applications
 # Usage: nix shell -c <command>
 
-# Ensure PATH includes ~/.local/usr/bin
+# Ensure environment variables are set
 export PATH="$HOME/.local/usr/bin:$PATH"
 export LD_LIBRARY_PATH="$HOME/.local/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
 export PKG_CONFIG_PATH="$HOME/.local/usr/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH:-}"
