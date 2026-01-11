@@ -4,6 +4,13 @@
 
 This document describes the **iterative partial solving** architecture for Phase 3 of the solver migration. The goal is to enable the solver to handle constraints that depend on values that are initially unknown but can be determined through solving.
 
+**Phase 3 Scope** (from MIGRATION_STRATEGY.md):
+- Priority 4: For loops (loop unrolling)
+- Priority 6: Functions (function inlining, method calls, parameter binding)
+- Priority 7: Transforms (transform with-statements, shadow variables, auto-call __transform__)
+
+The partial solve mechanism is critical for Priorities 4 and 6, where constraints may depend on values solved in earlier iterations.
+
 ## Motivation
 
 ### The Problem
@@ -54,6 +61,10 @@ A **deferred constraint** is a constraint that cannot be immediately processed b
 
 ```rust
 /// Result of a solve operation
+///
+/// Both Complete and Partial are valid outcomes (not errors).
+/// Partial means some constraints couldn't be resolved due to
+/// missing dependencies, but a valid partial solution exists.
 pub enum SolveResult<'src, 'arena> {
     /// All constraints were fully resolved
     Complete {
@@ -62,6 +73,10 @@ pub enum SolveResult<'src, 'arena> {
     },
 
     /// Partial solution - some constraints could not be resolved
+    ///
+    /// This is NOT an error - it's a valid result indicating
+    /// that solving progressed as far as possible with the
+    /// given constraints.
     Partial {
         solution: Solution<'src, 'arena>,
         deferred: Vec<DeferredConstraint<'src, 'arena>>,
@@ -115,13 +130,11 @@ pub enum PartialReason {
         span: Span,
     },
 
-    /// Maximum iterations reached without full resolution
-    MaxIterationsReached {
-        max: usize,
-        remaining_deferred: usize,
-    },
-
     /// No progress made - deferred constraints still have unknown dependencies
+    ///
+    /// Solving stops when no new variables are resolved between iterations,
+    /// indicating that the remaining deferred constraints cannot be satisfied
+    /// with the current information.
     NoProgress {
         stuck_constraints: Vec<String>,
     },
@@ -164,7 +177,7 @@ pub enum Value {
 
 ### Solver Context Extensions
 
-The `SolverContext` needs to track deferred constraints and iteration state:
+The `SolverContext` needs to track deferred constraints and progress:
 
 ```rust
 pub struct SolverContext<'src, 'arena> {
@@ -173,14 +186,15 @@ pub struct SolverContext<'src, 'arena> {
     /// Constraints that have been deferred
     deferred_constraints: Vec<DeferredConstraint<'src, 'arena>>,
 
-    /// Current iteration number
+    /// Current iteration number (for diagnostics)
     iteration: usize,
-
-    /// Maximum iterations before giving up
-    max_iterations: usize,
 
     /// Solution from the last Z3 solve (if any)
     current_solution: Option<Solution<'src, 'arena>>,
+
+    /// Number of variables with determined values in previous iteration
+    /// (used to detect progress)
+    previous_solved_count: usize,
 }
 
 impl<'src, 'arena> SolverContext<'src, 'arena> {
@@ -273,13 +287,15 @@ pub trait Solvable<'src, 'arena> {
    - Read all variables from Z3 model after solving
    - Store in `Solution` struct
 
-2. **Implement iterative solve loop**
+2. **Implement iterative solve loop with progress tracking**
    ```rust
-   pub fn solve_iterative<'src, 'arena>(
+   pub fn solve<'src, 'arena>(
        statements: &[&'arena ResolvedStmt<'src, 'arena>],
        ctx: &mut SolverContext<'src, 'arena>,
    ) -> Result<SolveResult<'src, 'arena>, SolverError> {
-       for iteration in 0..ctx.max_iterations {
+       let mut iteration = 0;
+
+       loop {
            ctx.iteration = iteration;
 
            // Try to solve all statements
@@ -291,6 +307,11 @@ pub trait Solvable<'src, 'arena> {
            match ctx.z3_solver.check() {
                z3::SatResult::Sat => {
                    let solution = extract_solution(ctx)?;
+                   let current_solved_count = solution.assignments.len();
+
+                   // Check if we made progress
+                   let made_progress = current_solved_count > ctx.previous_solved_count;
+                   ctx.previous_solved_count = current_solved_count;
                    ctx.current_solution = Some(solution.clone());
 
                    // Check if we have deferred constraints
@@ -301,7 +322,23 @@ pub trait Solvable<'src, 'arena> {
                        });
                    }
 
-                   // Try to process deferred constraints in next iteration
+                   // If no progress, stop iterating
+                   if !made_progress {
+                       return Ok(SolveResult::Partial {
+                           solution,
+                           deferred: ctx.deferred_constraints.clone(),
+                           reason: PartialReason::NoProgress {
+                               stuck_constraints: ctx.deferred_constraints
+                                   .iter()
+                                   .map(|dc| dc.description.clone())
+                                   .collect(),
+                           },
+                           iterations: iteration + 1,
+                       });
+                   }
+
+                   // Made progress - continue to next iteration
+                   iteration += 1;
                    continue;
                }
                z3::SatResult::Unsat => {
@@ -312,9 +349,6 @@ pub trait Solvable<'src, 'arena> {
                }
            }
        }
-
-       // Max iterations reached
-       Err(SolverError::MaxIterationsReached)
    }
    ```
 
@@ -322,9 +356,9 @@ pub trait Solvable<'src, 'arena> {
    - Variables with initializers
    - Cascading constraints
 
-### Phase 3b: For-Loop Deferral
+### Phase 3b: For-Loop Deferral (Priority 4)
 
-**Goal**: Defer for-loops with unknown ranges
+**Goal**: Defer for-loops with unknown ranges, enabling loop unrolling after dependencies are resolved
 
 1. **Implement `impl Solvable for ForLoop`**
    ```rust
@@ -430,12 +464,26 @@ pub trait Solvable<'src, 'arena> {
    }
    ```
 
-### Phase 3c: Testing & Refinement
+### Phase 3c: Function Deferral (Priority 6)
+
+**Goal**: Defer function calls with unknown dependencies
+
+1. **Implement function inlining with deferral**
+   - Adapt `function_inliner.rs` to work with deferral mechanism
+   - Defer function calls when parameters depend on unknown values
+   - Method calls treated similarly to functions
+
+2. **Parameter binding with current solution**
+   - Evaluate parameter expressions using current solution
+   - Defer if parameters can't be fully evaluated
+
+### Phase 3d: Testing & Refinement
 
 1. **Write comprehensive tests**
    - For-loop with known range (immediate)
    - For-loop with unknown range (deferred then solved)
    - For-loop with unsolvable range (partial result)
+   - Function calls with known/unknown parameters
    - Nested dependencies (A depends on B, B depends on C)
    - Multiple deferred constraints
 
@@ -444,45 +492,33 @@ pub trait Solvable<'src, 'arena> {
    - Diagnostic information about what's missing
    - Suggestions for user
 
-3. **Performance optimization**
-   - Use Z3 incremental solving (push/pop)
-   - Avoid re-solving already-satisfied constraints
-
-## Alternative Names
-
-Instead of "partial solve", consider:
-
-- **`solve_incremental()`** - Emphasizes the iterative nature
-- **`solve_with_deferrals()`** - Explicit about deferral mechanism
-- **`solve_progressive()`** - Progressive refinement of solution
-- **`solve_cascading()`** - Cascading constraint resolution
-
-**Recommendation**: Use **`solve_incremental()`** as the main API name, with `SolveResult::Partial` for partial results.
+3. **Performance optimization (optional)**
+   - Consider Z3 incremental solving (push/pop) if needed
+   - Profile to determine if optimization is necessary
 
 ## Migration from Legacy Solver
 
-The legacy solver can continue to exist alongside the new incremental solver:
+The legacy solver will be replaced by the new solver with partial solve support:
 
 ```rust
-// Legacy: fail-fast on unknown dependencies
+// Legacy (solver_legacy.rs): fail-fast on unknown dependencies
 pub fn solve<'src, 'arena>(
     statements: &[&'arena ResolvedStmt<'src, 'arena>],
     arena: &'arena Bump,
 ) -> Result<String, SolverError>
 
-// New: incremental solving with deferrals
-pub fn solve_incremental<'src, 'arena>(
+// New (solver.rs): iterative solving with deferrals
+pub fn solve<'src, 'arena>(
     statements: &[&'arena ResolvedStmt<'src, 'arena>],
     ctx: &mut SolverContext<'src, 'arena>,
-    config: SolveConfig,
 ) -> Result<SolveResult<'src, 'arena>, SolverError>
-
-pub struct SolveConfig {
-    pub max_iterations: usize,  // Default: 10
-    pub allow_partial: bool,    // Default: true
-    pub use_incremental_z3: bool, // Default: true
-}
 ```
+
+**Key differences:**
+- New solver returns `SolveResult` enum (Complete or Partial) instead of just String
+- Progress-based iteration (continues while making progress) instead of fail-fast
+- Deferred constraints tracked explicitly in the result
+- Both Complete and Partial are valid outcomes (not errors)
 
 ## Example Usage
 
@@ -490,20 +526,20 @@ pub struct SolveConfig {
 // Setup
 let arena = Bump::new();
 let mut ctx = SolverContext::new(&arena);
-let config = SolveConfig::default();
 
 // Solve
-let result = solve_incremental(&statements, &mut ctx, config)?;
+let result = solve(&statements, &mut ctx)?;
 
 match result {
     SolveResult::Complete { solution, iterations } => {
-        println!("Solved in {} iterations:", iterations);
+        println!("✓ Solved completely in {} iteration(s):", iterations);
         for (var, value) in &solution.assignments {
             println!("  {} = {:?}", var, value);
         }
     }
     SolveResult::Partial { solution, deferred, reason, iterations } => {
-        println!("Partial solution after {} iterations:", iterations);
+        println!("⚠ Partial solution after {} iteration(s):", iterations);
+        println!("\nResolved:");
         for (var, value) in &solution.assignments {
             println!("  {} = {:?}", var, value);
         }
@@ -521,15 +557,16 @@ match result {
 This design provides:
 
 - ✅ **Graceful handling of unknown dependencies** - defer instead of fail
-- ✅ **Iterative refinement** - solve what's possible, then revisit deferred constraints
-- ✅ **Clear API** - `SolveResult::Complete` vs `SolveResult::Partial`
+- ✅ **Progress-based iteration** - continues unbounded as long as progress is made
+- ✅ **Clear API** - `SolveResult::Complete` vs `SolveResult::Partial` (both valid outcomes)
 - ✅ **Diagnostic information** - know exactly why solving was partial
-- ✅ **Backward compatibility** - legacy solver can coexist
-- ✅ **Extensibility** - easy to add new deferral types (functions, array access, etc.)
+- ✅ **Phase 3 scope alignment** - fits naturally with for-loops (Priority 4) and functions (Priority 6)
+- ✅ **Extensibility** - easy to add new deferral types
 
-The implementation can be done incrementally:
-1. Phase 3a: Basic iteration (1-2 days)
-2. Phase 3b: For-loop deferral (2-3 days)
-3. Phase 3c: Testing & refinement (1-2 days)
+The implementation can be done incrementally within Phase 3:
+1. Phase 3a: Basic iteration infrastructure (1-2 days)
+2. Phase 3b: For-loop deferral - Priority 4 (2-3 days)
+3. Phase 3c: Function deferral - Priority 6 (2-3 days)
+4. Phase 3d: Testing & refinement (1-2 days)
 
-**Total estimate: 4-7 days**
+**Total estimate: 6-10 days** (integrated into Phase 3 of migration)
