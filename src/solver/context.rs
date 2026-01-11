@@ -313,9 +313,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             }
 
             ResolvedType::Array {
-                element_type,
-                size,
-                ..
+                element_type, size, ..
             } => {
                 // Branch node: create indexed children
                 let mut children = Vec::with_capacity(*size);
@@ -351,15 +349,9 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     ) -> Result<Z3Primitive, SolverError> {
         let name = path.to_z3_name(); // Only string allocation!
         Ok(match typ {
-            ResolvedType::I32 { .. } => {
-                Z3Primitive::Int(z3::ast::Int::new_const(name))
-            }
-            ResolvedType::F64 { .. } => {
-                Z3Primitive::Real(z3::ast::Real::new_const(name))
-            }
-            ResolvedType::Bool { .. } => {
-                Z3Primitive::Bool(z3::ast::Bool::new_const(name))
-            }
+            ResolvedType::I32 { .. } => Z3Primitive::Int(z3::ast::Int::new_const(name)),
+            ResolvedType::F64 { .. } => Z3Primitive::Real(z3::ast::Real::new_const(name)),
+            ResolvedType::Bool { .. } => Z3Primitive::Bool(z3::ast::Bool::new_const(name)),
             _ => return Err(SolverError::NotAPrimitiveType),
         })
     }
@@ -369,10 +361,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     // ========================================================================
 
     /// Lookup variable by path
-    pub fn get_variable(
-        &self,
-        path: &VariablePath<'src>,
-    ) -> Option<&VariableNode<'src, 'arena>> {
+    pub fn get_variable(&self, path: &VariablePath<'src>) -> Option<&VariableNode<'src, 'arena>> {
         if path.is_empty() {
             return None;
         }
@@ -502,8 +491,8 @@ impl Drop for WithGuard<'_, '_, '_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert_matches::assert_matches;
     use crate::lexer::{LineColumn, Span};
+    use assert_matches::assert_matches;
 
     fn test_span() -> Span {
         Span {

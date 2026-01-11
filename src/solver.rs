@@ -51,8 +51,12 @@ pub mod solution_formatter;
 // Public Re-exports (Phase 1)
 // ============================================================================
 
+// NOTE: These are part of the public API and will be used in Phase 3+
+#[allow(unused_imports)]
 pub use recursive_struct_detector::detect_cycles;
+#[allow(unused_imports)]
 pub use solution_formatter::{SolutionFormatter, SolutionFormatterError};
+#[allow(unused_imports)]
 pub use struct_flattener::flatten_type;
 
 // ============================================================================
@@ -189,7 +193,9 @@ impl fmt::Display for SolverError {
             SolverError::UndefinedVariable(var) => write!(f, "Undefined variable: {}", var),
             SolverError::NotAPrimitiveType => write!(f, "Not a primitive type"),
             SolverError::UnsupportedStatement(stmt) => write!(f, "Unsupported statement: {}", stmt),
-            SolverError::UnsupportedExpression(expr) => write!(f, "Unsupported expression: {}", expr),
+            SolverError::UnsupportedExpression(expr) => {
+                write!(f, "Unsupported expression: {}", expr)
+            }
             SolverError::ContextError(msg) => write!(f, "Context error: {}", msg),
         }
     }
@@ -208,10 +214,7 @@ pub trait Solvable<'src, 'arena> {
     type Output;
 
     /// Solve this node, adding constraints to the context
-    fn solve(
-        &self,
-        ctx: &mut SolverContext<'src, 'arena>,
-    ) -> Result<Self::Output, SolverError>;
+    fn solve(&self, ctx: &mut SolverContext<'src, 'arena>) -> Result<Self::Output, SolverError>;
 }
 
 // ============================================================================

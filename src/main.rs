@@ -20,13 +20,13 @@ mod solver;
 // Use legacy solver for now until new solver is complete
 use solver_legacy as active_solver;
 
+use active_solver::SolverError;
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use bumpalo::Bump;
 use chumsky::Parser as _;
 use clap::{Parser, Subcommand};
 use lexer::TokenTrait;
 use semantic_analyzer::errors::SemanticError;
-use active_solver::SolverError;
 use std::fs;
 use std::io::{self, Read};
 use type_checker::errors::TypeCheckError;
