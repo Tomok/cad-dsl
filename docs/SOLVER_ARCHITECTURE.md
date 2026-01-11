@@ -75,10 +75,10 @@ Use Rust's RAII pattern for automatic scope cleanup:
 - `WithGuard` for with-statement contexts (both container and transform)
 - Impossible to forget cleanup thanks to `Drop` implementation
 
-### 4. Function Inlining for Transforms
+### 4. Method Inlining for Transforms
 
-Transform functions are **inlined** rather than called:
-- Transform function body is analyzed and substituted
+Transform `__transform__` methods are **inlined** rather than called:
+- Transform method body is analyzed and substituted
 - Generates direct constraints between source and target variables
 - Enables complex transforms with type changes
 - Reuses existing expression-to-Z3 infrastructure
@@ -649,7 +649,7 @@ impl<'src, 'arena, 'ctx> Solvable<'src, 'arena, 'ctx> for ResolvedStmt<'src, 'ar
 
 ## Transform Mechanics
 
-Transform with-statements create **shadow variables** in multiple scopes linked by constraints derived from the transform function.
+Transform with-statements create **shadow variables** in multiple scopes linked by constraints derived from the `__transform__` method.
 
 ### Concept
 
@@ -658,27 +658,40 @@ When you write:
 struct Point2D { x: f64, y: f64 }
 struct Point3D { x: f64, y: f64, z: f64 }
 
-fn project(p: Point3D) -> Point2D {
-    return Point2D { x: p.x, y: p.y };
+struct Sketch2D {
+    container entities,
+    origin: Point3D,
+
+    // Transform method: Point3D -> Point2D (2D projection)
+    fn __transform__(p3d: &Point3D) -> Point2D {
+        Point2D {
+            x: p3d.x - self.origin.x,
+            y: p3d.y - self.origin.y
+        }
+    }
 }
 
-let sketch: Sketch;  // Has Point3D coordinate system
+let sketch: Sketch2D = Sketch2D {
+    origin: Point3D { x: 0.0, y: 0.0, z: 0.0 }
+};
 
-with sketch.transform(project) {
-    let p: Point2D;  // Declared in local 2D scope
-    p.x == 10.0;
-    p.y == 20.0;
+with sketch {
+    let .p: Point2D;  // Declared in local 2D scope
+    .p.x == 10.0;
+    .p.y == 20.0;
 }
 
-// After with-statement, 'sketch' has a new 3D point named 'p'
-// linked to the local 2D point via the projection
+// After with-statement, 'sketch.entities' contains a 2D point 'p'
+// linked to a 3D shadow variable via the __transform__ projection
 ```
 
 **What happens**:
-1. Local variable `p: Point2D` is declared in the with-statement scope
-2. Shadow variable `p: Point3D` is **automatically created** in the higher scope
-3. Constraints link them: `p_2d.x == p_3d.x` and `p_2d.y == p_3d.y`
-4. When solving: solver finds values for both, maintaining the relationship
+1. Local variable `.p: Point2D` is declared in the with-statement scope (2D point in sketch.entities)
+2. Shadow variable of type `Point3D` is **automatically created** in the source scope
+3. Constraints link them via the `__transform__` method:
+   - `sketch.entities.p.x == shadow.x - sketch.origin.x`
+   - `sketch.entities.p.y == shadow.y - sketch.origin.y`
+4. When solving: Z3 finds values for both 2D and 3D variables, maintaining the transformation relationship
 
 ### Implementation
 
@@ -688,7 +701,7 @@ struct TransformLink<'src, 'arena, 'ctx> {
     /// Shadow variable in higher scope (e.g., Point3D)
     source_path: VariablePath<'src>,
 
-    /// Transform function defining the relationship
+    /// Transform method (__transform__) defining the relationship
     transform_fn: &'arena FunctionDefinition<'src, 'arena>,
 }
 
@@ -723,7 +736,7 @@ impl<'src, 'arena, 'ctx> SolverContext<'src, 'arena, 'ctx> {
 
         self.scope_level = temp_scope;
 
-        // 3. Inline transform function to generate constraints
+        // 3. Inline __transform__ method to generate constraints
         let constraints = self.inline_function_as_constraint(
             local_path,
             transform_fn,
@@ -754,8 +767,8 @@ impl<'src, 'arena, 'ctx> SolverContext<'src, 'arena, 'ctx> {
         Ok(())
     }
 
-    /// Inline function to generate constraints
-    /// Returns constraints of form: local = transform_fn(source)
+    /// Inline __transform__ method to generate constraints
+    /// Returns constraints of form: local = __transform__(source)
     fn inline_function_as_constraint(
         &mut self,
         target_path: &VariablePath<'src>,
@@ -886,34 +899,49 @@ enum Z3Expression<'ctx> {
 struct Point2D { x: f64, y: f64 }
 struct Point3D { x: f64, y: f64, z: f64 }
 
-fn project(p: Point3D) -> Point2D {
-    return Point2D { x: p.x, y: p.y };
+struct Sketch2D {
+    container entities,
+    origin: Point3D,
+
+    // Transform method for Point3D -> Point2D (2D projection)
+    fn __transform__(p3d: &Point3D) -> Point2D {
+        Point2D {
+            x: p3d.x - self.origin.x,
+            y: p3d.y - self.origin.y
+        }
+    }
 }
 
-let world: World;
+let sketch: Sketch2D = Sketch2D {
+    origin: Point3D { x: 0.0, y: 0.0, z: 0.0 }
+};
 
-with world.transform(project) {
-    let p: Point2D;
-    p.x == 10.0;
+with sketch {
+    let .p: Point2D;
+    .p.x == 10.0;
+    .p.y == 20.0;
 }
 ```
 
 **Step-by-step**:
 
-1. **Enter with-statement**: `WithGuard` pushes `Transform` context
-2. **Declare `p: Point2D`** in local scope (scope_level = 1)
+1. **Enter with-statement**: `WithGuard` pushes `Transform` context for `sketch`
+2. **Declare `.p: Point2D`** in local scope (scope_level = 1) using dot-prefix
+   - Variable path: `sketch.entities.p`
    - Creates tree: `p -> Struct { x: Primitive(Real), y: Primitive(Real) }`
 3. **Detect transform context**, call `create_transform_shadow`
-4. **Create shadow variable** `p: Point3D` in higher scope (scope_level = 0)
-   - Creates tree: `p -> Struct { x: Primitive(Real), y: Primitive(Real), z: Primitive(Real) }`
-5. **Inline `project` function**:
-   - Return expression: `Point2D { x: p.x, y: p.y }`
-   - Substitute parameter `p` with source path (3D point)
-   - Generate constraints:
-     - `p_2d.x == p_3d.x`
-     - `p_2d.y == p_3d.y`
-6. **Add constraint** `p.x == 10.0` (refers to 2D point)
-7. **Solve**: Z3 finds `p_3d.x = 10.0`, `p_3d.y = <any>`, `p_3d.z = <any>`, `p_2d.x = 10.0`, `p_2d.y = <any>`
+   - Sketch2D has `__transform__(p3d: &Point3D) -> Point2D` method
+4. **Create shadow variable** in source scope (Point3D type)
+   - Shadow variable exists in higher scope to represent the 3D point
+   - Creates tree: `shadow -> Struct { x: Primitive(Real), y: Primitive(Real), z: Primitive(Real) }`
+5. **Inline `__transform__` method**:
+   - Return expression creates a Point2D struct literal with constraints
+   - Substitute parameter `p3d` with shadow variable path
+   - Generate constraints linking 2D point to 3D shadow:
+     - `sketch.entities.p.x == shadow.x - sketch.origin.x`
+     - `sketch.entities.p.y == shadow.y - sketch.origin.y`
+6. **Add constraints** `.p.x == 10.0` and `.p.y == 20.0` (refers to 2D point)
+7. **Solve**: Z3 finds `shadow.x = 10.0`, `shadow.y = 20.0`, `shadow.z = <any>` (unconstrained), and `sketch.entities.p.x = 10.0`, `sketch.entities.p.y = 20.0`
 
 ## Implementation Guide
 
