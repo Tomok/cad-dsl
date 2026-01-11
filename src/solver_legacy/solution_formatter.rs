@@ -27,9 +27,8 @@
 
 #![allow(dead_code)] // Public API for future constraint solving implementation
 
-// Temporarily use legacy solver types until new solver is complete
-use crate::solver_legacy::constraint_extractor::Variable;
-use crate::solver_legacy::z3_bridge::Z3Ast;
+use super::constraint_extractor::Variable;
+use super::z3_bridge::Z3Ast;
 use std::collections::HashMap;
 use std::fmt;
 

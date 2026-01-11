@@ -1,249 +1,241 @@
-//! Solver Pipeline for Constraint Solving
+//! New Trait-Based Solver Architecture
 //!
-//! This module orchestrates the complete constraint solving pipeline, integrating:
-//! - Function call inlining
-//! - Constraint extraction from HIR
-//! - Z3 solver bridge
-//! - Solution formatting
+//! This module implements a trait-based constraint solver architecture for the CAD-DSL language.
+//! Unlike the legacy imperative solver, this version uses the `Solvable` trait pattern where
+//! HIR nodes implement their own constraint generation logic.
 //!
-//! # Purpose
+//! # Architecture Overview
 //!
-//! The solver pipeline provides a high-level API for solving constraint problems
-//! defined in the CAD-DSL language. It takes HIR statements as input and produces
-//! formatted variable assignments as output.
+//! The new solver follows these design principles:
 //!
-//! # Pipeline Stages
+//! 1. **Trait-Based**: HIR nodes implement `Solvable` trait for constraint generation
+//! 2. **Modular**: Functionality split into focused modules in `impls/` subdirectory
+//! 3. **Tree-Based Variables**: Variables organized in a tree structure for scoping
+//! 4. **RAII Guards**: Scope management using guard types
 //!
-//! 1. **Function Inlining**: Inline function calls to eliminate function calls from HIR
-//! 2. **Constraint Extraction**: Extract variables and constraints from HIR statements
-//! 3. **Z3 Translation**: Translate HIR expressions to Z3 assertions
-//! 4. **Solving**: Run Z3 solver to find a satisfying assignment
-//! 5. **Formatting**: Format the solution for human-readable output
+//! # Migration Status
 //!
-//! # Example
+//! **Phase 1** ✓ - Extracted reusable components from legacy solver:
+//! - `struct_flattener.rs` - Flattens struct/array types to primitive fields
+//! - `recursive_struct_detector.rs` - Detects cycles in struct definitions
+//! - `solution_formatter.rs` - Formats Z3 solutions for display
 //!
-//! ```ignore
-//! // Given HIR statements for:
-//! // let x;
-//! // let y = 10;
-//! // x + y == 20;
+//! **Phase 2** (In Progress) - Core infrastructure:
+//! - `PathComponent` and `VariablePath` types for tree navigation
+//! - `Solvable` trait for HIR nodes
+//! - `SolverContext` with tree-based variable management
+//! - RAII guards for scope management
 //!
-//! let result = solve(&statements);
-//! // result == Ok("x = 10\ny = 10\n")
-//! ```
+//! **Phase 3+** (Planned) - Trait implementations for expressions and statements
 //!
-//! # Error Handling
-//!
-//! The pipeline can fail at any stage:
-//! - Empty program (no statements)
-//! - Constraint extraction errors (unsupported statements)
-//! - Z3 translation errors (unsupported types/expressions)
-//! - Solving errors (UNSAT, unknown)
-//! - Formatting errors (evaluation failures)
+//! See `docs/SOLVER_ARCHITECTURE.md` and `docs/MIGRATION_STRATEGY.md` for details.
 
-#![allow(dead_code)] // Public API for future constraint solving integration
+#![allow(dead_code)] // Module under development
+
+use std::fmt::{self, Write as _};
 
 // ============================================================================
-// Submodule Declarations
+// Reusable Components (Phase 1)
 // ============================================================================
 
-pub mod constraint_extractor;
-pub mod function_inliner;
-pub mod recursive_struct_detector;
-pub mod solution_formatter;
+/// Struct and array field flattening for Z3 variable mapping
 pub mod struct_flattener;
-pub mod z3_bridge;
+
+/// Recursive struct cycle detection
+pub mod recursive_struct_detector;
+
+/// Solution formatting for Z3 models
+pub mod solution_formatter;
 
 // ============================================================================
-// Public Re-exports
+// Public Re-exports (Phase 1)
 // ============================================================================
 
+// NOTE: These are part of the public API and will be used in Phase 3+
 #[allow(unused_imports)]
-pub use constraint_extractor::{ConstraintExtractorError, extract_constraints};
-#[allow(unused_imports)]
-pub use function_inliner::{FunctionInlinerError, inline_functions};
+pub use recursive_struct_detector::detect_cycles;
 #[allow(unused_imports)]
 pub use solution_formatter::{SolutionFormatter, SolutionFormatterError};
 #[allow(unused_imports)]
-pub use z3_bridge::{Z3Bridge, Z3BridgeError};
+pub use struct_flattener::flatten_type;
 
 // ============================================================================
-// Imports
+// Phase 2: Core Types and Trait
 // ============================================================================
 
-use crate::hir::expr::ResolvedStmt;
-use bumpalo::Bump;
-use std::fmt;
+/// Component of a variable path for tree navigation
+///
+/// Represents a single step in navigating the variable tree, either
+/// accessing a struct field or indexing into an array.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PathComponent<'src> {
+    /// Struct field access: `.field`
+    Field(&'src str),
 
-// ============================================================================
-// Error Types
-// ============================================================================
+    /// Array index access: `[0]`
+    Index(usize),
+}
 
-/// Errors that can occur during the solving pipeline
+/// Complete path to a variable or sub-variable in the tree
+///
+/// A path is a sequence of components that describes how to navigate
+/// from the root of the variable tree to a specific node.
+///
+/// # Examples
+///
+/// - `p.x` → `[Field("p"), Field("x")]`
+/// - `points[0].y` → `[Field("points"), Index(0), Field("y")]`
+/// - `sketch.entities.line` → `[Field("sketch"), Field("entities"), Field("line")]`
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VariablePath<'src> {
+    components: Vec<PathComponent<'src>>,
+}
+
+impl<'src> VariablePath<'src> {
+    /// Create path from root variable name
+    pub fn from_name(name: &'src str) -> Self {
+        Self {
+            components: vec![PathComponent::Field(name)],
+        }
+    }
+
+    /// Create empty path (used internally)
+    pub fn empty() -> Self {
+        Self {
+            components: Vec::new(),
+        }
+    }
+
+    /// Extend path with field access
+    pub fn with_field(&self, field: &'src str) -> Self {
+        let mut new_path = self.clone();
+        new_path.components.push(PathComponent::Field(field));
+        new_path
+    }
+
+    /// Extend path with array index
+    pub fn with_index(&self, idx: usize) -> Self {
+        let mut new_path = self.clone();
+        new_path.components.push(PathComponent::Index(idx));
+        new_path
+    }
+
+    /// Access the components slice
+    pub fn components(&self) -> &[PathComponent<'src>] {
+        &self.components
+    }
+
+    /// Check if path is empty
+    pub fn is_empty(&self) -> bool {
+        self.components.is_empty()
+    }
+
+    /// Get the length of the path
+    pub fn len(&self) -> usize {
+        self.components.len()
+    }
+
+    /// Generate Z3 variable name
+    ///
+    /// This is the ONLY place where String allocation happens!
+    /// All navigation uses zero-copy `&'src str` references.
+    pub fn to_z3_name(&self) -> String {
+        let mut result = String::new();
+        for (i, comp) in self.components.iter().enumerate() {
+            match comp {
+                PathComponent::Field(name) => {
+                    if i > 0 {
+                        result.push('.');
+                    }
+                    result.push_str(name);
+                }
+                PathComponent::Index(idx) => {
+                    write!(&mut result, "[{}]", idx).unwrap();
+                }
+            }
+        }
+        result
+    }
+}
+
+impl fmt::Display for VariablePath<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_z3_name())
+    }
+}
+
+/// Error types for the solver
 #[derive(Debug, Clone, PartialEq)]
 pub enum SolverError {
-    /// Empty program - no statements provided
-    EmptyProgram,
+    /// Unsupported type in constraint solving
+    UnsupportedType(String),
 
-    /// No variables found in the program
-    NoVariables,
+    /// Variable not found
+    UndefinedVariable(String),
 
-    /// No constraints found in the program
-    NoConstraints,
+    /// Not a primitive type
+    NotAPrimitiveType,
 
-    /// Function inlining failed
-    FunctionInlining { error: FunctionInlinerError },
+    /// Unsupported statement
+    UnsupportedStatement(String),
 
-    /// Constraint extraction failed
-    ConstraintExtraction {
-        errors: Vec<ConstraintExtractorError>,
-    },
+    /// Unsupported expression
+    UnsupportedExpression(String),
 
-    /// Z3 bridge translation failed
-    Z3Bridge { error: Z3BridgeError },
-
-    /// Solution formatting failed
-    SolutionFormatting { error: SolutionFormatterError },
+    /// Context error
+    ContextError(String),
 }
 
 impl fmt::Display for SolverError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SolverError::EmptyProgram => {
-                write!(f, "Empty program: no statements provided")
+            SolverError::UnsupportedType(ty) => write!(f, "Unsupported type: {}", ty),
+            SolverError::UndefinedVariable(var) => write!(f, "Undefined variable: {}", var),
+            SolverError::NotAPrimitiveType => write!(f, "Not a primitive type"),
+            SolverError::UnsupportedStatement(stmt) => write!(f, "Unsupported statement: {}", stmt),
+            SolverError::UnsupportedExpression(expr) => {
+                write!(f, "Unsupported expression: {}", expr)
             }
-            SolverError::NoVariables => {
-                write!(
-                    f,
-                    "No variables found: program must declare at least one variable"
-                )
-            }
-            SolverError::NoConstraints => {
-                write!(
-                    f,
-                    "No constraints found: program must include at least one constraint"
-                )
-            }
-            SolverError::FunctionInlining { error } => {
-                write!(f, "Function inlining failed: {}", error)
-            }
-            SolverError::ConstraintExtraction { errors } => {
-                writeln!(
-                    f,
-                    "Constraint extraction failed with {} error(s):",
-                    errors.len()
-                )?;
-                for (i, err) in errors.iter().enumerate() {
-                    writeln!(f, "  {}. {}", i + 1, err)?;
-                }
-                Ok(())
-            }
-            SolverError::Z3Bridge { error } => {
-                write!(f, "Z3 translation failed: {}", error)
-            }
-            SolverError::SolutionFormatting { error } => {
-                write!(f, "Solution formatting failed: {}", error)
-            }
+            SolverError::ContextError(msg) => write!(f, "Context error: {}", msg),
         }
     }
 }
 
 impl std::error::Error for SolverError {}
 
-// Convert from individual error types
-impl From<FunctionInlinerError> for SolverError {
-    fn from(error: FunctionInlinerError) -> Self {
-        SolverError::FunctionInlining { error }
-    }
-}
+/// Trait for HIR nodes that can be solved as constraints
+///
+/// This trait allows HIR nodes to translate themselves into Z3 constraints
+/// using the solver context. Different node types return different outputs:
+/// - Statements return `()` (they add constraints to the solver)
+/// - Expressions return Z3 AST nodes
+pub trait Solvable<'src, 'arena> {
+    /// The output type when solving this node
+    type Output;
 
-impl From<Z3BridgeError> for SolverError {
-    fn from(error: Z3BridgeError) -> Self {
-        SolverError::Z3Bridge { error }
-    }
-}
-
-impl From<SolutionFormatterError> for SolverError {
-    fn from(error: SolutionFormatterError) -> Self {
-        SolverError::SolutionFormatting { error }
-    }
+    /// Solve this node, adding constraints to the context
+    fn solve(&self, ctx: &mut SolverContext<'src, 'arena>) -> Result<Self::Output, SolverError>;
 }
 
 // ============================================================================
-// Solver Pipeline
+// Phase 2: Modules
 // ============================================================================
 
-/// Solve a constraint problem defined by HIR statements
-///
-/// This is the main entry point for the constraint solving pipeline.
-/// It takes a slice of HIR statements and returns a formatted solution
-/// or an error if the problem cannot be solved.
-///
-/// # Arguments
-///
-/// * `statements` - Slice of HIR statements (from semantic analyzer + type checker)
-/// * `arena` - Arena allocator for creating new HIR nodes during inlining
-///
-/// # Returns
-///
-/// * `Ok(String)` - Formatted solution with variable assignments
-/// * `Err(SolverError)` - Error at any stage of the pipeline
-///
-/// # Example
-///
-/// ```ignore
-/// let arena = Bump::new();
-/// let statements = vec![/* HIR statements */];
-/// let solution = solve(&statements, &arena)?;
-/// println!("{}", solution);
-/// // Output:
-/// // x = 10
-/// // y = 20
-/// ```
-pub fn solve<'src, 'arena>(
-    statements: &[&'arena ResolvedStmt<'src, 'arena>],
-    arena: &'arena Bump,
-) -> Result<String, SolverError> {
-    // Step 0: Validate input
-    if statements.is_empty() {
-        return Err(SolverError::EmptyProgram);
-    }
+/// Solver context with tree-based variable management and RAII guards
+pub mod context;
 
-    // Step 1: Inline function calls
-    let inlined_statements = inline_functions(statements, arena)?;
+// ============================================================================
+// Future Modules (Phase 3+)
+// ============================================================================
 
-    // Step 2: Extract constraints from HIR
-    let problem = extract_constraints(&inlined_statements)
-        .map_err(|errors| SolverError::ConstraintExtraction { errors })?;
+// TODO: Phase 3 - Trait implementations
+// pub mod impls;       // expr.rs, stmt.rs, etc.
 
-    // Validate that we have variables and constraints
-    if problem.variables.is_empty() {
-        return Err(SolverError::NoVariables);
-    }
+// ============================================================================
+// Public Re-exports (Phase 2)
+// ============================================================================
 
-    // Check if we have constraints or if all variables are initialized
-    let has_constraints =
-        !problem.constraints.is_empty() || !problem.conditional_constraints.is_empty();
-    let all_vars_initialized = problem.variables.iter().all(|v| v.init.is_some());
-
-    if !has_constraints && !all_vars_initialized {
-        return Err(SolverError::NoConstraints);
-    }
-
-    // Step 3: Create Z3 bridge and add the problem
-    let mut bridge = Z3Bridge::new();
-    bridge.add_problem(&problem)?;
-
-    // Step 4: Get the solver (already has all assertions added)
-    let solver = bridge.solver();
-
-    // Step 5: Format the solution
-    let var_list: Vec<_> = problem.variables.iter().collect();
-    let formatter = SolutionFormatter::new(bridge.variables(), var_list);
-    let solution = formatter.format_solution(solver)?;
-
-    Ok(solution)
-}
+pub use context::SolverContext;
 
 // ============================================================================
 // Tests
@@ -252,773 +244,235 @@ pub fn solve<'src, 'arena>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hir::definitions::VarDefinition;
-    use crate::hir::expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind};
-    use crate::hir::types::ResolvedType;
-    use crate::lexer::{LineColumn, Span};
-    use assert_matches::assert_matches;
-    use bumpalo::Bump;
 
-    /// Helper to create a test span
-    fn test_span() -> Span {
-        Span {
-            start: LineColumn { line: 1, column: 1 },
-            lines: 0,
-            end_column: 10,
-        }
-    }
+    // ========================================================================
+    // PathComponent Tests
+    // ========================================================================
 
-    /// Helper to create a resolved expression
-    fn make_expr<'arena>(
-        arena: &'arena Bump,
-        kind: ResolvedExprKind<'static, 'arena>,
-        ty: &'arena ResolvedType<'static, 'arena>,
-    ) -> &'arena ResolvedExpr<'static, 'arena> {
-        arena.alloc(ResolvedExpr {
-            span: test_span(),
-            kind,
-            ty,
-        })
-    }
+    #[test]
+    fn test_path_component_field() {
+        let field = PathComponent::Field("test_field");
+        assert_eq!(field, PathComponent::Field("test_field"));
 
-    /// Helper to create a resolved statement
-    fn make_stmt<'arena>(
-        arena: &'arena Bump,
-        kind: ResolvedStmtKind<'static, 'arena>,
-    ) -> &'arena ResolvedStmt<'static, 'arena> {
-        arena.alloc(ResolvedStmt {
-            span: test_span(),
-            kind,
-        })
+        // Test Debug
+        let debug_str = format!("{:?}", field);
+        assert!(debug_str.contains("Field"));
+        assert!(debug_str.contains("test_field"));
     }
 
     #[test]
-    fn test_solve_simple_linear_equation() {
-        // Test: let x; x + 10 == 20;
-        // Expected: x = 10
-        let arena = Bump::new();
-        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
-        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+    fn test_path_component_index() {
+        let index = PathComponent::Index(42);
+        assert_eq!(index, PathComponent::Index(42));
 
-        // let x;
-        let var_def_x = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(*int_ty),
-            init: None,
-            scope_level: 0,
-            span: test_span(),
-        });
-        let stmt_x = make_stmt(
-            &arena,
-            ResolvedStmtKind::Let {
-                dot_prefix: false,
-                name_path: vec![("x", test_span())],
-                var_def: var_def_x,
-                init: None,
-                span: test_span(),
-            },
-        );
-
-        // x + 10 == 20
-        let x_ref = make_expr(
-            &arena,
-            ResolvedExprKind::Var {
-                name: "x",
-                definition: var_def_x,
-            },
-            int_ty,
-        );
-        let ten = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
-        let sum = make_expr(
-            &arena,
-            ResolvedExprKind::Add {
-                lhs: x_ref,
-                rhs: ten,
-            },
-            int_ty,
-        );
-        let twenty = make_expr(&arena, ResolvedExprKind::IntLit { value: 20 }, int_ty);
-        let constraint = make_expr(
-            &arena,
-            ResolvedExprKind::Eq {
-                lhs: sum,
-                rhs: twenty,
-            },
-            bool_ty,
-        );
-        let stmt_constraint = make_stmt(
-            &arena,
-            ResolvedStmtKind::Expression {
-                expr: constraint,
-                span: test_span(),
-            },
-        );
-
-        let result = solve(&[stmt_x, stmt_constraint], &arena);
-        assert!(result.is_ok());
-        let solution = result.unwrap();
-        assert_eq!(solution.trim(), "x = 10");
+        // Test Debug
+        let debug_str = format!("{:?}", index);
+        assert!(debug_str.contains("Index"));
+        assert!(debug_str.contains("42"));
     }
 
     #[test]
-    fn test_solve_multiple_variables() {
-        // Test: let x; let y = 10; x + y == 20;
-        // Expected: x = 10, y = 10
-        let arena = Bump::new();
-        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
-        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
-
-        // let x;
-        let var_def_x = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(*int_ty),
-            init: None,
-            scope_level: 0,
-            span: test_span(),
-        });
-        let stmt_x = make_stmt(
-            &arena,
-            ResolvedStmtKind::Let {
-                dot_prefix: false,
-                name_path: vec![("x", test_span())],
-                var_def: var_def_x,
-                init: None,
-                span: test_span(),
-            },
-        );
-
-        // let y = 10;
-        let init_y = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
-        let var_def_y = arena.alloc(VarDefinition {
-            name: "y",
-            name_span: test_span(),
-            var_type: Some(*int_ty),
-            init: Some(init_y),
-            scope_level: 0,
-            span: test_span(),
-        });
-        let stmt_y = make_stmt(
-            &arena,
-            ResolvedStmtKind::Let {
-                dot_prefix: false,
-                name_path: vec![("y", test_span())],
-                var_def: var_def_y,
-                init: Some(init_y),
-                span: test_span(),
-            },
-        );
-
-        // x + y == 20
-        let x_ref = make_expr(
-            &arena,
-            ResolvedExprKind::Var {
-                name: "x",
-                definition: var_def_x,
-            },
-            int_ty,
-        );
-        let y_ref = make_expr(
-            &arena,
-            ResolvedExprKind::Var {
-                name: "y",
-                definition: var_def_y,
-            },
-            int_ty,
-        );
-        let sum = make_expr(
-            &arena,
-            ResolvedExprKind::Add {
-                lhs: x_ref,
-                rhs: y_ref,
-            },
-            int_ty,
-        );
-        let twenty = make_expr(&arena, ResolvedExprKind::IntLit { value: 20 }, int_ty);
-        let constraint = make_expr(
-            &arena,
-            ResolvedExprKind::Eq {
-                lhs: sum,
-                rhs: twenty,
-            },
-            bool_ty,
-        );
-        let stmt_constraint = make_stmt(
-            &arena,
-            ResolvedStmtKind::Expression {
-                expr: constraint,
-                span: test_span(),
-            },
-        );
-
-        let result = solve(&[stmt_x, stmt_y, stmt_constraint], &arena);
-        assert!(result.is_ok());
-        let solution = result.unwrap();
-        // Variables should be sorted alphabetically
-        assert_eq!(solution, "x = 10\ny = 10\n");
+    fn test_path_component_equality() {
+        assert_eq!(PathComponent::Field("x"), PathComponent::Field("x"));
+        assert_ne!(PathComponent::Field("x"), PathComponent::Field("y"));
+        assert_eq!(PathComponent::Index(0), PathComponent::Index(0));
+        assert_ne!(PathComponent::Index(0), PathComponent::Index(1));
     }
 
     #[test]
-    fn test_solve_multiple_constraints() {
-        // Test: let x; let y; x + y == 20; x - y == 0;
-        // Expected: x = 10, y = 10
-        let arena = Bump::new();
-        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
-        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+    fn test_path_component_clone() {
+        let field = PathComponent::Field("test");
+        let cloned = field.clone();
+        assert_eq!(field, cloned);
 
-        // let x;
-        let var_def_x = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(*int_ty),
-            init: None,
-            scope_level: 0,
-            span: test_span(),
-        });
-        let stmt_x = make_stmt(
-            &arena,
-            ResolvedStmtKind::Let {
-                dot_prefix: false,
-                name_path: vec![("x", test_span())],
-                var_def: var_def_x,
-                init: None,
-                span: test_span(),
-            },
-        );
+        let index = PathComponent::Index(5);
+        let cloned = index.clone();
+        assert_eq!(index, cloned);
+    }
 
-        // let y;
-        let var_def_y = arena.alloc(VarDefinition {
-            name: "y",
-            name_span: test_span(),
-            var_type: Some(*int_ty),
-            init: None,
-            scope_level: 0,
-            span: test_span(),
-        });
-        let stmt_y = make_stmt(
-            &arena,
-            ResolvedStmtKind::Let {
-                dot_prefix: false,
-                name_path: vec![("y", test_span())],
-                var_def: var_def_y,
-                init: None,
-                span: test_span(),
-            },
-        );
+    // ========================================================================
+    // VariablePath Tests
+    // ========================================================================
 
-        // x + y == 20
-        let x_ref1 = make_expr(
-            &arena,
-            ResolvedExprKind::Var {
-                name: "x",
-                definition: var_def_x,
-            },
-            int_ty,
-        );
-        let y_ref1 = make_expr(
-            &arena,
-            ResolvedExprKind::Var {
-                name: "y",
-                definition: var_def_y,
-            },
-            int_ty,
-        );
-        let sum = make_expr(
-            &arena,
-            ResolvedExprKind::Add {
-                lhs: x_ref1,
-                rhs: y_ref1,
-            },
-            int_ty,
-        );
-        let twenty = make_expr(&arena, ResolvedExprKind::IntLit { value: 20 }, int_ty);
-        let constraint1 = make_expr(
-            &arena,
-            ResolvedExprKind::Eq {
-                lhs: sum,
-                rhs: twenty,
-            },
-            bool_ty,
-        );
-        let stmt_constraint1 = make_stmt(
-            &arena,
-            ResolvedStmtKind::Expression {
-                expr: constraint1,
-                span: test_span(),
-            },
-        );
-
-        // x - y == 0
-        let x_ref2 = make_expr(
-            &arena,
-            ResolvedExprKind::Var {
-                name: "x",
-                definition: var_def_x,
-            },
-            int_ty,
-        );
-        let y_ref2 = make_expr(
-            &arena,
-            ResolvedExprKind::Var {
-                name: "y",
-                definition: var_def_y,
-            },
-            int_ty,
-        );
-        let diff = make_expr(
-            &arena,
-            ResolvedExprKind::Sub {
-                lhs: x_ref2,
-                rhs: y_ref2,
-            },
-            int_ty,
-        );
-        let zero = make_expr(&arena, ResolvedExprKind::IntLit { value: 0 }, int_ty);
-        let constraint2 = make_expr(
-            &arena,
-            ResolvedExprKind::Eq {
-                lhs: diff,
-                rhs: zero,
-            },
-            bool_ty,
-        );
-        let stmt_constraint2 = make_stmt(
-            &arena,
-            ResolvedStmtKind::Expression {
-                expr: constraint2,
-                span: test_span(),
-            },
-        );
-
-        let result = solve(
-            &[stmt_x, stmt_y, stmt_constraint1, stmt_constraint2],
-            &arena,
-        );
-        assert!(result.is_ok());
-        let solution = result.unwrap();
-        assert_eq!(solution, "x = 10\ny = 10\n");
+    #[test]
+    fn test_variable_path_from_name() {
+        let path = VariablePath::from_name("variable");
+        assert_eq!(path.to_z3_name(), "variable");
+        assert_eq!(path.len(), 1);
+        assert!(!path.is_empty());
     }
 
     #[test]
-    fn test_solve_float_constraint() {
-        // Test: let x; x * 2.0 == 6.28;
-        // Expected: x = 3.14
-        let arena = Bump::new();
-        let real_ty = arena.alloc(ResolvedType::F64 { span: test_span() });
-        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
-
-        // let x;
-        let var_def_x = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(*real_ty),
-            init: None,
-            scope_level: 0,
-            span: test_span(),
-        });
-        let stmt_x = make_stmt(
-            &arena,
-            ResolvedStmtKind::Let {
-                dot_prefix: false,
-                name_path: vec![("x", test_span())],
-                var_def: var_def_x,
-                init: None,
-                span: test_span(),
-            },
-        );
-
-        // x * 2.0 == 6.28
-        let x_ref = make_expr(
-            &arena,
-            ResolvedExprKind::Var {
-                name: "x",
-                definition: var_def_x,
-            },
-            real_ty,
-        );
-        let two = make_expr(&arena, ResolvedExprKind::FloatLit { value: 2.0 }, real_ty);
-        let product = make_expr(
-            &arena,
-            ResolvedExprKind::Mul {
-                lhs: x_ref,
-                rhs: two,
-            },
-            real_ty,
-        );
-        let target = make_expr(&arena, ResolvedExprKind::FloatLit { value: 6.28 }, real_ty);
-        let constraint = make_expr(
-            &arena,
-            ResolvedExprKind::Eq {
-                lhs: product,
-                rhs: target,
-            },
-            bool_ty,
-        );
-        let stmt_constraint = make_stmt(
-            &arena,
-            ResolvedStmtKind::Expression {
-                expr: constraint,
-                span: test_span(),
-            },
-        );
-
-        let result = solve(&[stmt_x, stmt_constraint], &arena);
-        assert!(result.is_ok());
-        let solution = result.unwrap();
-        assert!(solution.contains("x = 3.14"));
+    fn test_variable_path_empty() {
+        let path = VariablePath::empty();
+        assert_eq!(path.to_z3_name(), "");
+        assert_eq!(path.len(), 0);
+        assert!(path.is_empty());
     }
 
     #[test]
-    fn test_solve_bool_constraint() {
-        // Test: let x; x == true;
-        // Expected: x = true
-        let arena = Bump::new();
-        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+    fn test_variable_path_with_field() {
+        let path = VariablePath::from_name("base");
+        let nested = path.with_field("field1");
+        assert_eq!(nested.to_z3_name(), "base.field1");
+        assert_eq!(nested.len(), 2);
 
-        // let x;
-        let var_def_x = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(*bool_ty),
-            init: None,
-            scope_level: 0,
-            span: test_span(),
-        });
-        let stmt_x = make_stmt(
-            &arena,
-            ResolvedStmtKind::Let {
-                dot_prefix: false,
-                name_path: vec![("x", test_span())],
-                var_def: var_def_x,
-                init: None,
-                span: test_span(),
-            },
-        );
-
-        // x == true
-        let x_ref = make_expr(
-            &arena,
-            ResolvedExprKind::Var {
-                name: "x",
-                definition: var_def_x,
-            },
-            bool_ty,
-        );
-        let true_lit = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
-        let constraint = make_expr(
-            &arena,
-            ResolvedExprKind::Eq {
-                lhs: x_ref,
-                rhs: true_lit,
-            },
-            bool_ty,
-        );
-        let stmt_constraint = make_stmt(
-            &arena,
-            ResolvedStmtKind::Expression {
-                expr: constraint,
-                span: test_span(),
-            },
-        );
-
-        let result = solve(&[stmt_x, stmt_constraint], &arena);
-        assert!(result.is_ok());
-        let solution = result.unwrap();
-        assert_eq!(solution.trim(), "x = true");
+        let double_nested = nested.with_field("field2");
+        assert_eq!(double_nested.to_z3_name(), "base.field1.field2");
+        assert_eq!(double_nested.len(), 3);
     }
 
     #[test]
-    fn test_solve_unsat_constraints() {
-        // Test: let x; x == 10; x == 20;
-        // Expected: UNSAT
-        let arena = Bump::new();
-        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
-        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+    fn test_variable_path_with_index() {
+        let path = VariablePath::from_name("array");
+        let indexed = path.with_index(0);
+        assert_eq!(indexed.to_z3_name(), "array[0]");
+        assert_eq!(indexed.len(), 2);
 
-        // let x;
-        let var_def_x = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(*int_ty),
-            init: None,
-            scope_level: 0,
-            span: test_span(),
-        });
-        let stmt_x = make_stmt(
-            &arena,
-            ResolvedStmtKind::Let {
-                dot_prefix: false,
-                name_path: vec![("x", test_span())],
-                var_def: var_def_x,
-                init: None,
-                span: test_span(),
-            },
-        );
-
-        // x == 10
-        let x_ref1 = make_expr(
-            &arena,
-            ResolvedExprKind::Var {
-                name: "x",
-                definition: var_def_x,
-            },
-            int_ty,
-        );
-        let ten = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
-        let constraint1 = make_expr(
-            &arena,
-            ResolvedExprKind::Eq {
-                lhs: x_ref1,
-                rhs: ten,
-            },
-            bool_ty,
-        );
-        let stmt_constraint1 = make_stmt(
-            &arena,
-            ResolvedStmtKind::Expression {
-                expr: constraint1,
-                span: test_span(),
-            },
-        );
-
-        // x == 20
-        let x_ref2 = make_expr(
-            &arena,
-            ResolvedExprKind::Var {
-                name: "x",
-                definition: var_def_x,
-            },
-            int_ty,
-        );
-        let twenty = make_expr(&arena, ResolvedExprKind::IntLit { value: 20 }, int_ty);
-        let constraint2 = make_expr(
-            &arena,
-            ResolvedExprKind::Eq {
-                lhs: x_ref2,
-                rhs: twenty,
-            },
-            bool_ty,
-        );
-        let stmt_constraint2 = make_stmt(
-            &arena,
-            ResolvedStmtKind::Expression {
-                expr: constraint2,
-                span: test_span(),
-            },
-        );
-
-        let result = solve(&[stmt_x, stmt_constraint1, stmt_constraint2], &arena);
-        assert!(result.is_err());
-        assert_matches!(
-            result.unwrap_err(),
-            SolverError::SolutionFormatting {
-                error: SolutionFormatterError::Unsat
-            }
-        );
+        let double_indexed = indexed.with_index(1);
+        assert_eq!(double_indexed.to_z3_name(), "array[0][1]");
+        assert_eq!(double_indexed.len(), 3);
     }
 
     #[test]
-    fn test_solve_under_constrained() {
-        // Test: let x; let y; x + y == 20;
-        // Expected: Z3 picks one solution (e.g., x = 0, y = 20 or x = 10, y = 10)
-        let arena = Bump::new();
-        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
-        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
-
-        // let x;
-        let var_def_x = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(*int_ty),
-            init: None,
-            scope_level: 0,
-            span: test_span(),
-        });
-        let stmt_x = make_stmt(
-            &arena,
-            ResolvedStmtKind::Let {
-                dot_prefix: false,
-                name_path: vec![("x", test_span())],
-                var_def: var_def_x,
-                init: None,
-                span: test_span(),
-            },
-        );
-
-        // let y;
-        let var_def_y = arena.alloc(VarDefinition {
-            name: "y",
-            name_span: test_span(),
-            var_type: Some(*int_ty),
-            init: None,
-            scope_level: 0,
-            span: test_span(),
-        });
-        let stmt_y = make_stmt(
-            &arena,
-            ResolvedStmtKind::Let {
-                dot_prefix: false,
-                name_path: vec![("y", test_span())],
-                var_def: var_def_y,
-                init: None,
-                span: test_span(),
-            },
-        );
-
-        // x + y == 20
-        let x_ref = make_expr(
-            &arena,
-            ResolvedExprKind::Var {
-                name: "x",
-                definition: var_def_x,
-            },
-            int_ty,
-        );
-        let y_ref = make_expr(
-            &arena,
-            ResolvedExprKind::Var {
-                name: "y",
-                definition: var_def_y,
-            },
-            int_ty,
-        );
-        let sum = make_expr(
-            &arena,
-            ResolvedExprKind::Add {
-                lhs: x_ref,
-                rhs: y_ref,
-            },
-            int_ty,
-        );
-        let twenty = make_expr(&arena, ResolvedExprKind::IntLit { value: 20 }, int_ty);
-        let constraint = make_expr(
-            &arena,
-            ResolvedExprKind::Eq {
-                lhs: sum,
-                rhs: twenty,
-            },
-            bool_ty,
-        );
-        let stmt_constraint = make_stmt(
-            &arena,
-            ResolvedStmtKind::Expression {
-                expr: constraint,
-                span: test_span(),
-            },
-        );
-
-        let result = solve(&[stmt_x, stmt_y, stmt_constraint], &arena);
-        assert!(result.is_ok());
-        let solution = result.unwrap();
-        // Solution should have x and y values that sum to 20
-        // We can't predict exactly what Z3 will choose, but we can verify it's valid
-        assert!(solution.contains("x = "));
-        assert!(solution.contains("y = "));
+    fn test_variable_path_mixed() {
+        let path = VariablePath::from_name("points")
+            .with_index(0)
+            .with_field("x");
+        assert_eq!(path.to_z3_name(), "points[0].x");
+        assert_eq!(path.len(), 3);
     }
 
     #[test]
-    fn test_error_empty_program() {
-        let arena = Bump::new();
-        let result = solve(&[], &arena);
-        assert!(result.is_err());
-        assert_matches!(result.unwrap_err(), SolverError::EmptyProgram);
+    fn test_variable_path_components() {
+        let path = VariablePath::from_name("var")
+            .with_field("field")
+            .with_index(5);
+
+        let components = path.components();
+        assert_eq!(components.len(), 3);
+        assert_eq!(components[0], PathComponent::Field("var"));
+        assert_eq!(components[1], PathComponent::Field("field"));
+        assert_eq!(components[2], PathComponent::Index(5));
     }
 
     #[test]
-    fn test_error_no_variables() {
-        // Test: 1 + 1 == 2; (no variables)
-        let arena = Bump::new();
-        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
-        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+    fn test_variable_path_display() {
+        let path = VariablePath::from_name("sketch")
+            .with_field("entities")
+            .with_field("line")
+            .with_field("start")
+            .with_field("x");
 
-        let one = make_expr(&arena, ResolvedExprKind::IntLit { value: 1 }, int_ty);
-        let two = make_expr(&arena, ResolvedExprKind::IntLit { value: 2 }, int_ty);
-        let sum = make_expr(&arena, ResolvedExprKind::Add { lhs: one, rhs: one }, int_ty);
-        let constraint = make_expr(&arena, ResolvedExprKind::Eq { lhs: sum, rhs: two }, bool_ty);
-        let stmt = make_stmt(
-            &arena,
-            ResolvedStmtKind::Expression {
-                expr: constraint,
-                span: test_span(),
-            },
-        );
-
-        let result = solve(&[stmt], &arena);
-        assert!(result.is_err());
-        assert_matches!(result.unwrap_err(), SolverError::NoVariables);
+        let display_str = format!("{}", path);
+        assert_eq!(display_str, "sketch.entities.line.start.x");
     }
 
     #[test]
-    fn test_error_no_constraints() {
-        // Test: let x; (no constraints)
-        let arena = Bump::new();
-        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+    fn test_variable_path_display_with_indices() {
+        let path = VariablePath::from_name("points")
+            .with_index(0)
+            .with_field("y")
+            .with_index(2);
 
-        let var_def = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(*int_ty),
-            init: None,
-            scope_level: 0,
-            span: test_span(),
-        });
-        let stmt = make_stmt(
-            &arena,
-            ResolvedStmtKind::Let {
-                dot_prefix: false,
-                name_path: vec![("x", test_span())],
-                var_def,
-                init: None,
-                span: test_span(),
-            },
-        );
-
-        let result = solve(&[stmt], &arena);
-        assert!(result.is_err());
-        assert_matches!(result.unwrap_err(), SolverError::NoConstraints);
+        let display_str = format!("{}", path);
+        assert_eq!(display_str, "points[0].y[2]");
     }
 
     #[test]
-    fn test_error_if_statement_without_variables() {
-        // Test: if true { } with no variables - should fail with NoVariables
-        let arena = Bump::new();
-        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+    fn test_variable_path_equality() {
+        let path1 = VariablePath::from_name("x").with_field("y");
+        let path2 = VariablePath::from_name("x").with_field("y");
+        let path3 = VariablePath::from_name("x").with_field("z");
 
-        let condition = make_expr(&arena, ResolvedExprKind::BoolLit { value: true }, bool_ty);
-        let stmt = make_stmt(
-            &arena,
-            ResolvedStmtKind::If {
-                condition,
-                then_branch: vec![],
-                else_branch: None,
-                span: test_span(),
-            },
-        );
-
-        let result = solve(&[stmt], &arena);
-        assert!(result.is_err());
-        assert_matches!(result.unwrap_err(), SolverError::NoVariables);
+        assert_eq!(path1, path2);
+        assert_ne!(path1, path3);
     }
 
     #[test]
-    fn test_error_display_empty_program() {
-        let error = SolverError::EmptyProgram;
-        let display = format!("{}", error);
-        assert!(display.contains("Empty program"));
+    fn test_variable_path_clone() {
+        let path = VariablePath::from_name("test").with_index(1);
+        let cloned = path.clone();
+        assert_eq!(path, cloned);
+        assert_eq!(path.to_z3_name(), cloned.to_z3_name());
+    }
+
+    // ========================================================================
+    // SolverError Tests
+    // ========================================================================
+
+    #[test]
+    fn test_solver_error_unsupported_type() {
+        let err = SolverError::UnsupportedType("CustomType".to_string());
+        let display = format!("{}", err);
+        assert_eq!(display, "Unsupported type: CustomType");
     }
 
     #[test]
-    fn test_error_display_no_variables() {
-        let error = SolverError::NoVariables;
-        let display = format!("{}", error);
-        assert!(display.contains("No variables found"));
+    fn test_solver_error_undefined_variable() {
+        let err = SolverError::UndefinedVariable("unknown_var".to_string());
+        let display = format!("{}", err);
+        assert_eq!(display, "Undefined variable: unknown_var");
     }
 
     #[test]
-    fn test_error_display_no_constraints() {
-        let error = SolverError::NoConstraints;
-        let display = format!("{}", error);
-        assert!(display.contains("No constraints found"));
+    fn test_solver_error_not_a_primitive_type() {
+        let err = SolverError::NotAPrimitiveType;
+        let display = format!("{}", err);
+        assert_eq!(display, "Not a primitive type");
+    }
+
+    #[test]
+    fn test_solver_error_unsupported_statement() {
+        let err = SolverError::UnsupportedStatement("WhileLoop".to_string());
+        let display = format!("{}", err);
+        assert_eq!(display, "Unsupported statement: WhileLoop");
+    }
+
+    #[test]
+    fn test_solver_error_unsupported_expression() {
+        let err = SolverError::UnsupportedExpression("Lambda".to_string());
+        let display = format!("{}", err);
+        assert_eq!(display, "Unsupported expression: Lambda");
+    }
+
+    #[test]
+    fn test_solver_error_context_error() {
+        let err = SolverError::ContextError("Scope mismatch".to_string());
+        let display = format!("{}", err);
+        assert_eq!(display, "Context error: Scope mismatch");
+    }
+
+    #[test]
+    fn test_solver_error_debug() {
+        let err = SolverError::UnsupportedType("TestType".to_string());
+        let debug_str = format!("{:?}", err);
+        assert!(debug_str.contains("UnsupportedType"));
+        assert!(debug_str.contains("TestType"));
+    }
+
+    #[test]
+    fn test_solver_error_equality() {
+        let err1 = SolverError::NotAPrimitiveType;
+        let err2 = SolverError::NotAPrimitiveType;
+        let err3 = SolverError::UnsupportedType("X".to_string());
+
+        assert_eq!(err1, err2);
+        assert_ne!(err1, err3);
+    }
+
+    #[test]
+    fn test_solver_error_clone() {
+        let err = SolverError::ContextError("test".to_string());
+        let cloned = err.clone();
+        assert_eq!(err, cloned);
+    }
+
+    #[test]
+    fn test_solver_error_is_std_error() {
+        // Ensure SolverError implements std::error::Error
+        let err: Box<dyn std::error::Error> =
+            Box::new(SolverError::UnsupportedType("test".to_string()));
+        let _ = format!("{}", err);
     }
 }
