@@ -662,13 +662,51 @@ Transform with-statements automatically invoke `__transform__` methods to create
 
 **`__transform__` is a regular method** - it uses the same inlining mechanism as any other method. The only special behavior is:
 
-1. **Lookup**: When entering a with-statement, check if the struct has a `__transform__` method
-2. **Auto-call**: When a variable is declared in that with-context, automatically call `__transform__`
-3. **Shadow creation**: Create a shadow variable for the method's parameter type
+1. **Lookup**: When entering a with-statement, collect **all** `__transform__` methods (a struct can have multiple overloads)
+2. **Selection**: When a variable is declared, select the appropriate `__transform__` based on declared type
+3. **Auto-call**: Automatically call the selected `__transform__` method
+4. **Shadow creation**: Create a shadow variable for that method's parameter type
 
 The **inlining mechanism is identical** to regular method calls!
 
-### Concept
+**Important**: The language spec allows **multiple `__transform__` overloads** for different types (e.g., one for `Point`, one for `Length`). The correct method must be selected based on the declared variable's type.
+
+### Example: Multiple Transform Overloads
+
+The language spec allows multiple `__transform__` methods for different types:
+
+```rust
+struct Scale {
+    factor: f64,
+    center: Point,
+
+    // Transform for Point type
+    fn __transform__(p: &Point) -> Point {
+        Point {
+            x: self.center.x + (p.x - self.center.x) * self.factor,
+            y: self.center.y + (p.y - self.center.y) * self.factor
+        }
+    }
+
+    // Transform for f64 type (lengths scale linearly)
+    fn __transform__(len: &f64) -> f64 {
+        len * self.factor
+    }
+}
+
+with scale_2x {
+    let .scaled_point: Point;   // Uses __transform__(&Point) -> Point
+    let .scaled_length: f64;     // Uses __transform__(&f64) -> f64
+}
+```
+
+**At declaration time**, the solver must:
+1. Look at the declared type (`Point` or `f64`)
+2. Find the matching `__transform__` method (by return type)
+3. Use that method's parameter type for the shadow variable
+4. Call that specific method
+
+### Concept: Single Transform
 
 When you write:
 ```
@@ -703,13 +741,16 @@ with sketch {
 ```
 
 **What happens**:
-1. **With-statement enters**: Detect that `Sketch2D` has `__transform__` method → push transform context
+1. **With-statement enters**: Collect **all** `__transform__` methods from `Sketch2D` → push transform context
+   - In this case: one method `fn __transform__(&Point3D) -> Point2D`
 2. **Variable declaration** `.p: Point2D`:
    - Create variable `sketch.entities.p` (type: Point2D)
    - Detect transform context is active
-   - Check `__transform__` signature: `fn(p3d: &Point3D) -> Point2D`
-   - Create shadow variable with parameter type (`Point3D`)
-3. **Auto-invoke `__transform__`**:
+   - **Select** the `__transform__` method where return type matches declared type (Point2D)
+   - Found: `fn __transform__(p3d: &Point3D) -> Point2D`
+   - Extract parameter type from selected method: `Point3D`
+   - Create shadow variable of type `Point3D`
+3. **Auto-invoke the selected `__transform__`**:
    - This is a **normal method call**: `sketch.__transform__(&shadow)`
    - Uses standard method inlining mechanism
    - Method body evaluated, returns Point2D expression
@@ -782,26 +823,35 @@ impl<'src, 'arena, 'ctx> SolverContext<'src, 'arena, 'ctx> {
         // 1. Create the declared variable (e.g., Point2D)
         let local_path = self.declare_variable(var_name, declared_type)?;
 
-        // 2. Get source type from __transform__ parameter
-        let source_type = transform_ctx.method.params[0].ty.as_reference()?;
+        // 2. Select the appropriate __transform__ method
+        //    Find method where return type matches declared_type
+        let selected_method = transform_ctx.methods
+            .iter()
+            .find(|m| m.return_type == declared_type)
+            .ok_or(SolverError::NoMatchingTransform(declared_type))?;
 
-        // 3. Create shadow variable
+        // 3. Get source type from selected method's parameter
+        let source_type = selected_method.params[0].ty.as_reference()?;
+
+        // 4. Create shadow variable with source type
         let shadow_path = self.create_shadow_variable(source_type)?;
 
-        // 4. Call __transform__ using normal method inlining
+        // 5. Call the selected __transform__ using normal method inlining
         let result = self.inline_method(
             transform_ctx.struct_path,           // self
-            transform_ctx.method,                 // __transform__
+            selected_method,                      // the selected __transform__
             &[&ResolvedExpr::Variable(shadow_path)],  // args
         )?;
 
-        // 5. Constrain: local == result
+        // 6. Constrain: local == result
         self.add_constraint(local_path == result)?;
 
         Ok(())
     }
 }
 ```
+
+**Critical Point**: The transform context stores **all** `__transform__` methods, not just one. At declaration time, we select the method whose return type matches the declared variable type.
 
 **Key Point**: The `inline_method()` function is used for **both** regular method calls (like `circle.area()`) **and** automatic `__transform__` calls. The only difference is **when** it gets invoked, not **how** it works.
 
@@ -838,13 +888,17 @@ with sketch {
 
 **Step-by-step**:
 
-1. **Enter with-statement**: `WithGuard` detects `__transform__` method → push transform context
+1. **Enter with-statement**: `WithGuard` collects **all** `__transform__` methods → push transform context
+   - Found methods: `[fn __transform__(&Point3D) -> Point2D]`
+   - Store all methods in transform context
 2. **Declare `.p: Point2D`**:
    - Create variable: `sketch.entities.p` (type: Point2D)
    - Check: Are we in transform context? **Yes**
-   - Get parameter type from `__transform__(p3d: &Point3D)` → `Point3D`
+   - **Select** method where return type matches Point2D
+   - Found: `fn __transform__(p3d: &Point3D) -> Point2D`
+   - Extract parameter type: `Point3D`
    - Create shadow variable of type `Point3D` in higher scope
-3. **Auto-invoke `__transform__`** (this is a **normal method call**!):
+3. **Auto-invoke the selected `__transform__`** (this is a **normal method call**!):
    - Call: `sketch.__transform__(&shadow)` using `inline_method()`
    - Create scope for method body
    - Bind `self` to `sketch`
@@ -863,6 +917,8 @@ with sketch {
      - `sketch.entities.p.y == shadow.y - sketch.origin.y`
 5. **Add user constraints**: `.p.x == 10.0` and `.p.y == 20.0`
 6. **Z3 solving**: Finds values for all variables including shadow
+
+**Note**: In this example there's only one `__transform__` method, but the selection mechanism works the same way when multiple overloads exist.
 
 ## Module Structure
 
