@@ -532,9 +532,9 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         match z3_var {
             Z3Primitive::Int(z3_int) => {
                 let evaluated = model.eval(z3_int, true).ok_or_else(|| {
-                    SolverError::ModelEvaluationError(format!(
-                        "Failed to evaluate integer variable"
-                    ))
+                    SolverError::ModelEvaluationError(
+                        "Failed to evaluate integer variable".to_string()
+                    )
                 })?;
                 let value = evaluated.as_i64().ok_or_else(|| {
                     SolverError::ModelEvaluationError(
@@ -545,9 +545,9 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             }
             Z3Primitive::Real(z3_real) => {
                 let evaluated = model.eval(z3_real, true).ok_or_else(|| {
-                    SolverError::ModelEvaluationError(format!(
-                        "Failed to evaluate real variable"
-                    ))
+                    SolverError::ModelEvaluationError(
+                        "Failed to evaluate real variable".to_string()
+                    )
                 })?;
                 // Z3 Real values are represented as rationals
                 // Convert to f64
@@ -566,9 +566,9 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             }
             Z3Primitive::Bool(z3_bool) => {
                 let evaluated = model.eval(z3_bool, true).ok_or_else(|| {
-                    SolverError::ModelEvaluationError(format!(
-                        "Failed to evaluate boolean variable"
-                    ))
+                    SolverError::ModelEvaluationError(
+                        "Failed to evaluate boolean variable".to_string()
+                    )
                 })?;
                 let value = evaluated.as_bool().ok_or_else(|| {
                     SolverError::ModelEvaluationError(
