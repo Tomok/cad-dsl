@@ -871,20 +871,23 @@ The solver implementation follows a clean separation between trait definitions a
 ### Directory Layout
 
 ```
-src/solver/
-  mod.rs                    # Solvable trait definition, core types, re-exports
-  context.rs                # SolverContext with variable management
-  constraint_extractor.rs   # High-level constraint extraction pipeline
-  struct_flattener.rs       # Struct/array flattening for Z3
-  z3_bridge.rs              # Z3 interface and expression conversion
-  solution_formatter.rs     # Format Z3 solutions for display
-  function_inliner.rs       # Function/method inlining logic
-  impls/
-    mod.rs                  # Re-export all trait implementations
-    expr.rs                 # impl Solvable for ResolvedExpr
-    stmt.rs                 # impl Solvable for ResolvedStmt
-    definitions.rs          # impl Solvable for FunctionDefinition, etc.
+src/
+  solver.rs                 # Solvable trait definition, core types, submodule declarations
+  solver/
+    context.rs              # SolverContext with variable management
+    constraint_extractor.rs # High-level constraint extraction pipeline
+    struct_flattener.rs     # Struct/array flattening for Z3
+    z3_bridge.rs            # Z3 interface and expression conversion
+    solution_formatter.rs   # Format Z3 solutions for display
+    function_inliner.rs     # Function/method inlining logic
+    impls.rs                # Submodule declarations for trait implementations
+    impls/
+      expr.rs               # impl Solvable for ResolvedExpr
+      stmt.rs               # impl Solvable for ResolvedStmt
+      definitions.rs        # impl Solvable for FunctionDefinition, etc.
 ```
+
+**Note**: Following modern Rust conventions (since 2018 edition), we use `solver.rs` + `solver/` directory instead of `solver/mod.rs`. Similarly, `impls.rs` instead of `impls/mod.rs`.
 
 ### Design Rationale
 
@@ -999,10 +1002,11 @@ mod tests {
 }
 ```
 
-### Module Re-exports
+### Module Declarations
 
 ```rust
-// src/solver/impls/mod.rs
+// src/solver/impls.rs
+// Declare submodules for trait implementations
 mod expr;
 mod stmt;
 mod definitions;
@@ -1012,10 +1016,17 @@ mod definitions;
 ```
 
 ```rust
-// src/solver/mod.rs
+// src/solver.rs
+// Declare submodules
 mod context;
+mod constraint_extractor;
+mod struct_flattener;
+mod z3_bridge;
+mod solution_formatter;
+mod function_inliner;
 mod impls;  // This pulls in all trait implementations
 
+// Public exports
 pub use context::SolverContext;
 
 // Trait definition
@@ -1032,13 +1043,14 @@ pub trait Solvable<'src, 'arena, 'ctx> {
 ## Implementation Guide
 
 ### Phase 0: Module Setup
-1. Create `src/solver/` directory structure
-2. Create `src/solver/impls/` subdirectory
-3. Set up `mod.rs` files with trait definition
-4. Create placeholder files: `context.rs`, `impls/expr.rs`, `impls/stmt.rs`
+1. Create `src/solver.rs` with trait definition and submodule declarations
+2. Create `src/solver/` directory structure
+3. Create `src/solver/impls.rs` with submodule declarations
+4. Create `src/solver/impls/` subdirectory
+5. Create placeholder files: `solver/context.rs`, `solver/impls/expr.rs`, `solver/impls/stmt.rs`
 
 ### Phase 1: Core Infrastructure
-1. Implement `VariablePath` and `PathComponent` in `src/solver/mod.rs`
+1. Implement `VariablePath` and `PathComponent` in `src/solver.rs`
 2. Implement `VariableNode` with tree operations in `src/solver/context.rs`
 3. Implement `SolverContext` with basic variable management in `src/solver/context.rs`
 4. Write tests for tree navigation and lookup
@@ -1056,7 +1068,7 @@ pub trait Solvable<'src, 'arena, 'ctx> {
 2. Implement `Solvable` for expressions in `src/solver/impls/expr.rs`
    - Literals, variables, binary operations
    - Expression-to-Z3 conversion
-3. Wire up impls in `src/solver/impls/mod.rs`
+3. Declare submodules in `src/solver/impls.rs`
 4. Write end-to-end tests for simple constraint problems
 
 ### Phase 4: Container With-Statements
