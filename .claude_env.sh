@@ -23,21 +23,19 @@ fi
 
 # 3. Install dependencies to ~/.local without sudo
 if [ "$NEED_INSTALL" = true ]; then
-    echo "Installing mold and z3 to ~/.local (no sudo required)..."
-
     # Create directories
     mkdir -p "$LOCAL_PREFIX" /tmp/cad-dsl-deps
     cd /tmp/cad-dsl-deps
 
     # Download packages
-    apt-get download mold z3 libz3-dev libz3-4 2>/dev/null || {
+    apt-get download mold z3 libz3-dev libz3-4 >/dev/null 2>&1 || {
         echo "Error: Failed to download packages" >&2
         exit 1
     }
 
     # Extract to ~/.local
     for deb in *.deb; do
-        dpkg-deb -x "$deb" "$LOCAL_PREFIX" || {
+        dpkg-deb -x "$deb" "$LOCAL_PREFIX" >/dev/null 2>&1 || {
             echo "Error: Failed to extract $deb" >&2
             exit 1
         }
@@ -46,8 +44,6 @@ if [ "$NEED_INSTALL" = true ]; then
     # Cleanup
     cd /
     rm -rf /tmp/cad-dsl-deps
-
-    echo "Installation complete!"
 fi
 
 # 4. Fix z3.pc file to point to local installation
@@ -94,7 +90,7 @@ EOF
     }
 fi
 
-# 7. Update shell rc files to persist environment variables
+# 7. Update shell rc files to set environment variables automatically
 for rcfile in "$HOME/.bashrc" "$HOME/.zshrc"; do
     if [ -f "$rcfile" ]; then
         if ! grep -q "CAD-DSL local environment" "$rcfile" 2>/dev/null; then
