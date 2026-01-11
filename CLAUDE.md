@@ -11,9 +11,19 @@ CAD-DSL is a constraint-based domain-specific language for 2D geometric design. 
 
 ## Development Environment
 
-**FIRST TIME SETUP:** Run `./.claude_env.sh` to configure the environment.
+**CRITICAL - AUTO-RUN ON EVERY SESSION:** Before running ANY commands, Claude Code MUST execute:
 
-After running the setup script, all commands work identically with or without Nix installed.
+```bash
+source ./.claude_env.sh
+```
+
+This script:
+- Installs mold (linker) and z3 (constraint solver) to ~/.local without sudo
+- Sets up all required environment variables (PATH, LD_LIBRARY_PATH, PKG_CONFIG_PATH, etc.)
+- Creates a nix wrapper for compatibility
+- Works silently on success, only outputs errors
+
+After sourcing the script, all commands work identically with or without Nix installed.
 
 ## Common Commands
 
