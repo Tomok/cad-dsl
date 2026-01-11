@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 CAD-DSL is a constraint-based domain-specific language for 2D geometric design. The project implements a complete frontend pipeline (lexer, parser, semantic analyzer, type checker) plus a constraint solver for a declarative CAD language using Rust.
 
 **Language Specification:** `docs/TEXTCAD_LANGUAGE_SPEC.md`
+**Solver Architecture:** `docs/SOLVER_ARCHITECTURE.md`
 
 ## Development Environment
 
