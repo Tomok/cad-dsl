@@ -5,6 +5,14 @@
 
 set -e  # Exit on error
 
+# Detect if script is being sourced or executed
+# When sourced: use 'return', when executed: use 'exit'
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    SCRIPT_EXIT="exit"
+else
+    SCRIPT_EXIT="return"
+fi
+
 LOCAL_PREFIX="$HOME/.local"
 LOCAL_BIN="$LOCAL_PREFIX/usr/bin"
 LOCAL_LIB="$LOCAL_PREFIX/usr/lib/x86_64-linux-gnu"
@@ -12,7 +20,7 @@ LOCAL_PKGCONFIG="$LOCAL_LIB/pkgconfig"
 
 # 1. If nix exists, nothing to do - exit successfully
 if command -v nix >/dev/null 2>&1; then
-    exit 0
+    $SCRIPT_EXIT 0
 fi
 
 # 2. Check if we need to install dependencies
@@ -30,14 +38,14 @@ if [ "$NEED_INSTALL" = true ]; then
     # Download packages
     apt-get download mold z3 libz3-dev libz3-4 >/dev/null 2>&1 || {
         echo "Error: Failed to download packages" >&2
-        exit 1
+        $SCRIPT_EXIT 1
     }
 
     # Extract to ~/.local
     for deb in *.deb; do
         dpkg-deb -x "$deb" "$LOCAL_PREFIX" >/dev/null 2>&1 || {
             echo "Error: Failed to extract $deb" >&2
-            exit 1
+            $SCRIPT_EXIT 1
         }
     done
 
@@ -49,16 +57,16 @@ fi
 # 4. Fix z3.pc file to point to local installation
 Z3_PC="$LOCAL_PKGCONFIG/z3.pc"
 if [ -f "$Z3_PC" ]; then
-    sed -i "s|^prefix=/usr|prefix=$LOCAL_PREFIX|" "$Z3_PC"
-    sed -i "s|^exec_prefix=/usr|exec_prefix=$LOCAL_PREFIX|" "$Z3_PC"
+    sed -i "s|^prefix=/usr|prefix=$LOCAL_PREFIX/usr|" "$Z3_PC"
+    sed -i "s|^exec_prefix=/usr|exec_prefix=$LOCAL_PREFIX/usr|" "$Z3_PC"
 fi
 
 # 5. Add to current session environment variables
 export PATH="$LOCAL_BIN:$PATH"
 export LD_LIBRARY_PATH="$LOCAL_LIB:${LD_LIBRARY_PATH:-}"
 export PKG_CONFIG_PATH="$LOCAL_PKGCONFIG:${PKG_CONFIG_PATH:-}"
-export C_INCLUDE_PATH="$LOCAL_PREFIX/include:${C_INCLUDE_PATH:-}"
-export CPLUS_INCLUDE_PATH="$LOCAL_PREFIX/include:${CPLUS_INCLUDE_PATH:-}"
+export C_INCLUDE_PATH="$LOCAL_PREFIX/usr/include:${C_INCLUDE_PATH:-}"
+export CPLUS_INCLUDE_PATH="$LOCAL_PREFIX/usr/include:${CPLUS_INCLUDE_PATH:-}"
 
 # 6. Create nix wrapper script in ~/.local/bin
 NIX_WRAPPER="$LOCAL_BIN/nix"
@@ -69,7 +77,7 @@ if [ ! -f "$NIX_WRAPPER" ]; then
 # Nix wrapper - forwards commands to actual applications
 # Usage: nix shell -c <command>
 
-# Ensure PATH includes ~/.local/usr/bin
+# Ensure environment variables are set
 export PATH="$HOME/.local/usr/bin:$PATH"
 export LD_LIBRARY_PATH="$HOME/.local/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
 export PKG_CONFIG_PATH="$HOME/.local/usr/lib/x86_64-linux-gnu/pkgconfig:${PKG_CONFIG_PATH:-}"
@@ -86,7 +94,7 @@ fi
 EOF
     chmod +x "$NIX_WRAPPER" || {
         echo "Error: Failed to make nix wrapper executable" >&2
-        exit 1
+        $SCRIPT_EXIT 1
     }
 fi
 
@@ -107,4 +115,4 @@ EOF
     fi
 done
 
-exit 0
+$SCRIPT_EXIT 0
