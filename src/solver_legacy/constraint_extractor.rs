@@ -45,8 +45,8 @@ use crate::hir::context::WithContext;
 use crate::hir::expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind};
 use crate::hir::types::ResolvedType;
 use crate::lexer::Span;
-use crate::solver::recursive_struct_detector::detect_cycles;
-use crate::solver::struct_flattener::flatten_type;
+use crate::solver_legacy::recursive_struct_detector::detect_cycles;
+use crate::solver_legacy::struct_flattener::flatten_type;
 use std::fmt;
 
 // ============================================================================

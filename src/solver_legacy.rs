@@ -1,4 +1,7 @@
-//! Solver Pipeline for Constraint Solving
+//! Legacy Solver Pipeline for Constraint Solving
+//!
+//! This module contains the legacy imperative solver implementation.
+//! It will be replaced by a new trait-based solver architecture.
 //!
 //! This module orchestrates the complete constraint solving pipeline, integrating:
 //! - Function call inlining
@@ -44,7 +47,7 @@
 #![allow(dead_code)] // Public API for future constraint solving integration
 
 // ============================================================================
-// Submodule Declarations
+// Submodule Declarations (Legacy Solver)
 // ============================================================================
 
 pub mod constraint_extractor;

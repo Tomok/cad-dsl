@@ -11,8 +11,11 @@ mod semantic_analyzer;
 // Type checking module
 mod type_checker;
 
-// Solver pipeline module
-mod solver;
+// Solver pipeline module (legacy implementation)
+mod solver_legacy;
+
+// Re-export legacy solver as solver for now
+use solver_legacy as solver;
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use bumpalo::Bump;
