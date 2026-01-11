@@ -235,9 +235,7 @@ pub struct DeferredConstraint<'src> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PartialReason {
     /// For-loop with unresolved range variable
-    UnknownLoopRange {
-        range_var: String,
-    },
+    UnknownLoopRange { range_var: String },
 
     /// Function call with unresolved dependencies
     UnresolvedFunctionCall {
@@ -250,18 +248,23 @@ pub enum PartialReason {
     /// Solving stops when no new variables are resolved between iterations,
     /// indicating that the remaining deferred constraints cannot be satisfied
     /// with the current information.
-    NoProgress {
-        stuck_constraints: Vec<String>,
-    },
+    NoProgress { stuck_constraints: Vec<String> },
 }
 
 impl fmt::Display for PartialReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PartialReason::UnknownLoopRange { range_var } => {
-                write!(f, "for-loop range depends on unknown variable '{}'", range_var)
+                write!(
+                    f,
+                    "for-loop range depends on unknown variable '{}'",
+                    range_var
+                )
             }
-            PartialReason::UnresolvedFunctionCall { function_name, missing_deps } => {
+            PartialReason::UnresolvedFunctionCall {
+                function_name,
+                missing_deps,
+            } => {
                 write!(
                     f,
                     "function '{}' has unresolved dependencies: {:?}",
