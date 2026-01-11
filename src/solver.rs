@@ -164,6 +164,174 @@ impl fmt::Display for VariablePath<'_> {
     }
 }
 
+// ============================================================================
+// Phase 3a: Solution and Result Types
+// ============================================================================
+
+/// Concrete value extracted from Z3 model
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+    /// Integer value
+    Int(i64),
+    /// Real (floating-point) value
+    Real(f64),
+    /// Boolean value
+    Bool(bool),
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Int(v) => write!(f, "{}", v),
+            Value::Real(v) => write!(f, "{}", v),
+            Value::Bool(v) => write!(f, "{}", v),
+        }
+    }
+}
+
+/// Solution containing variable assignments from Z3
+#[derive(Debug, Clone)]
+pub struct Solution<'src> {
+    /// Map from variable path to concrete value
+    pub assignments: std::collections::HashMap<VariablePath<'src>, Value>,
+}
+
+impl<'src> Solution<'src> {
+    /// Create an empty solution
+    pub fn new() -> Self {
+        Self {
+            assignments: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Get the value of a variable
+    pub fn get(&self, path: &VariablePath<'src>) -> Option<&Value> {
+        self.assignments.get(path)
+    }
+
+    /// Number of resolved variables
+    pub fn resolved_count(&self) -> usize {
+        self.assignments.len()
+    }
+}
+
+impl<'src> Default for Solution<'src> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A constraint that has been deferred for later resolution
+#[derive(Debug, Clone)]
+pub struct DeferredConstraint<'src> {
+    /// Variables that must have known values to process this constraint
+    pub dependencies: Vec<&'src str>,
+
+    /// Human-readable description of what's being deferred
+    pub description: String,
+}
+
+/// Reason why solving was only partial
+#[derive(Debug, Clone, PartialEq)]
+pub enum PartialReason {
+    /// For-loop with unresolved range variable
+    UnknownLoopRange {
+        range_var: String,
+    },
+
+    /// Function call with unresolved dependencies
+    UnresolvedFunctionCall {
+        function_name: String,
+        missing_deps: Vec<String>,
+    },
+
+    /// No progress made - deferred constraints still have unknown dependencies
+    ///
+    /// Solving stops when no new variables are resolved between iterations,
+    /// indicating that the remaining deferred constraints cannot be satisfied
+    /// with the current information.
+    NoProgress {
+        stuck_constraints: Vec<String>,
+    },
+}
+
+impl fmt::Display for PartialReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PartialReason::UnknownLoopRange { range_var } => {
+                write!(f, "for-loop range depends on unknown variable '{}'", range_var)
+            }
+            PartialReason::UnresolvedFunctionCall { function_name, missing_deps } => {
+                write!(
+                    f,
+                    "function '{}' has unresolved dependencies: {:?}",
+                    function_name, missing_deps
+                )
+            }
+            PartialReason::NoProgress { stuck_constraints } => {
+                write!(
+                    f,
+                    "no progress - {} constraint(s) still blocked",
+                    stuck_constraints.len()
+                )
+            }
+        }
+    }
+}
+
+/// Result of a solve operation
+///
+/// Both Complete and Partial are valid outcomes (not errors).
+/// Partial means some constraints couldn't be resolved due to
+/// missing dependencies, but a valid partial solution exists.
+#[derive(Debug, Clone)]
+pub enum SolveResult<'src> {
+    /// All constraints were fully resolved
+    Complete {
+        solution: Solution<'src>,
+        iterations: usize,
+    },
+
+    /// Partial solution - some constraints could not be resolved
+    ///
+    /// This is NOT an error - it's a valid result indicating
+    /// that solving progressed as far as possible with the
+    /// given constraints.
+    Partial {
+        solution: Solution<'src>,
+        deferred: Vec<DeferredConstraint<'src>>,
+        reason: PartialReason,
+        iterations: usize,
+    },
+}
+
+impl<'src> SolveResult<'src> {
+    /// Check if the solve was complete (all constraints resolved)
+    pub fn is_complete(&self) -> bool {
+        matches!(self, SolveResult::Complete { .. })
+    }
+
+    /// Get the solution (works for both complete and partial)
+    pub fn solution(&self) -> &Solution<'src> {
+        match self {
+            SolveResult::Complete { solution, .. } => solution,
+            SolveResult::Partial { solution, .. } => solution,
+        }
+    }
+
+    /// Get number of iterations performed
+    pub fn iterations(&self) -> usize {
+        match self {
+            SolveResult::Complete { iterations, .. } => *iterations,
+            SolveResult::Partial { iterations, .. } => *iterations,
+        }
+    }
+}
+
+// ============================================================================
+// Error Types
+// ============================================================================
+
 /// Error types for the solver
 #[derive(Debug, Clone, PartialEq)]
 pub enum SolverError {
@@ -184,6 +352,15 @@ pub enum SolverError {
 
     /// Context error
     ContextError(String),
+
+    /// Z3 solver returned UNSAT (no solution exists)
+    Unsatisfiable,
+
+    /// Z3 solver returned Unknown
+    Unknown,
+
+    /// Z3 model evaluation error
+    ModelEvaluationError(String),
 }
 
 impl fmt::Display for SolverError {
@@ -197,6 +374,11 @@ impl fmt::Display for SolverError {
                 write!(f, "Unsupported expression: {}", expr)
             }
             SolverError::ContextError(msg) => write!(f, "Context error: {}", msg),
+            SolverError::Unsatisfiable => write!(f, "No solution exists (UNSAT)"),
+            SolverError::Unknown => write!(f, "Z3 solver returned unknown result"),
+            SolverError::ModelEvaluationError(msg) => {
+                write!(f, "Failed to evaluate Z3 model: {}", msg)
+            }
         }
     }
 }

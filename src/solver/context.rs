@@ -16,7 +16,9 @@
 //! This structure enables zero-copy navigation using `&'src str` references,
 //! with string allocation only when creating Z3 variables.
 
-use super::{PathComponent, SolverError, VariablePath};
+use super::{DeferredConstraint, PathComponent, Solution, SolveResult, SolverError, Value, VariablePath};
+#[allow(unused_imports)] // Used in commented solve() implementation (Phase 3b+)
+use super::PartialReason;
 use crate::hir::definitions::FieldDefinition;
 use crate::hir::types::ResolvedType;
 use std::collections::HashMap;
@@ -232,6 +234,20 @@ pub struct SolverContext<'src, 'arena> {
 
     /// Stack of active with-statement contexts
     with_stack: Vec<WithContextInfo<'src, 'arena>>,
+
+    // Phase 3a: Iterative solving fields
+    /// Constraints that have been deferred
+    deferred_constraints: Vec<DeferredConstraint<'src>>,
+
+    /// Current iteration number (for diagnostics)
+    iteration: usize,
+
+    /// Solution from the last Z3 solve (if any)
+    current_solution: Option<Solution<'src>>,
+
+    /// Number of variables with determined values in previous iteration
+    /// (used to detect progress)
+    previous_solved_count: usize,
 }
 
 impl<'src, 'arena> SolverContext<'src, 'arena> {
@@ -243,6 +259,10 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             variables: HashMap::new(),
             scope_level: 0,
             with_stack: Vec::new(),
+            deferred_constraints: Vec::new(),
+            iteration: 0,
+            current_solution: None,
+            previous_solved_count: 0,
         }
     }
 
@@ -406,6 +426,222 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         self.variables
             .retain(|_, node| node.scope_level() < self.scope_level);
         self.scope_level = self.scope_level.saturating_sub(1);
+    }
+
+    // ========================================================================
+    // Phase 3a: Deferral Management
+    // ========================================================================
+
+    /// Defer a constraint for later resolution
+    pub fn defer_constraint(
+        &mut self,
+        dependencies: Vec<&'src str>,
+        description: String,
+    ) {
+        self.deferred_constraints.push(DeferredConstraint {
+            dependencies,
+            description,
+        });
+    }
+
+    /// Check if a variable has a known value in the current solution
+    pub fn is_variable_known(&self, var: &str) -> bool {
+        if let Some(solution) = &self.current_solution {
+            let path = VariablePath::from_name(var);
+            solution.assignments.contains_key(&path)
+        } else {
+            false
+        }
+    }
+
+    /// Get the value of a variable from the current solution
+    ///
+    /// Note: This method is only usable for variables that match the 'src lifetime.
+    /// For Phase 3b+, this will need to be extended to handle arbitrary variable names.
+    #[allow(dead_code)] // Will be used in Phase 3b+
+    pub fn get_variable_value(&self, var: &'src str) -> Option<&Value> {
+        let path = VariablePath::from_name(var);
+        self.current_solution
+            .as_ref()
+            .and_then(|sol| sol.assignments.get(&path))
+    }
+
+    // ========================================================================
+    // Phase 3a: Solution Extraction
+    // ========================================================================
+
+    /// Extract solution from Z3 model
+    ///
+    /// Walks the variable tree and evaluates each primitive variable
+    /// in the Z3 model to build a complete solution.
+    pub fn extract_solution(&self) -> Result<Solution<'src>, SolverError> {
+        // Get the Z3 model (only available after SAT result)
+        let model = self.z3_solver.get_model().ok_or_else(|| {
+            SolverError::ModelEvaluationError("No model available".to_string())
+        })?;
+
+        let mut solution = Solution::new();
+
+        // Walk through all variables and collect primitive values
+        for (root_name, root_node) in &self.variables {
+            let root_path = VariablePath::from_name(root_name);
+            self.extract_node_values(&root_path, root_node, &model, &mut solution)?;
+        }
+
+        Ok(solution)
+    }
+
+    /// Recursively extract values from a variable node
+    fn extract_node_values(
+        &self,
+        path: &VariablePath<'src>,
+        node: &VariableNode<'src, 'arena>,
+        model: &z3::Model,
+        solution: &mut Solution<'src>,
+    ) -> Result<(), SolverError> {
+        match node {
+            VariableNode::Primitive { z3_var, .. } => {
+                // Evaluate primitive variable in model
+                let value = self.evaluate_z3_primitive(z3_var, model)?;
+                solution.assignments.insert(path.clone(), value);
+            }
+            VariableNode::Struct { children, .. } => {
+                // Recursively extract struct fields
+                for (field_name, child) in children {
+                    let child_path = path.with_field(field_name);
+                    self.extract_node_values(&child_path, child, model, solution)?;
+                }
+            }
+            VariableNode::Array { children, .. } => {
+                // Recursively extract array elements
+                for (idx, child) in children.iter().enumerate() {
+                    let child_path = path.with_index(idx);
+                    self.extract_node_values(&child_path, child, model, solution)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Evaluate a Z3 primitive variable in the model
+    fn evaluate_z3_primitive(
+        &self,
+        z3_var: &Z3Primitive,
+        model: &z3::Model,
+    ) -> Result<Value, SolverError> {
+        match z3_var {
+            Z3Primitive::Int(z3_int) => {
+                let evaluated = model.eval(z3_int, true).ok_or_else(|| {
+                    SolverError::ModelEvaluationError(format!(
+                        "Failed to evaluate integer variable"
+                    ))
+                })?;
+                let value = evaluated.as_i64().ok_or_else(|| {
+                    SolverError::ModelEvaluationError(
+                        "Integer variable did not evaluate to i64".to_string(),
+                    )
+                })?;
+                Ok(Value::Int(value))
+            }
+            Z3Primitive::Real(z3_real) => {
+                let evaluated = model.eval(z3_real, true).ok_or_else(|| {
+                    SolverError::ModelEvaluationError(format!(
+                        "Failed to evaluate real variable"
+                    ))
+                })?;
+                // Z3 Real values are represented as rationals
+                // Convert to f64
+                let value = evaluated.as_rational().and_then(|(num, den)| {
+                    if den == 0 {
+                        None
+                    } else {
+                        Some(num as f64 / den as f64)
+                    }
+                }).ok_or_else(|| {
+                    SolverError::ModelEvaluationError(
+                        "Real variable did not evaluate to valid f64".to_string(),
+                    )
+                })?;
+                Ok(Value::Real(value))
+            }
+            Z3Primitive::Bool(z3_bool) => {
+                let evaluated = model.eval(z3_bool, true).ok_or_else(|| {
+                    SolverError::ModelEvaluationError(format!(
+                        "Failed to evaluate boolean variable"
+                    ))
+                })?;
+                let value = evaluated.as_bool().ok_or_else(|| {
+                    SolverError::ModelEvaluationError(
+                        "Boolean variable did not evaluate to bool".to_string(),
+                    )
+                })?;
+                Ok(Value::Bool(value))
+            }
+        }
+    }
+
+    // ========================================================================
+    // Phase 3a: Iterative Solve Loop
+    // ========================================================================
+
+    /// Main solve function with iterative partial solving
+    ///
+    /// This is the entry point for Phase 3a. It will be extended in later
+    /// phases to actually process statements. For now, it's a placeholder.
+    pub fn solve(&mut self) -> Result<SolveResult<'src>, SolverError> {
+        todo!(
+            "Phase 3a: Implement iterative solve loop. \
+             This requires implementing Solvable trait for statements (Phase 3b+). \
+             For now, this is a placeholder that demonstrates the structure."
+        );
+
+        // The actual implementation will look like this:
+        //
+        // loop {
+        //     self.iteration += 1;
+        //
+        //     // Process statements (requires Solvable trait implementation)
+        //     // for stmt in statements {
+        //     //     stmt.solve(self)?;
+        //     // }
+        //
+        //     // Run Z3 solver
+        //     match self.z3_solver.check() {
+        //         z3::SatResult::Sat => {
+        //             let solution = self.extract_solution()?;
+        //             let current_solved_count = solution.resolved_count();
+        //
+        //             // Check progress
+        //             let made_progress = current_solved_count > self.previous_solved_count;
+        //             self.previous_solved_count = current_solved_count;
+        //             self.current_solution = Some(solution.clone());
+        //
+        //             // Return if complete or no progress
+        //             if self.deferred_constraints.is_empty() {
+        //                 return Ok(SolveResult::Complete {
+        //                     solution,
+        //                     iterations: self.iteration,
+        //                 });
+        //             }
+        //
+        //             if !made_progress {
+        //                 return Ok(SolveResult::Partial {
+        //                     solution,
+        //                     deferred: self.deferred_constraints.clone(),
+        //                     reason: PartialReason::NoProgress {
+        //                         stuck_constraints: self.deferred_constraints
+        //                             .iter()
+        //                             .map(|dc| dc.description.clone())
+        //                             .collect(),
+        //                     },
+        //                     iterations: self.iteration,
+        //                 });
+        //             }
+        //         }
+        //         z3::SatResult::Unsat => return Err(SolverError::Unsatisfiable),
+        //         z3::SatResult::Unknown => return Err(SolverError::Unknown),
+        //     }
+        // }
     }
 }
 
