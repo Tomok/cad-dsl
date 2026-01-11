@@ -13,6 +13,7 @@ This document describes the trait-based constraint solver architecture for CAD-D
   - [RAII Scope Guards](#raii-scope-guards)
 - [Solvable Trait](#solvable-trait)
 - [Transform Mechanics](#transform-mechanics)
+- [Module Structure](#module-structure)
 - [Implementation Guide](#implementation-guide)
 
 ## Overview
@@ -863,12 +864,183 @@ with sketch {
 5. **Add user constraints**: `.p.x == 10.0` and `.p.y == 20.0`
 6. **Z3 solving**: Finds values for all variables including shadow
 
+## Module Structure
+
+The solver implementation follows a clean separation between trait definitions and implementations, with the `impls/` submodule structure mirroring the HIR structure.
+
+### Directory Layout
+
+```
+src/solver/
+  mod.rs                    # Solvable trait definition, core types, re-exports
+  context.rs                # SolverContext with variable management
+  constraint_extractor.rs   # High-level constraint extraction pipeline
+  struct_flattener.rs       # Struct/array flattening for Z3
+  z3_bridge.rs              # Z3 interface and expression conversion
+  solution_formatter.rs     # Format Z3 solutions for display
+  function_inliner.rs       # Function/method inlining logic
+  impls/
+    mod.rs                  # Re-export all trait implementations
+    expr.rs                 # impl Solvable for ResolvedExpr
+    stmt.rs                 # impl Solvable for ResolvedStmt
+    definitions.rs          # impl Solvable for FunctionDefinition, etc.
+```
+
+### Design Rationale
+
+**Why separate impls from the trait?**
+- **Modularity**: Each HIR type's solver logic is isolated
+- **Parallel structure**: `impls/` mirrors `hir/` for easy navigation
+- **Clarity**: Trait definition stays clean and focused
+- **Testing**: Each impl module can have its own test suite
+
+**Comparison with HIR structure:**
+
+```
+src/hir/                    src/solver/impls/
+  expr.rs                     expr.rs        (impl Solvable for ResolvedExpr)
+  definitions.rs              definitions.rs (impl Solvable for Function/Struct/etc.)
+  types.rs                    types.rs       (impl helpers for ResolvedType if needed)
+  scope.rs                    (not needed in solver impls)
+  context.rs                  (not needed in solver impls)
+```
+
+### Example: expr.rs
+
+```rust
+// src/solver/impls/expr.rs
+use crate::hir::expr::ResolvedExpr;
+use crate::solver::{Solvable, SolverContext, SolverError};
+
+impl<'src, 'arena, 'ctx> Solvable<'src, 'arena, 'ctx> for ResolvedExpr<'src, 'arena> {
+    fn solve(
+        &self,
+        ctx: &mut SolverContext<'src, 'arena, 'ctx>,
+    ) -> Result<Z3Ast<'ctx>, SolverError> {
+        match self {
+            ResolvedExpr::Literal(lit) => {
+                // Convert literal to Z3
+            }
+            ResolvedExpr::Variable(var) => {
+                // Lookup variable in context
+            }
+            ResolvedExpr::BinaryOp { op, left, right } => {
+                // Recursively solve operands
+                let left_z3 = left.solve(ctx)?;
+                let right_z3 = right.solve(ctx)?;
+                // Apply operator
+            }
+            ResolvedExpr::FunctionCall { func, args } => {
+                // Inline function
+                ctx.inline_function(func, args)
+            }
+            ResolvedExpr::MethodCall { receiver, method, args } => {
+                // Inline method
+                let self_path = ctx.resolve_expr_to_path(receiver)?;
+                ctx.inline_method(self_path, method, args)
+            }
+            // ... other expression types
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Tests specific to expression solving
+}
+```
+
+### Example: stmt.rs
+
+```rust
+// src/solver/impls/stmt.rs
+use crate::hir::ResolvedStmt;
+use crate::solver::{Solvable, SolverContext, SolverError};
+
+impl<'src, 'arena, 'ctx> Solvable<'src, 'arena, 'ctx> for ResolvedStmt<'src, 'arena> {
+    fn solve(
+        &self,
+        ctx: &mut SolverContext<'src, 'arena, 'ctx>,
+    ) -> Result<(), SolverError> {
+        match self {
+            ResolvedStmt::Let { name, ty, init, .. } => {
+                // Declare variable
+                ctx.declare_variable(name, ty)?;
+
+                // Handle initializer
+                if let Some(init_expr) = init {
+                    let value = init_expr.solve(ctx)?;
+                    ctx.add_initialization_constraint(name, value)?;
+                }
+
+                Ok(())
+            }
+            ResolvedStmt::Expression(expr) => {
+                // Expression statement (constraint)
+                let z3_expr = expr.solve(ctx)?;
+                ctx.assert_constraint(z3_expr)
+            }
+            ResolvedStmt::With { target, body, .. } => {
+                // Handle with-statement
+                let _guard = ctx.enter_with_context(target)?;
+                for stmt in body {
+                    stmt.solve(ctx)?;
+                }
+                Ok(())
+            }
+            // ... other statement types
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Tests specific to statement solving
+}
+```
+
+### Module Re-exports
+
+```rust
+// src/solver/impls/mod.rs
+mod expr;
+mod stmt;
+mod definitions;
+
+// All impls are automatically available when the module is imported
+// No need to explicitly re-export since traits are implemented on foreign types
+```
+
+```rust
+// src/solver/mod.rs
+mod context;
+mod impls;  // This pulls in all trait implementations
+
+pub use context::SolverContext;
+
+// Trait definition
+pub trait Solvable<'src, 'arena, 'ctx> {
+    type Output;
+
+    fn solve(
+        &self,
+        ctx: &mut SolverContext<'src, 'arena, 'ctx>,
+    ) -> Result<Self::Output, SolverError>;
+}
+```
+
 ## Implementation Guide
 
+### Phase 0: Module Setup
+1. Create `src/solver/` directory structure
+2. Create `src/solver/impls/` subdirectory
+3. Set up `mod.rs` files with trait definition
+4. Create placeholder files: `context.rs`, `impls/expr.rs`, `impls/stmt.rs`
+
 ### Phase 1: Core Infrastructure
-1. Implement `VariablePath` and `PathComponent`
-2. Implement `VariableNode` with tree operations
-3. Implement `SolverContext` with basic variable management
+1. Implement `VariablePath` and `PathComponent` in `src/solver/mod.rs`
+2. Implement `VariableNode` with tree operations in `src/solver/context.rs`
+3. Implement `SolverContext` with basic variable management in `src/solver/context.rs`
 4. Write tests for tree navigation and lookup
 
 ### Phase 2: Guards and Scopes
@@ -878,9 +1050,14 @@ with sketch {
 4. Write tests for scope push/pop
 
 ### Phase 3: Basic Solving
-1. Implement `Solvable` for simple statements (`Let`, `Expression`)
-2. Implement expression-to-Z3 conversion
-3. Write end-to-end tests for simple constraint problems
+1. Implement `Solvable` for simple statements in `src/solver/impls/stmt.rs`
+   - `Let` statements (variable declaration)
+   - `Expression` statements (constraints)
+2. Implement `Solvable` for expressions in `src/solver/impls/expr.rs`
+   - Literals, variables, binary operations
+   - Expression-to-Z3 conversion
+3. Wire up impls in `src/solver/impls/mod.rs`
+4. Write end-to-end tests for simple constraint problems
 
 ### Phase 4: Container With-Statements
 1. Implement container context handling in `WithGuard`
@@ -888,10 +1065,11 @@ with sketch {
 3. Write tests for container namespacing
 
 ### Phase 5: Function and Method Inlining
-1. Implement `inline_function` for user-defined functions
-2. Implement `inline_method` for user-defined methods
-3. Add parameter binding and scope management
-4. Write tests for simple function/method calls
+1. Add `FunctionCall` and `MethodCall` cases to `src/solver/impls/expr.rs`
+2. Implement `inline_function` helper in `src/solver/context.rs`
+3. Implement `inline_method` helper in `src/solver/context.rs`
+4. Add parameter binding and scope management to context
+5. Write tests for simple function/method calls
 
 ### Phase 6: Transform With-Statements (Auto-call)
 1. Implement transform context detection in `WithGuard`
