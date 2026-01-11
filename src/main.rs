@@ -14,8 +14,11 @@ mod type_checker;
 // Solver pipeline module (legacy implementation)
 mod solver_legacy;
 
-// Re-export legacy solver as solver for now
-use solver_legacy as solver;
+// New trait-based solver (under development)
+mod solver;
+
+// Use legacy solver for now until new solver is complete
+use solver_legacy as active_solver;
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use bumpalo::Bump;
@@ -23,7 +26,7 @@ use chumsky::Parser as _;
 use clap::{Parser, Subcommand};
 use lexer::TokenTrait;
 use semantic_analyzer::errors::SemanticError;
-use solver::SolverError;
+use active_solver::SolverError;
 use std::fs;
 use std::io::{self, Read};
 use type_checker::errors::TypeCheckError;
@@ -300,7 +303,7 @@ fn main() {
             }
 
             // Step 5: Constraint Solving
-            match solver::solve(&hir[..], &arena) {
+            match active_solver::solve(&hir[..], &arena) {
                 Ok(solution) => {
                     print!("{}", solution);
                 }
