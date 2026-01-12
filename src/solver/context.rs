@@ -16,9 +16,11 @@
 //! This structure enables zero-copy navigation using `&'src str` references,
 //! with string allocation only when creating Z3 variables.
 
-use super::{DeferredConstraint, PathComponent, Solution, SolveResult, SolverError, Value, VariablePath};
 #[allow(unused_imports)] // Used in commented solve() implementation (Phase 3b+)
 use super::PartialReason;
+use super::{
+    DeferredConstraint, PathComponent, Solution, SolveResult, SolverError, Value, VariablePath,
+};
 use crate::hir::definitions::FieldDefinition;
 use crate::hir::types::ResolvedType;
 use std::collections::HashMap;
@@ -433,11 +435,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     // ========================================================================
 
     /// Defer a constraint for later resolution
-    pub fn defer_constraint(
-        &mut self,
-        dependencies: Vec<&'src str>,
-        description: String,
-    ) {
+    pub fn defer_constraint(&mut self, dependencies: Vec<&'src str>, description: String) {
         self.deferred_constraints.push(DeferredConstraint {
             dependencies,
             description,
@@ -476,9 +474,10 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     /// in the Z3 model to build a complete solution.
     pub fn extract_solution(&self) -> Result<Solution<'src>, SolverError> {
         // Get the Z3 model (only available after SAT result)
-        let model = self.z3_solver.get_model().ok_or_else(|| {
-            SolverError::ModelEvaluationError("No model available".to_string())
-        })?;
+        let model = self
+            .z3_solver
+            .get_model()
+            .ok_or_else(|| SolverError::ModelEvaluationError("No model available".to_string()))?;
 
         let mut solution = Solution::new();
 
@@ -531,51 +530,67 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     ) -> Result<Value, SolverError> {
         match z3_var {
             Z3Primitive::Int(z3_int) => {
-                let evaluated = model.eval(z3_int, true).ok_or_else(|| {
-                    SolverError::ModelEvaluationError(
-                        "Failed to evaluate integer variable".to_string()
-                    )
-                })?;
-                let value = evaluated.as_i64().ok_or_else(|| {
-                    SolverError::ModelEvaluationError(
-                        "Integer variable did not evaluate to i64".to_string(),
-                    )
-                })?;
-                Ok(Value::Int(value))
+                // Use false to avoid model completion - only get values that are actually constrained
+                match model.eval(z3_int, false) {
+                    Some(evaluated) => {
+                        // Try to convert to concrete value
+                        match evaluated.as_i64() {
+                            Some(value) => Ok(Value::Int(value)),
+                            None => {
+                                // Z3 returned a symbolic expression, not a concrete value
+                                // This means the variable is not fully constrained
+                                Ok(Value::Unconstrained)
+                            }
+                        }
+                    }
+                    None => {
+                        // Variable is not constrained - return Unconstrained
+                        Ok(Value::Unconstrained)
+                    }
+                }
             }
             Z3Primitive::Real(z3_real) => {
-                let evaluated = model.eval(z3_real, true).ok_or_else(|| {
-                    SolverError::ModelEvaluationError(
-                        "Failed to evaluate real variable".to_string()
-                    )
-                })?;
-                // Z3 Real values are represented as rationals
-                // Convert to f64
-                let value = evaluated.as_rational().and_then(|(num, den)| {
-                    if den == 0 {
-                        None
-                    } else {
-                        Some(num as f64 / den as f64)
+                // Use false to avoid model completion - only get values that are actually constrained
+                match model.eval(z3_real, false) {
+                    Some(evaluated) => {
+                        // Z3 Real values are represented as rationals
+                        // Convert to f64
+                        match evaluated.as_rational() {
+                            Some((num, den)) if den != 0 => {
+                                let value = num as f64 / den as f64;
+                                Ok(Value::Real(value))
+                            }
+                            _ => {
+                                // Z3 returned a symbolic expression or invalid rational
+                                // This means the variable is not fully constrained
+                                Ok(Value::Unconstrained)
+                            }
+                        }
                     }
-                }).ok_or_else(|| {
-                    SolverError::ModelEvaluationError(
-                        "Real variable did not evaluate to valid f64".to_string(),
-                    )
-                })?;
-                Ok(Value::Real(value))
+                    None => {
+                        // Variable is not constrained - return Unconstrained
+                        Ok(Value::Unconstrained)
+                    }
+                }
             }
             Z3Primitive::Bool(z3_bool) => {
-                let evaluated = model.eval(z3_bool, true).ok_or_else(|| {
-                    SolverError::ModelEvaluationError(
-                        "Failed to evaluate boolean variable".to_string()
-                    )
-                })?;
-                let value = evaluated.as_bool().ok_or_else(|| {
-                    SolverError::ModelEvaluationError(
-                        "Boolean variable did not evaluate to bool".to_string(),
-                    )
-                })?;
-                Ok(Value::Bool(value))
+                // Use false to avoid model completion - only get values that are actually constrained
+                match model.eval(z3_bool, false) {
+                    Some(evaluated) => {
+                        match evaluated.as_bool() {
+                            Some(value) => Ok(Value::Bool(value)),
+                            None => {
+                                // Z3 returned a symbolic expression, not a concrete value
+                                // This means the variable is not fully constrained
+                                Ok(Value::Unconstrained)
+                            }
+                        }
+                    }
+                    None => {
+                        // Variable is not constrained - return Unconstrained
+                        Ok(Value::Unconstrained)
+                    }
+                }
             }
         }
     }
