@@ -16,9 +16,11 @@
 //! This structure enables zero-copy navigation using `&'src str` references,
 //! with string allocation only when creating Z3 variables.
 
-use super::{DeferredConstraint, PathComponent, Solution, SolveResult, SolverError, Value, VariablePath};
 #[allow(unused_imports)] // Used in commented solve() implementation (Phase 3b+)
 use super::PartialReason;
+use super::{
+    DeferredConstraint, PathComponent, Solution, SolveResult, SolverError, Value, VariablePath,
+};
 use crate::hir::definitions::FieldDefinition;
 use crate::hir::types::ResolvedType;
 use std::collections::HashMap;
@@ -433,11 +435,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     // ========================================================================
 
     /// Defer a constraint for later resolution
-    pub fn defer_constraint(
-        &mut self,
-        dependencies: Vec<&'src str>,
-        description: String,
-    ) {
+    pub fn defer_constraint(&mut self, dependencies: Vec<&'src str>, description: String) {
         self.deferred_constraints.push(DeferredConstraint {
             dependencies,
             description,
@@ -476,9 +474,10 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     /// in the Z3 model to build a complete solution.
     pub fn extract_solution(&self) -> Result<Solution<'src>, SolverError> {
         // Get the Z3 model (only available after SAT result)
-        let model = self.z3_solver.get_model().ok_or_else(|| {
-            SolverError::ModelEvaluationError("No model available".to_string())
-        })?;
+        let model = self
+            .z3_solver
+            .get_model()
+            .ok_or_else(|| SolverError::ModelEvaluationError("No model available".to_string()))?;
 
         let mut solution = Solution::new();
 
@@ -531,9 +530,9 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     ) -> Result<Value, SolverError> {
         match z3_var {
             Z3Primitive::Int(z3_int) => {
-                let evaluated = model.eval(z3_int, true).ok_or_else(|| {
+                let evaluated = model.eval(z3_int, false).ok_or_else(|| {
                     SolverError::ModelEvaluationError(
-                        "Failed to evaluate integer variable".to_string()
+                        "Failed to evaluate integer variable".to_string(),
                     )
                 })?;
                 let value = evaluated.as_i64().ok_or_else(|| {
@@ -544,30 +543,33 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                 Ok(Value::Int(value))
             }
             Z3Primitive::Real(z3_real) => {
-                let evaluated = model.eval(z3_real, true).ok_or_else(|| {
+                let evaluated = model.eval(z3_real, false).ok_or_else(|| {
                     SolverError::ModelEvaluationError(
-                        "Failed to evaluate real variable".to_string()
+                        "Failed to evaluate real variable".to_string(),
                     )
                 })?;
                 // Z3 Real values are represented as rationals
                 // Convert to f64
-                let value = evaluated.as_rational().and_then(|(num, den)| {
-                    if den == 0 {
-                        None
-                    } else {
-                        Some(num as f64 / den as f64)
-                    }
-                }).ok_or_else(|| {
-                    SolverError::ModelEvaluationError(
-                        "Real variable did not evaluate to valid f64".to_string(),
-                    )
-                })?;
+                let value = evaluated
+                    .as_rational()
+                    .and_then(|(num, den)| {
+                        if den == 0 {
+                            None
+                        } else {
+                            Some(num as f64 / den as f64)
+                        }
+                    })
+                    .ok_or_else(|| {
+                        SolverError::ModelEvaluationError(
+                            "Real variable did not evaluate to valid f64".to_string(),
+                        )
+                    })?;
                 Ok(Value::Real(value))
             }
             Z3Primitive::Bool(z3_bool) => {
-                let evaluated = model.eval(z3_bool, true).ok_or_else(|| {
+                let evaluated = model.eval(z3_bool, false).ok_or_else(|| {
                     SolverError::ModelEvaluationError(
-                        "Failed to evaluate boolean variable".to_string()
+                        "Failed to evaluate boolean variable".to_string(),
                     )
                 })?;
                 let value = evaluated.as_bool().ok_or_else(|| {
