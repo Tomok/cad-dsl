@@ -179,13 +179,13 @@ impl<'src, 'arena> SolutionFormatter<'src, 'arena> {
                             None => {
                                 // Z3 returned a symbolic expression, not a concrete value
                                 // This means the variable is not fully constrained
-                                "<unconstrained>".to_string()
+                                "<under-constrained>".to_string()
                             }
                         }
                     }
                     None => {
                         // Variable is not constrained
-                        "<unconstrained>".to_string()
+                        "<under-constrained>".to_string()
                     }
                 }
             }
@@ -202,13 +202,13 @@ impl<'src, 'arena> SolutionFormatter<'src, 'arena> {
                             None => {
                                 // Z3 returned a symbolic expression, not a concrete value
                                 // This means the variable is not fully constrained
-                                "<unconstrained>".to_string()
+                                "<under-constrained>".to_string()
                             }
                         }
                     }
                     None => {
                         // Variable is not constrained
-                        "<unconstrained>".to_string()
+                        "<under-constrained>".to_string()
                     }
                 }
             }
@@ -220,13 +220,13 @@ impl<'src, 'arena> SolutionFormatter<'src, 'arena> {
                             None => {
                                 // Z3 returned a symbolic expression, not a concrete value
                                 // This means the variable is not fully constrained
-                                "<unconstrained>".to_string()
+                                "<under-constrained>".to_string()
                             }
                         }
                     }
                     None => {
                         // Variable is not constrained
-                        "<unconstrained>".to_string()
+                        "<under-constrained>".to_string()
                     }
                 }
             }
@@ -720,8 +720,8 @@ mod tests {
 
         match &result {
             Ok(solution) => {
-                // x should be marked as unconstrained, y should be 10
-                assert_eq!(solution, "x = <unconstrained>\ny = 10\n");
+                // x should be marked as under-constrained, y should be 10
+                assert_eq!(solution, "x = <under-constrained>\ny = 10\n");
             }
             Err(e) => {
                 panic!("Formatting failed: {:?}", e);

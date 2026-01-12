@@ -177,8 +177,8 @@ pub enum Value {
     Real(f64),
     /// Boolean value
     Bool(bool),
-    /// Unconstrained variable (not defined by any constraints)
-    Unconstrained,
+    /// Under-constrained variable (not uniquely determined by constraints)
+    UnderConstrained,
 }
 
 impl fmt::Display for Value {
@@ -187,7 +187,7 @@ impl fmt::Display for Value {
             Value::Int(v) => write!(f, "{}", v),
             Value::Real(v) => write!(f, "{}", v),
             Value::Bool(v) => write!(f, "{}", v),
-            Value::Unconstrained => write!(f, "<unconstrained>"),
+            Value::UnderConstrained => write!(f, "<under-constrained>"),
         }
     }
 }

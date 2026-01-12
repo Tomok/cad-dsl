@@ -539,13 +539,13 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                             None => {
                                 // Z3 returned a symbolic expression, not a concrete value
                                 // This means the variable is not fully constrained
-                                Ok(Value::Unconstrained)
+                                Ok(Value::UnderConstrained)
                             }
                         }
                     }
                     None => {
                         // Variable is not constrained - return Unconstrained
-                        Ok(Value::Unconstrained)
+                        Ok(Value::UnderConstrained)
                     }
                 }
             }
@@ -563,13 +563,13 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                             _ => {
                                 // Z3 returned a symbolic expression or invalid rational
                                 // This means the variable is not fully constrained
-                                Ok(Value::Unconstrained)
+                                Ok(Value::UnderConstrained)
                             }
                         }
                     }
                     None => {
                         // Variable is not constrained - return Unconstrained
-                        Ok(Value::Unconstrained)
+                        Ok(Value::UnderConstrained)
                     }
                 }
             }
@@ -582,13 +582,13 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                             None => {
                                 // Z3 returned a symbolic expression, not a concrete value
                                 // This means the variable is not fully constrained
-                                Ok(Value::Unconstrained)
+                                Ok(Value::UnderConstrained)
                             }
                         }
                     }
                     None => {
                         // Variable is not constrained - return Unconstrained
-                        Ok(Value::Unconstrained)
+                        Ok(Value::UnderConstrained)
                     }
                 }
             }
