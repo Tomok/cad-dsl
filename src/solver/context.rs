@@ -537,14 +537,19 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                         match evaluated.as_i64() {
                             Some(value) => Ok(Value::Int(value)),
                             None => {
-                                // Z3 returned a symbolic expression, not a concrete value
-                                // This means the variable is not fully constrained
-                                Ok(Value::UnderConstrained)
+                                // as_i64() failed - this could mean either:
+                                // 1. It's a symbolic expression (under-constrained)
+                                // 2. It's a concrete integer that doesn't fit in i64 (overflow)
+                                // Return an error with the Z3 representation for debugging
+                                Err(SolverError::ModelEvaluationError(format!(
+                                    "Integer variable has value that cannot fit in i64: {}",
+                                    evaluated
+                                )))
                             }
                         }
                     }
                     None => {
-                        // Variable is not constrained - return Unconstrained
+                        // Variable is not constrained - return UnderConstrained
                         Ok(Value::UnderConstrained)
                     }
                 }
@@ -556,19 +561,31 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                         // Z3 Real values are represented as rationals
                         // Convert to f64
                         match evaluated.as_rational() {
-                            Some((num, den)) if den != 0 => {
-                                let value = num as f64 / den as f64;
-                                Ok(Value::Real(value))
+                            Some((num, den)) => {
+                                if den == 0 {
+                                    // Division by zero in rational representation
+                                    Err(SolverError::ModelEvaluationError(format!(
+                                        "Real value has invalid rational representation (division by zero): {}",
+                                        evaluated
+                                    )))
+                                } else {
+                                    // Convert to f64 (handles both positive and negative denominators)
+                                    let value = num as f64 / den as f64;
+                                    Ok(Value::Real(value))
+                                }
                             }
-                            _ => {
-                                // Z3 returned a symbolic expression or invalid rational
-                                // This means the variable is not fully constrained
-                                Ok(Value::UnderConstrained)
+                            None => {
+                                // as_rational() failed - this means the value exists but
+                                // cannot be represented as a rational or converted to f64
+                                Err(SolverError::ModelEvaluationError(format!(
+                                    "Real variable has value that cannot be converted to f64: {}",
+                                    evaluated
+                                )))
                             }
                         }
                     }
                     None => {
-                        // Variable is not constrained - return Unconstrained
+                        // Variable is not constrained - return UnderConstrained
                         Ok(Value::UnderConstrained)
                     }
                 }
@@ -580,14 +597,17 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                         match evaluated.as_bool() {
                             Some(value) => Ok(Value::Bool(value)),
                             None => {
-                                // Z3 returned a symbolic expression, not a concrete value
-                                // This means the variable is not fully constrained
-                                Ok(Value::UnderConstrained)
+                                // as_bool() failed - this means the value exists but
+                                // cannot be converted to bool (shouldn't happen normally)
+                                Err(SolverError::ModelEvaluationError(format!(
+                                    "Boolean variable has unexpected value: {}",
+                                    evaluated
+                                )))
                             }
                         }
                     }
                     None => {
-                        // Variable is not constrained - return Unconstrained
+                        // Variable is not constrained - return UnderConstrained
                         Ok(Value::UnderConstrained)
                     }
                 }

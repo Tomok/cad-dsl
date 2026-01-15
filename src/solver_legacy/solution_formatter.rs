@@ -177,9 +177,21 @@ impl<'src, 'arena> SolutionFormatter<'src, 'arena> {
                         match eval_result.as_i64() {
                             Some(int_value) => format!("{}", int_value),
                             None => {
-                                // Z3 returned a symbolic expression, not a concrete value
-                                // This means the variable is not fully constrained
-                                "<under-constrained>".to_string()
+                                // as_i64() failed - check if it's a numeric value or symbolic expression
+                                let z3_str = format!("{}", eval_result);
+                                // If the string starts with a digit or '-', it's likely a large number
+                                // Otherwise it's a symbolic expression (under-constrained)
+                                if z3_str
+                                    .chars()
+                                    .next()
+                                    .is_some_and(|c| c.is_ascii_digit() || c == '-')
+                                {
+                                    // It's a large number that exceeds i64 range
+                                    format!("{} (exceeds i64 range)", z3_str)
+                                } else {
+                                    // It's a symbolic expression - variable is under-constrained
+                                    "<under-constrained>".to_string()
+                                }
                             }
                         }
                     }
@@ -195,14 +207,29 @@ impl<'src, 'arena> SolutionFormatter<'src, 'arena> {
                         // Try to get a real number from Z3
                         match eval_result.as_rational() {
                             Some((numerator, denominator)) => {
-                                // Convert to f64
-                                let float_value = numerator as f64 / denominator as f64;
-                                format!("{}", float_value)
+                                if denominator == 0 {
+                                    // Division by zero in rational - this shouldn't happen normally
+                                    format!("{}/{} (invalid rational)", numerator, 0)
+                                } else {
+                                    // Convert to f64 (handles both positive and negative denominators)
+                                    let float_value = numerator as f64 / denominator as f64;
+                                    format!("{}", float_value)
+                                }
                             }
                             None => {
-                                // Z3 returned a symbolic expression, not a concrete value
-                                // This means the variable is not fully constrained
-                                "<under-constrained>".to_string()
+                                // as_rational() failed - check if it's a numeric value or symbolic expression
+                                let z3_str = format!("{}", eval_result);
+                                if z3_str
+                                    .chars()
+                                    .next()
+                                    .is_some_and(|c| c.is_ascii_digit() || c == '-')
+                                {
+                                    // It's a numeric value that cannot be converted to f64
+                                    format!("{} (cannot convert to f64)", z3_str)
+                                } else {
+                                    // It's a symbolic expression - variable is under-constrained
+                                    "<under-constrained>".to_string()
+                                }
                             }
                         }
                     }
@@ -218,9 +245,15 @@ impl<'src, 'arena> SolutionFormatter<'src, 'arena> {
                         match eval_result.as_bool() {
                             Some(bool_value) => format!("{}", bool_value),
                             None => {
-                                // Z3 returned a symbolic expression, not a concrete value
-                                // This means the variable is not fully constrained
-                                "<under-constrained>".to_string()
+                                // as_bool() failed - check if it's "true"/"false" or symbolic
+                                let z3_str = format!("{}", eval_result);
+                                if z3_str == "true" || z3_str == "false" {
+                                    // Shouldn't happen, but handle it
+                                    format!("{} (unexpected bool value)", z3_str)
+                                } else {
+                                    // It's a symbolic expression - variable is under-constrained
+                                    "<under-constrained>".to_string()
+                                }
                             }
                         }
                     }
