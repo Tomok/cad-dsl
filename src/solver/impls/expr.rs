@@ -5,7 +5,7 @@
 
 use crate::hir::expr::{ResolvedExpr, ResolvedExprKind};
 use crate::solver::context::{SolverContext, Z3Primitive};
-use crate::solver::{PathComponent, Solvable, SolverError, VariablePath};
+use crate::solver::{Solvable, SolverError, VariablePath};
 
 /// Z3 expression result type
 ///
@@ -32,7 +32,7 @@ impl Z3Expr {
     }
 
     /// Convert to Real, with automatic type conversion if needed
-    pub fn to_real(&self, ctx: &z3::Context) -> z3::ast::Real {
+    pub fn to_real(&self, _ctx: &z3::Context) -> z3::ast::Real {
         match self {
             Z3Expr::Int(i) => i.to_real(),
             Z3Expr::Real(r) => r.clone(),
@@ -82,9 +82,7 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                     .get_variable(&path)
                     .ok_or_else(|| SolverError::UndefinedVariable(name.to_string()))?;
 
-                let z3_var = var_node
-                    .as_primitive()
-                    .ok_or_else(|| SolverError::NotAPrimitiveType)?;
+                let z3_var = var_node.as_primitive().ok_or(SolverError::NotAPrimitiveType)?;
 
                 Ok(match z3_var {
                     Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
@@ -107,9 +105,7 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                     SolverError::UndefinedVariable(format!("{}.{}", base_path, field_name))
                 })?;
 
-                let z3_var = var_node
-                    .as_primitive()
-                    .ok_or_else(|| SolverError::NotAPrimitiveType)?;
+                let z3_var = var_node.as_primitive().ok_or(SolverError::NotAPrimitiveType)?;
 
                 Ok(match z3_var {
                     Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
@@ -129,9 +125,7 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                     SolverError::UndefinedVariable(format!("{}[{}]", base_path, index_val))
                 })?;
 
-                let z3_var = var_node
-                    .as_primitive()
-                    .ok_or_else(|| SolverError::NotAPrimitiveType)?;
+                let z3_var = var_node.as_primitive().ok_or(SolverError::NotAPrimitiveType)?;
 
                 Ok(match z3_var {
                     Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
@@ -207,11 +201,11 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 let rhs_z3 = rhs.solve(ctx)?;
 
                 match (lhs_z3, rhs_z3) {
-                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l._eq(&r))),
-                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l._eq(&r))),
-                    (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real()._eq(&r))),
-                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l._eq(&r.to_real()))),
-                    (Z3Expr::Bool(l), Z3Expr::Bool(r)) => Ok(Z3Expr::Bool(l._eq(&r))),
+                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.eq(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.eq(&r))),
+                    (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real().eq(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.eq(r.to_real()))),
+                    (Z3Expr::Bool(l), Z3Expr::Bool(r)) => Ok(Z3Expr::Bool(l.eq(&r))),
                     _ => Err(SolverError::UnsupportedExpression(
                         "Invalid types for equality comparison".to_string(),
                     )),
@@ -223,15 +217,15 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 let rhs_z3 = rhs.solve(ctx)?;
 
                 match (lhs_z3, rhs_z3) {
-                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l._eq(&r).not())),
-                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l._eq(&r).not())),
+                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.eq(&r).not())),
+                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.eq(&r).not())),
                     (Z3Expr::Int(l), Z3Expr::Real(r)) => {
-                        Ok(Z3Expr::Bool(l.to_real()._eq(&r).not()))
+                        Ok(Z3Expr::Bool(l.to_real().eq(&r).not()))
                     }
                     (Z3Expr::Real(l), Z3Expr::Int(r)) => {
-                        Ok(Z3Expr::Bool(l._eq(&r.to_real()).not()))
+                        Ok(Z3Expr::Bool(l.eq(r.to_real()).not()))
                     }
-                    (Z3Expr::Bool(l), Z3Expr::Bool(r)) => Ok(Z3Expr::Bool(l._eq(&r).not())),
+                    (Z3Expr::Bool(l), Z3Expr::Bool(r)) => Ok(Z3Expr::Bool(l.eq(&r).not())),
                     _ => Err(SolverError::UnsupportedExpression(
                         "Invalid types for not-equal comparison".to_string(),
                     )),
@@ -246,7 +240,7 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                     (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.lt(&r))),
                     (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.lt(&r))),
                     (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real().lt(&r))),
-                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.lt(&r.to_real()))),
+                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.lt(r.to_real()))),
                     _ => Err(SolverError::UnsupportedExpression(
                         "Invalid types for less-than comparison".to_string(),
                     )),
@@ -261,7 +255,7 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                     (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.le(&r))),
                     (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.le(&r))),
                     (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real().le(&r))),
-                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.le(&r.to_real()))),
+                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.le(r.to_real()))),
                     _ => Err(SolverError::UnsupportedExpression(
                         "Invalid types for less-than-or-equal comparison".to_string(),
                     )),
@@ -276,7 +270,7 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                     (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.gt(&r))),
                     (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.gt(&r))),
                     (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real().gt(&r))),
-                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.gt(&r.to_real()))),
+                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.gt(r.to_real()))),
                     _ => Err(SolverError::UnsupportedExpression(
                         "Invalid types for greater-than comparison".to_string(),
                     )),
@@ -291,7 +285,7 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                     (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.ge(&r))),
                     (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.ge(&r))),
                     (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real().ge(&r))),
-                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.ge(&r.to_real()))),
+                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.ge(r.to_real()))),
                     _ => Err(SolverError::UnsupportedExpression(
                         "Invalid types for greater-than-or-equal comparison".to_string(),
                     )),

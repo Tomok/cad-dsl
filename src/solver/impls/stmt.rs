@@ -4,10 +4,9 @@
 //! processing HIR statements and adding constraints to the Z3 solver.
 
 use crate::hir::expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind};
-use crate::hir::types::ResolvedType;
 use crate::solver::context::{SolverContext, WithContextInfo};
 use crate::solver::impls::expr::Z3Expr;
-use crate::solver::{PartialReason, Solvable, SolverError, VariablePath};
+use crate::solver::{Solvable, SolverError, VariablePath};
 
 impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
     type Output = ();
@@ -52,14 +51,14 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
 
                                 // Add equality constraint
                                 let constraint = match (z3_var, z3_value) {
-                                    (Z3Expr::Int(var), Z3Expr::Int(val)) => var._eq(&val),
-                                    (Z3Expr::Real(var), Z3Expr::Real(val)) => var._eq(&val),
-                                    (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var._eq(&val),
+                                    (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                                    (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                                    (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
                                     (Z3Expr::Int(var), Z3Expr::Real(val)) => {
-                                        var.to_real()._eq(&val)
+                                        var.to_real().eq(&val)
                                     }
                                     (Z3Expr::Real(var), Z3Expr::Int(val)) => {
-                                        var._eq(&val.to_real())
+                                        var.eq(val.to_real())
                                     }
                                     _ => {
                                         return Err(SolverError::UnsupportedExpression(
@@ -100,11 +99,11 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
 
                         // Add equality constraint
                         let constraint = match (z3_var, z3_value) {
-                            (Z3Expr::Int(var), Z3Expr::Int(val)) => var._eq(&val),
-                            (Z3Expr::Real(var), Z3Expr::Real(val)) => var._eq(&val),
-                            (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var._eq(&val),
-                            (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real()._eq(&val),
-                            (Z3Expr::Real(var), Z3Expr::Int(val)) => var._eq(&val.to_real()),
+                            (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                            (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                            (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                            (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
+                            (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
                             _ => {
                                 return Err(SolverError::UnsupportedExpression(
                                     "Type mismatch in initialization".to_string(),
@@ -429,9 +428,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                     SolverError::UndefinedVariable(format!("{}.{}", base_path, field_name))
                 })?;
 
-                let z3_var = var_node
-                    .as_primitive()
-                    .ok_or_else(|| SolverError::NotAPrimitiveType)?;
+                let z3_var = var_node.as_primitive().ok_or(SolverError::NotAPrimitiveType)?;
 
                 Ok(match z3_var {
                     crate::solver::context::Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
@@ -461,9 +458,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                     SolverError::UndefinedVariable(format!("{}[{}]", base_path, index_val))
                 })?;
 
-                let z3_var = var_node
-                    .as_primitive()
-                    .ok_or_else(|| SolverError::NotAPrimitiveType)?;
+                let z3_var = var_node.as_primitive().ok_or(SolverError::NotAPrimitiveType)?;
 
                 Ok(match z3_var {
                     crate::solver::context::Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
@@ -553,11 +548,11 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                     self.solve_expr_with_substitution(ctx, rhs, loop_var_name, loop_value)?;
 
                 match (lhs_z3, rhs_z3) {
-                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l._eq(&r))),
-                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l._eq(&r))),
-                    (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real()._eq(&r))),
-                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l._eq(&r.to_real()))),
-                    (Z3Expr::Bool(l), Z3Expr::Bool(r)) => Ok(Z3Expr::Bool(l._eq(&r))),
+                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.eq(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.eq(&r))),
+                    (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real().eq(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.eq(r.to_real()))),
+                    (Z3Expr::Bool(l), Z3Expr::Bool(r)) => Ok(Z3Expr::Bool(l.eq(&r))),
                     _ => Err(SolverError::UnsupportedExpression(
                         "Invalid types for equality comparison in loop".to_string(),
                     )),
@@ -744,9 +739,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
             .get_variable(path)
             .ok_or_else(|| SolverError::UndefinedVariable(path.to_z3_name()))?;
 
-        let z3_var = var_node
-            .as_primitive()
-            .ok_or_else(|| SolverError::NotAPrimitiveType)?;
+        let z3_var = var_node.as_primitive().ok_or(SolverError::NotAPrimitiveType)?;
 
         Ok(match z3_var {
             crate::solver::context::Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
