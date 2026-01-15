@@ -177,6 +177,8 @@ pub enum Value {
     Real(f64),
     /// Boolean value
     Bool(bool),
+    /// Under-constrained variable (not uniquely determined by constraints)
+    UnderConstrained,
 }
 
 impl fmt::Display for Value {
@@ -185,6 +187,7 @@ impl fmt::Display for Value {
             Value::Int(v) => write!(f, "{}", v),
             Value::Real(v) => write!(f, "{}", v),
             Value::Bool(v) => write!(f, "{}", v),
+            Value::UnderConstrained => write!(f, "<under-constrained>"),
         }
     }
 }
@@ -235,9 +238,7 @@ pub struct DeferredConstraint<'src> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum PartialReason {
     /// For-loop with unresolved range variable
-    UnknownLoopRange {
-        range_var: String,
-    },
+    UnknownLoopRange { range_var: String },
 
     /// Function call with unresolved dependencies
     UnresolvedFunctionCall {
@@ -250,18 +251,23 @@ pub enum PartialReason {
     /// Solving stops when no new variables are resolved between iterations,
     /// indicating that the remaining deferred constraints cannot be satisfied
     /// with the current information.
-    NoProgress {
-        stuck_constraints: Vec<String>,
-    },
+    NoProgress { stuck_constraints: Vec<String> },
 }
 
 impl fmt::Display for PartialReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PartialReason::UnknownLoopRange { range_var } => {
-                write!(f, "for-loop range depends on unknown variable '{}'", range_var)
+                write!(
+                    f,
+                    "for-loop range depends on unknown variable '{}'",
+                    range_var
+                )
             }
-            PartialReason::UnresolvedFunctionCall { function_name, missing_deps } => {
+            PartialReason::UnresolvedFunctionCall {
+                function_name,
+                missing_deps,
+            } => {
                 write!(
                     f,
                     "function '{}' has unresolved dependencies: {:?}",

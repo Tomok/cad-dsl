@@ -168,57 +168,100 @@ impl<'src, 'arena> SolutionFormatter<'src, 'arena> {
         })?;
 
         // Evaluate the variable in the model
+        // Use false to avoid model completion - only get values that are actually constrained
         let value = match z3_var {
             Z3Ast::Int(int_ast) => {
-                let eval_result = model.eval(int_ast, true).ok_or_else(|| {
-                    SolutionFormatterError::EvaluationFailed {
-                        var_name: var.name.to_string(),
+                match model.eval(int_ast, false) {
+                    Some(eval_result) => {
+                        // Try to convert to concrete value
+                        match eval_result.as_i64() {
+                            Some(int_value) => format!("{}", int_value),
+                            None => {
+                                // as_i64() failed - check if it's a numeric value or symbolic expression
+                                let z3_str = format!("{}", eval_result);
+                                // If the string starts with a digit or '-', it's likely a large number
+                                // Otherwise it's a symbolic expression (under-constrained)
+                                if z3_str
+                                    .chars()
+                                    .next()
+                                    .is_some_and(|c| c.is_ascii_digit() || c == '-')
+                                {
+                                    // It's a large number that exceeds i64 range
+                                    format!("{} (exceeds i64 range)", z3_str)
+                                } else {
+                                    // It's a symbolic expression - variable is under-constrained
+                                    "<under-constrained>".to_string()
+                                }
+                            }
+                        }
                     }
-                })?;
-
-                let int_value = eval_result.as_i64().ok_or_else(|| {
-                    SolutionFormatterError::TypeConversionFailed {
-                        var_name: var.name.to_string(),
-                        expected_type: "i32".to_string(),
+                    None => {
+                        // Variable is not constrained
+                        "<under-constrained>".to_string()
                     }
-                })?;
-
-                format!("{}", int_value)
+                }
             }
             Z3Ast::Real(real_ast) => {
-                let eval_result = model.eval(real_ast, true).ok_or_else(|| {
-                    SolutionFormatterError::EvaluationFailed {
-                        var_name: var.name.to_string(),
+                match model.eval(real_ast, false) {
+                    Some(eval_result) => {
+                        // Try to get a real number from Z3
+                        match eval_result.as_rational() {
+                            Some((numerator, denominator)) => {
+                                if denominator == 0 {
+                                    // Division by zero in rational - this shouldn't happen normally
+                                    format!("{}/{} (invalid rational)", numerator, 0)
+                                } else {
+                                    // Convert to f64 (handles both positive and negative denominators)
+                                    let float_value = numerator as f64 / denominator as f64;
+                                    format!("{}", float_value)
+                                }
+                            }
+                            None => {
+                                // as_rational() failed - check if it's a numeric value or symbolic expression
+                                let z3_str = format!("{}", eval_result);
+                                if z3_str
+                                    .chars()
+                                    .next()
+                                    .is_some_and(|c| c.is_ascii_digit() || c == '-')
+                                {
+                                    // It's a numeric value that cannot be converted to f64
+                                    format!("{} (cannot convert to f64)", z3_str)
+                                } else {
+                                    // It's a symbolic expression - variable is under-constrained
+                                    "<under-constrained>".to_string()
+                                }
+                            }
+                        }
                     }
-                })?;
-
-                // Try to get a real number from Z3
-                let (numerator, denominator) = eval_result.as_rational().ok_or_else(|| {
-                    SolutionFormatterError::TypeConversionFailed {
-                        var_name: var.name.to_string(),
-                        expected_type: "f64".to_string(),
+                    None => {
+                        // Variable is not constrained
+                        "<under-constrained>".to_string()
                     }
-                })?;
-
-                // Convert to f64
-                let float_value = numerator as f64 / denominator as f64;
-                format!("{}", float_value)
+                }
             }
             Z3Ast::Bool(bool_ast) => {
-                let eval_result = model.eval(bool_ast, true).ok_or_else(|| {
-                    SolutionFormatterError::EvaluationFailed {
-                        var_name: var.name.to_string(),
+                match model.eval(bool_ast, false) {
+                    Some(eval_result) => {
+                        match eval_result.as_bool() {
+                            Some(bool_value) => format!("{}", bool_value),
+                            None => {
+                                // as_bool() failed - check if it's "true"/"false" or symbolic
+                                let z3_str = format!("{}", eval_result);
+                                if z3_str == "true" || z3_str == "false" {
+                                    // Shouldn't happen, but handle it
+                                    format!("{} (unexpected bool value)", z3_str)
+                                } else {
+                                    // It's a symbolic expression - variable is under-constrained
+                                    "<under-constrained>".to_string()
+                                }
+                            }
+                        }
                     }
-                })?;
-
-                let bool_value = eval_result.as_bool().ok_or_else(|| {
-                    SolutionFormatterError::TypeConversionFailed {
-                        var_name: var.name.to_string(),
-                        expected_type: "bool".to_string(),
+                    None => {
+                        // Variable is not constrained
+                        "<under-constrained>".to_string()
                     }
-                })?;
-
-                format!("{}", bool_value)
+                }
             }
         };
 
@@ -651,5 +694,71 @@ mod tests {
         assert!(display.contains("z"));
         assert!(display.contains("i32"));
         assert!(display.contains("Failed to convert"));
+    }
+
+    #[test]
+    fn test_format_unconstrained_variable() {
+        let arena = Bump::new();
+        let int_ty = arena.alloc(ResolvedType::I32 { span: test_span() });
+        let bool_ty = arena.alloc(ResolvedType::Bool { span: test_span() });
+
+        // Create: let x;  (no initializer)
+        let var_x = Variable::new("x", *int_ty, None, test_span());
+
+        // Create: let y = 10;
+        let init_y = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let var_y = Variable::new("y", *int_ty, Some(init_y), test_span());
+
+        // Create: y == 10  (only constrain y, not x)
+        let var_def_y = arena.alloc(VarDefinition {
+            name: "y",
+            name_span: test_span(),
+            var_type: Some(*int_ty),
+            init: Some(init_y),
+            scope_level: 0,
+            span: test_span(),
+        });
+
+        let y_ref = make_expr(
+            &arena,
+            ResolvedExprKind::Var {
+                name: "y",
+                definition: var_def_y,
+            },
+            int_ty,
+        );
+        let ten = make_expr(&arena, ResolvedExprKind::IntLit { value: 10 }, int_ty);
+        let constraint = make_expr(
+            &arena,
+            ResolvedExprKind::Eq {
+                lhs: y_ref,
+                rhs: ten,
+            },
+            bool_ty,
+        );
+
+        // Build constraint problem
+        let mut problem = ConstraintProblem::new();
+        problem.add_variable(var_x.clone());
+        problem.add_variable(var_y.clone());
+        problem.add_constraint(Constraint::new(constraint, test_span()));
+
+        // Translate to Z3
+        let mut bridge = Z3Bridge::new();
+        bridge.add_problem(&problem).unwrap();
+
+        // Format solution (x has no constraints, y = 10)
+        let formatter = SolutionFormatter::new(bridge.variables(), vec![&var_x, &var_y]);
+        let result = formatter.format_solution(bridge.solver());
+
+        match &result {
+            Ok(solution) => {
+                // x should be marked as under-constrained, y should be 10
+                assert_eq!(solution, "x = <under-constrained>\ny = 10\n");
+            }
+            Err(e) => {
+                panic!("Formatting failed: {:?}", e);
+            }
+        }
     }
 }
