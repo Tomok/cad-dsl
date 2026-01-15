@@ -464,6 +464,13 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             .and_then(|sol| sol.assignments.get(&path))
     }
 
+    /// Get a reference to the current solution
+    ///
+    /// Returns the solution from the last successful Z3 solve, if any.
+    pub fn get_current_solution(&self) -> Option<&Solution<'src>> {
+        self.current_solution.as_ref()
+    }
+
     // ========================================================================
     // Phase 3a: Solution Extraction
     // ========================================================================
@@ -621,62 +628,83 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
 
     /// Main solve function with iterative partial solving
     ///
-    /// This is the entry point for Phase 3a. It will be extended in later
-    /// phases to actually process statements. For now, it's a placeholder.
-    pub fn solve(&mut self) -> Result<SolveResult<'src>, SolverError> {
-        todo!(
-            "Phase 3a: Implement iterative solve loop. \
-             This requires implementing Solvable trait for statements (Phase 3b+). \
-             For now, this is a placeholder that demonstrates the structure."
-        );
+    /// Takes a list of HIR statements and attempts to solve them iteratively.
+    /// Returns either a Complete solution (all constraints resolved) or a Partial
+    /// solution (some constraints deferred due to unknown dependencies).
+    ///
+    /// The solve loop continues until either:
+    /// 1. All constraints are resolved (Complete)
+    /// 2. No progress is made between iterations (Partial - NoProgress)
+    /// 3. Z3 returns UNSAT (error - no solution exists)
+    pub fn solve(
+        &mut self,
+        statements: &[&'arena crate::hir::expr::ResolvedStmt<'src, 'arena>],
+    ) -> Result<SolveResult<'src>, SolverError> {
+        use crate::solver::Solvable;
 
-        // The actual implementation will look like this:
-        //
-        // loop {
-        //     self.iteration += 1;
-        //
-        //     // Process statements (requires Solvable trait implementation)
-        //     // for stmt in statements {
-        //     //     stmt.solve(self)?;
-        //     // }
-        //
-        //     // Run Z3 solver
-        //     match self.z3_solver.check() {
-        //         z3::SatResult::Sat => {
-        //             let solution = self.extract_solution()?;
-        //             let current_solved_count = solution.resolved_count();
-        //
-        //             // Check progress
-        //             let made_progress = current_solved_count > self.previous_solved_count;
-        //             self.previous_solved_count = current_solved_count;
-        //             self.current_solution = Some(solution.clone());
-        //
-        //             // Return if complete or no progress
-        //             if self.deferred_constraints.is_empty() {
-        //                 return Ok(SolveResult::Complete {
-        //                     solution,
-        //                     iterations: self.iteration,
-        //                 });
-        //             }
-        //
-        //             if !made_progress {
-        //                 return Ok(SolveResult::Partial {
-        //                     solution,
-        //                     deferred: self.deferred_constraints.clone(),
-        //                     reason: PartialReason::NoProgress {
-        //                         stuck_constraints: self.deferred_constraints
-        //                             .iter()
-        //                             .map(|dc| dc.description.clone())
-        //                             .collect(),
-        //                     },
-        //                     iterations: self.iteration,
-        //                 });
-        //             }
-        //         }
-        //         z3::SatResult::Unsat => return Err(SolverError::Unsatisfiable),
-        //         z3::SatResult::Unknown => return Err(SolverError::Unknown),
-        //     }
-        // }
+        const MAX_ITERATIONS: usize = 100; // Prevent infinite loops
+
+        loop {
+            self.iteration += 1;
+
+            if self.iteration > MAX_ITERATIONS {
+                return Err(SolverError::ContextError(format!(
+                    "Maximum iterations ({}) exceeded",
+                    MAX_ITERATIONS
+                )));
+            }
+
+            // Clear deferred constraints for this iteration
+            let deferred_before = self.deferred_constraints.len();
+            self.deferred_constraints.clear();
+
+            // Process all statements
+            for stmt in statements {
+                stmt.solve(self)?;
+            }
+
+            // Run Z3 solver
+            match self.z3_solver.check() {
+                z3::SatResult::Sat => {
+                    let solution = self.extract_solution()?;
+                    let current_solved_count = solution.resolved_count();
+
+                    // Check progress
+                    let made_progress = current_solved_count > self.previous_solved_count;
+                    self.previous_solved_count = current_solved_count;
+                    self.current_solution = Some(solution.clone());
+
+                    // Return if complete (no deferred constraints)
+                    if self.deferred_constraints.is_empty() {
+                        return Ok(SolveResult::Complete {
+                            solution,
+                            iterations: self.iteration,
+                        });
+                    }
+
+                    // If we have deferred constraints but made no progress, stop
+                    if !made_progress && deferred_before > 0 {
+                        return Ok(SolveResult::Partial {
+                            solution,
+                            deferred: self.deferred_constraints.clone(),
+                            reason: PartialReason::NoProgress {
+                                stuck_constraints: self
+                                    .deferred_constraints
+                                    .iter()
+                                    .map(|dc| dc.description.clone())
+                                    .collect(),
+                            },
+                            iterations: self.iteration,
+                        });
+                    }
+
+                    // Made progress - continue to next iteration
+                    continue;
+                }
+                z3::SatResult::Unsat => return Err(SolverError::Unsatisfiable),
+                z3::SatResult::Unknown => return Err(SolverError::Unknown),
+            }
+        }
     }
 }
 

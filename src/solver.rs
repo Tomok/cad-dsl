@@ -413,11 +413,11 @@ pub trait Solvable<'src, 'arena> {
 pub mod context;
 
 // ============================================================================
-// Future Modules (Phase 3+)
+// Phase 3: Trait Implementations
 // ============================================================================
 
-// TODO: Phase 3 - Trait implementations
-// pub mod impls;       // expr.rs, stmt.rs, etc.
+/// Trait implementations for HIR nodes (expressions and statements)
+pub mod impls;
 
 // ============================================================================
 // Public Re-exports (Phase 2)
