@@ -1,7 +1,7 @@
 #!/bin/bash
 # .claude_env.sh - Automated environment setup for CAD-DSL
 # Handles both Nix and non-Nix environments transparently
-# Works WITHOUT sudo by installing to ~/.local
+# Automatically detects root and installs system-wide or to ~/.local
 
 set -e  # Exit on error
 
@@ -13,66 +13,136 @@ else
     SCRIPT_EXIT="return"
 fi
 
-LOCAL_PREFIX="$HOME/.local"
-LOCAL_BIN="$LOCAL_PREFIX/usr/bin"
-LOCAL_LIB="$LOCAL_PREFIX/usr/lib/x86_64-linux-gnu"
-LOCAL_PKGCONFIG="$LOCAL_LIB/pkgconfig"
+# Check if running as root
+IS_ROOT=false
+if [ "$EUID" -eq 0 ] || [ "$(id -u)" -eq 0 ]; then
+    IS_ROOT=true
+fi
+
+# Set SUDO_CMD based on whether we're root
+if [ "$IS_ROOT" = true ]; then
+    SUDO_CMD=""
+else
+    SUDO_CMD="sudo"
+fi
 
 # 1. If nix exists, nothing to do - exit successfully
 if command -v nix >/dev/null 2>&1; then
     $SCRIPT_EXIT 0
 fi
 
-# 2. Check if we need to install dependencies
-NEED_INSTALL=false
-if [ ! -f "$LOCAL_BIN/mold" ] || [ ! -f "$LOCAL_LIB/libz3.so.4" ]; then
-    NEED_INSTALL=true
-fi
+# ROOT PATH: Install system-wide using apt-get
+if [ "$IS_ROOT" = true ]; then
+    # 2. Check for proxy configuration and configure apt if needed
+    if [ -n "$http_proxy" ] || [ -n "$https_proxy" ]; then
+        # Only configure if not already configured
+        if [ ! -f /etc/apt/apt.conf.d/95proxy ]; then
+            tee /etc/apt/apt.conf.d/95proxy > /dev/null <<EOF
+Acquire::http::Proxy "$http_proxy";
+Acquire::https::Proxy "$https_proxy";
+EOF
+        fi
+    fi
 
-# 3. Install dependencies to ~/.local without sudo
-if [ "$NEED_INSTALL" = true ]; then
-    # Create directories
-    mkdir -p "$LOCAL_PREFIX" /tmp/cad-dsl-deps
-    cd /tmp/cad-dsl-deps
-
-    # Download packages
-    apt-get download mold z3 libz3-dev libz3-4 >/dev/null 2>&1 || {
-        echo "Error: Failed to download packages" >&2
-        $SCRIPT_EXIT 1
-    }
-
-    # Extract to ~/.local
-    for deb in *.deb; do
-        dpkg-deb -x "$deb" "$LOCAL_PREFIX" >/dev/null 2>&1 || {
-            echo "Error: Failed to extract $deb" >&2
-            $SCRIPT_EXIT 1
-        }
+    # 3. Install dependencies if not already installed
+    NEED_INSTALL=false
+    for pkg in mold z3 libz3-dev; do
+        if ! dpkg -s "$pkg" >/dev/null 2>&1; then
+            NEED_INSTALL=true
+            break
+        fi
     done
 
-    # Cleanup
-    cd /
-    rm -rf /tmp/cad-dsl-deps
+    if [ "$NEED_INSTALL" = true ]; then
+        apt-get update >/dev/null || {
+            echo "Error: apt-get update failed" >&2
+            $SCRIPT_EXIT 1
+        }
+        apt-get install -y mold z3 libz3-dev >/dev/null || {
+            echo "Error: Failed to install dependencies" >&2
+            $SCRIPT_EXIT 1
+        }
+    fi
+
+    # 4. Create nix wrapper script in PATH
+    NIX_WRAPPER="/usr/local/bin/nix"
+    if [ ! -f "$NIX_WRAPPER" ]; then
+        tee "$NIX_WRAPPER" > /dev/null <<'EOF'
+#!/bin/bash
+# Nix wrapper - forwards commands to actual applications
+# Usage: nix shell -c <command>
+
+if [ "$1" = "shell" ] && [ "$2" = "-c" ]; then
+    shift 2
+    exec "$@"
+else
+    echo "Error: Unsupported nix command: $*" >&2
+    exit 1
 fi
+EOF
+        chmod +x "$NIX_WRAPPER" || {
+            echo "Error: Failed to make nix wrapper executable" >&2
+            $SCRIPT_EXIT 1
+        }
+    fi
 
-# 4. Fix z3.pc file to point to local installation
-Z3_PC="$LOCAL_PKGCONFIG/z3.pc"
-if [ -f "$Z3_PC" ]; then
-    sed -i "s|^prefix=/usr|prefix=$LOCAL_PREFIX/usr|" "$Z3_PC"
-    sed -i "s|^exec_prefix=/usr|exec_prefix=$LOCAL_PREFIX/usr|" "$Z3_PC"
-fi
+# NON-ROOT PATH: Install to ~/.local without sudo
+else
+    LOCAL_PREFIX="$HOME/.local"
+    LOCAL_BIN="$LOCAL_PREFIX/usr/bin"
+    LOCAL_LIB="$LOCAL_PREFIX/usr/lib/x86_64-linux-gnu"
+    LOCAL_PKGCONFIG="$LOCAL_LIB/pkgconfig"
 
-# 5. Add to current session environment variables
-export PATH="$LOCAL_BIN:$PATH"
-export LD_LIBRARY_PATH="$LOCAL_LIB:${LD_LIBRARY_PATH:-}"
-export PKG_CONFIG_PATH="$LOCAL_PKGCONFIG:${PKG_CONFIG_PATH:-}"
-export C_INCLUDE_PATH="$LOCAL_PREFIX/usr/include:${C_INCLUDE_PATH:-}"
-export CPLUS_INCLUDE_PATH="$LOCAL_PREFIX/usr/include:${CPLUS_INCLUDE_PATH:-}"
+    # 2. Check if we need to install dependencies
+    NEED_INSTALL=false
+    if [ ! -f "$LOCAL_BIN/mold" ] || [ ! -f "$LOCAL_LIB/libz3.so.4" ]; then
+        NEED_INSTALL=true
+    fi
 
-# 6. Create nix wrapper script in ~/.local/bin
-NIX_WRAPPER="$LOCAL_BIN/nix"
-if [ ! -f "$NIX_WRAPPER" ]; then
-    mkdir -p "$LOCAL_BIN"
-    cat > "$NIX_WRAPPER" <<'EOF'
+    # 3. Install dependencies to ~/.local without sudo
+    if [ "$NEED_INSTALL" = true ]; then
+        # Create directories
+        mkdir -p "$LOCAL_PREFIX" /tmp/cad-dsl-deps
+        cd /tmp/cad-dsl-deps
+
+        # Download packages
+        apt-get download mold z3 libz3-dev libz3-4 >/dev/null 2>&1 || {
+            echo "Error: Failed to download packages" >&2
+            $SCRIPT_EXIT 1
+        }
+
+        # Extract to ~/.local
+        for deb in *.deb; do
+            dpkg-deb -x "$deb" "$LOCAL_PREFIX" >/dev/null 2>&1 || {
+                echo "Error: Failed to extract $deb" >&2
+                $SCRIPT_EXIT 1
+            }
+        done
+
+        # Cleanup
+        cd /
+        rm -rf /tmp/cad-dsl-deps
+    fi
+
+    # 4. Fix z3.pc file to point to local installation
+    Z3_PC="$LOCAL_PKGCONFIG/z3.pc"
+    if [ -f "$Z3_PC" ]; then
+        sed -i "s|^prefix=/usr|prefix=$LOCAL_PREFIX/usr|" "$Z3_PC"
+        sed -i "s|^exec_prefix=/usr|exec_prefix=$LOCAL_PREFIX/usr|" "$Z3_PC"
+    fi
+
+    # 5. Add to current session environment variables
+    export PATH="$LOCAL_BIN:$PATH"
+    export LD_LIBRARY_PATH="$LOCAL_LIB:${LD_LIBRARY_PATH:-}"
+    export PKG_CONFIG_PATH="$LOCAL_PKGCONFIG:${PKG_CONFIG_PATH:-}"
+    export C_INCLUDE_PATH="$LOCAL_PREFIX/usr/include:${C_INCLUDE_PATH:-}"
+    export CPLUS_INCLUDE_PATH="$LOCAL_PREFIX/usr/include:${CPLUS_INCLUDE_PATH:-}"
+
+    # 6. Create nix wrapper script in ~/.local/bin
+    NIX_WRAPPER="$LOCAL_BIN/nix"
+    if [ ! -f "$NIX_WRAPPER" ]; then
+        mkdir -p "$LOCAL_BIN"
+        cat > "$NIX_WRAPPER" <<'EOF'
 #!/bin/bash
 # Nix wrapper - forwards commands to actual applications
 # Usage: nix shell -c <command>
@@ -92,17 +162,17 @@ else
     exit 1
 fi
 EOF
-    chmod +x "$NIX_WRAPPER" || {
-        echo "Error: Failed to make nix wrapper executable" >&2
-        $SCRIPT_EXIT 1
-    }
-fi
+        chmod +x "$NIX_WRAPPER" || {
+            echo "Error: Failed to make nix wrapper executable" >&2
+            $SCRIPT_EXIT 1
+        }
+    fi
 
-# 7. Update shell rc files to set environment variables automatically
-for rcfile in "$HOME/.bashrc" "$HOME/.zshrc"; do
-    if [ -f "$rcfile" ]; then
-        if ! grep -q "CAD-DSL local environment" "$rcfile" 2>/dev/null; then
-            cat >> "$rcfile" <<'EOF'
+    # 7. Update shell rc files to set environment variables automatically
+    for rcfile in "$HOME/.bashrc" "$HOME/.zshrc"; do
+        if [ -f "$rcfile" ]; then
+            if ! grep -q "CAD-DSL local environment" "$rcfile" 2>/dev/null; then
+                cat >> "$rcfile" <<'EOF'
 
 # CAD-DSL local environment (added by .claude_env.sh)
 export PATH="$HOME/.local/usr/bin:$PATH"
@@ -111,8 +181,9 @@ export PKG_CONFIG_PATH="$HOME/.local/usr/lib/x86_64-linux-gnu/pkgconfig:${PKG_CO
 export C_INCLUDE_PATH="$HOME/.local/usr/include:${C_INCLUDE_PATH:-}"
 export CPLUS_INCLUDE_PATH="$HOME/.local/usr/include:${CPLUS_INCLUDE_PATH:-}"
 EOF
+            fi
         fi
-    fi
-done
+    done
+fi
 
 $SCRIPT_EXIT 0
