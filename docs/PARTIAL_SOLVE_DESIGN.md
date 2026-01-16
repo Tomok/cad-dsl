@@ -5,11 +5,14 @@
 This document describes the **iterative partial solving** architecture for Phase 3 of the solver migration. The goal is to enable the solver to handle constraints that depend on values that are initially unknown but can be determined through solving.
 
 **Phase 3 Scope** (from MIGRATION_STRATEGY.md):
-- Priority 4: For loops (loop unrolling)
-- Priority 6: Functions (function inlining, method calls, parameter binding)
-- Priority 7: Transforms (transform with-statements, shadow variables, auto-call __transform__)
+- Priority 4: For loops (loop unrolling) - ✅ COMPLETED
+- Priority 6: Functions (function inlining, method calls, symbolic parameters) - ✅ COMPLETED
+- Priority 7: Transforms (transform with-statements, shadow variables, auto-call __transform__) - TODO
 
-The partial solve mechanism is critical for Priorities 4 and 6, where constraints may depend on values solved in earlier iterations.
+**Implementation Status:**
+- Priority 6 was completed using immediate inlining with symbolic parameter support, eliminating the need for deferral mechanism for functions
+- Priority 4 was completed using the full iterative partial solve mechanism with for-loop deferral
+- The partial solve infrastructure successfully handles cascading dependencies (5/5 tests passing)
 
 ## Motivation
 
@@ -279,9 +282,11 @@ pub trait Solvable<'src, 'arena> {
 
 ## Implementation Strategy
 
-### Phase 3a: Basic Iterative Solving (No Deferral Yet)
+### Phase 3a: Basic Iterative Solving - COMPLETED
 
 **Goal**: Get the iterative solve loop working with simple constraints
+
+**Status**: ✅ Implemented in commit 3335f7e
 
 1. **Implement `Solution` extraction from Z3 model**
    - Read all variables from Z3 model after solving
@@ -356,9 +361,11 @@ pub trait Solvable<'src, 'arena> {
    - Variables with initializers
    - Cascading constraints
 
-### Phase 3b: For-Loop Deferral (Priority 4)
+### Phase 3b: For-Loop Support (Priority 4) - COMPLETED
 
 **Goal**: Defer for-loops with unknown ranges, enabling loop unrolling after dependencies are resolved
+
+**Status**: ✅ Implemented in commit 65b614d (5/5 tests passing)
 
 1. **Implement `impl Solvable for ForLoop`**
    ```rust
@@ -464,18 +471,32 @@ pub trait Solvable<'src, 'arena> {
    }
    ```
 
-### Phase 3c: Function Deferral (Priority 6)
+### Phase 3c: Function and Method Call Support (Priority 6) - COMPLETED
 
-**Goal**: Defer function calls with unknown dependencies
+**Goal**: Support function and method calls with symbolic parameter solving
 
-1. **Implement function inlining with deferral**
-   - Adapt `function_inliner.rs` to work with deferral mechanism
-   - Defer function calls when parameters depend on unknown values
-   - Method calls treated similarly to functions
+**Implemented approach (differs from original deferral plan):**
+- Function calls are **inlined immediately** through parameter substitution
+- No need to defer calls with unknown parameters
+- Z3 solves symbolic variables in parameters directly
+- Method calls treated similarly to functions
 
-2. **Parameter binding with current solution**
-   - Evaluate parameter expressions using current solution
-   - Defer if parameters can't be fully evaluated
+**Key implementation details:**
+1. **Immediate function inlining**
+   - Detect function calls and method calls in expressions
+   - Substitute parameters directly into function body
+   - Create new HIR nodes with arena allocation
+   - No "known value" checks needed
+
+2. **Symbolic parameter handling**
+   - Parameters can be unsolved variables
+   - Z3 handles symbolic computation naturally
+   - Example: `c == foo(a, b, 7)` where `b` is unknown works correctly
+
+3. **Return value handling**
+   - Support implicit returns (last expression)
+   - Support explicit return statements
+   - Return expressions registered during solve() pre-pass
 
 ### Phase 3d: Testing & Refinement
 
@@ -563,10 +584,21 @@ This design provides:
 - ✅ **Phase 3 scope alignment** - fits naturally with for-loops (Priority 4) and functions (Priority 6)
 - ✅ **Extensibility** - easy to add new deferral types
 
-The implementation can be done incrementally within Phase 3:
-1. Phase 3a: Basic iteration infrastructure (1-2 days)
-2. Phase 3b: For-loop deferral - Priority 4 (2-3 days)
-3. Phase 3c: Function deferral - Priority 6 (2-3 days)
-4. Phase 3d: Testing & refinement (1-2 days)
+The implementation was done incrementally within Phase 3:
+1. Phase 3a: Basic iteration infrastructure (1-2 days) - ✅ COMPLETED
+   - Solution extraction from Z3 models
+   - Iterative solve loop with progress tracking
+   - SolveResult enum (Complete/Partial)
+2. Phase 3b: For-loop support - Priority 4 (2-3 days) - ✅ COMPLETED
+   - Full deferral mechanism for for-loops with unknown ranges
+   - Range evaluation with constant expression folding
+   - 5 comprehensive tests including cascading dependencies
+3. Phase 3c: Function and method call support - Priority 6 - ✅ COMPLETED
+   - Functions inline immediately with symbolic parameter support
+   - No deferral needed - Z3 handles symbolic computation naturally
+4. Phase 3d: Testing & refinement (1-2 days) - 🚧 IN PROGRESS
 
-**Total estimate: 6-10 days** (integrated into Phase 3 of migration)
+**Notes**:
+- Phase 3a and 3b implemented the full iterative partial solve mechanism as designed
+- Phase 3c used a simpler immediate inlining approach, avoiding deferral complexity for functions
+- The architecture successfully handles cascading dependencies across multiple iterations
