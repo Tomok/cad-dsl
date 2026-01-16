@@ -453,7 +453,7 @@ pub use context::SolverContext;
 /// ```
 pub fn solve<'src, 'arena>(
     statements: &[&'arena crate::hir::expr::ResolvedStmt<'src, 'arena>],
-    _arena: &'arena bumpalo::Bump,
+    arena: &'arena bumpalo::Bump,
 ) -> Result<String, SolverError> {
     // Validate input (empty programs are valid, just return empty solution)
     if statements.is_empty() {
@@ -468,8 +468,8 @@ pub fn solve<'src, 'arena>(
     // The solver internally keeps its own context reference
     let z3_ctx = z3_solver.get_context().clone();
 
-    // Create solver context (takes ownership of both)
-    let mut ctx = SolverContext::new(z3_ctx, z3_solver);
+    // Create solver context (takes ownership of both and arena reference)
+    let mut ctx = SolverContext::new(z3_ctx, z3_solver, arena);
 
     // Run iterative solver
     let result = ctx.solve(statements)?;
