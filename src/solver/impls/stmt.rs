@@ -217,6 +217,39 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                 Ok(())
             }
 
+            // Block statement - process all statements in the block
+            ResolvedStmtKind::Block { statements, .. } => {
+                for stmt in statements {
+                    stmt.solve(ctx)?;
+                }
+                Ok(())
+            }
+
+            // With statement - set context and process body
+            ResolvedStmtKind::With {
+                with_context, body, ..
+            } => {
+                // Enter the with-context
+                ctx.push_with_context(with_context);
+
+                // Process all statements in the body
+                for stmt in body {
+                    stmt.solve(ctx)?;
+                }
+
+                // Exit the with-context
+                ctx.pop_with_context();
+
+                Ok(())
+            }
+
+            // StructDef and FunctionDef - skip these, they're definitions not executable statements
+            // They've already been processed during semantic analysis
+            ResolvedStmtKind::StructDef { .. } | ResolvedStmtKind::FunctionDef { .. } => {
+                // Skip definitions - they don't contribute constraints
+                Ok(())
+            }
+
             // Unsupported statements
             _ => Err(SolverError::UnsupportedStatement(format!(
                 "{:?}",
