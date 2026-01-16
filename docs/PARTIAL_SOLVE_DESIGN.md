@@ -5,11 +5,14 @@
 This document describes the **iterative partial solving** architecture for Phase 3 of the solver migration. The goal is to enable the solver to handle constraints that depend on values that are initially unknown but can be determined through solving.
 
 **Phase 3 Scope** (from MIGRATION_STRATEGY.md):
-- Priority 4: For loops (loop unrolling) - TODO
+- Priority 4: For loops (loop unrolling) - ✅ COMPLETED
 - Priority 6: Functions (function inlining, method calls, symbolic parameters) - ✅ COMPLETED
 - Priority 7: Transforms (transform with-statements, shadow variables, auto-call __transform__) - TODO
 
-**Note**: Priority 6 was completed using immediate inlining with symbolic parameter support, eliminating the need for deferral. The partial solve mechanism is still critical for Priority 4 (for-loops), where constraints may depend on values solved in earlier iterations.
+**Implementation Status:**
+- Priority 6 was completed using immediate inlining with symbolic parameter support, eliminating the need for deferral mechanism for functions
+- Priority 4 was completed using the full iterative partial solve mechanism with for-loop deferral
+- The partial solve infrastructure successfully handles cascading dependencies (5/5 tests passing)
 
 ## Motivation
 
@@ -279,9 +282,11 @@ pub trait Solvable<'src, 'arena> {
 
 ## Implementation Strategy
 
-### Phase 3a: Basic Iterative Solving (No Deferral Yet)
+### Phase 3a: Basic Iterative Solving - COMPLETED
 
 **Goal**: Get the iterative solve loop working with simple constraints
+
+**Status**: ✅ Implemented in commit 3335f7e
 
 1. **Implement `Solution` extraction from Z3 model**
    - Read all variables from Z3 model after solving
@@ -356,9 +361,11 @@ pub trait Solvable<'src, 'arena> {
    - Variables with initializers
    - Cascading constraints
 
-### Phase 3b: For-Loop Deferral (Priority 4)
+### Phase 3b: For-Loop Support (Priority 4) - COMPLETED
 
 **Goal**: Defer for-loops with unknown ranges, enabling loop unrolling after dependencies are resolved
+
+**Status**: ✅ Implemented in commit 65b614d (5/5 tests passing)
 
 1. **Implement `impl Solvable for ForLoop`**
    ```rust
@@ -577,12 +584,21 @@ This design provides:
 - ✅ **Phase 3 scope alignment** - fits naturally with for-loops (Priority 4) and functions (Priority 6)
 - ✅ **Extensibility** - easy to add new deferral types
 
-The implementation can be done incrementally within Phase 3:
-1. Phase 3a: Basic iteration infrastructure (1-2 days) - TODO
-2. Phase 3b: For-loop deferral - Priority 4 (2-3 days) - TODO
-3. Phase 3c: Function and method call support - Priority 6 (COMPLETED)
-   - Functions now inline immediately with symbolic parameter support
-   - No deferral needed - Z3 handles symbolic computation
-4. Phase 3d: Testing & refinement (1-2 days) - TODO
+The implementation was done incrementally within Phase 3:
+1. Phase 3a: Basic iteration infrastructure (1-2 days) - ✅ COMPLETED
+   - Solution extraction from Z3 models
+   - Iterative solve loop with progress tracking
+   - SolveResult enum (Complete/Partial)
+2. Phase 3b: For-loop support - Priority 4 (2-3 days) - ✅ COMPLETED
+   - Full deferral mechanism for for-loops with unknown ranges
+   - Range evaluation with constant expression folding
+   - 5 comprehensive tests including cascading dependencies
+3. Phase 3c: Function and method call support - Priority 6 - ✅ COMPLETED
+   - Functions inline immediately with symbolic parameter support
+   - No deferral needed - Z3 handles symbolic computation naturally
+4. Phase 3d: Testing & refinement (1-2 days) - 🚧 IN PROGRESS
 
-**Note**: Phase 3c was completed using a simpler approach than originally planned. Instead of deferring function calls with unknown parameters, we inline them immediately and let Z3 solve symbolically. This is more elegant and avoids the complexity of the deferral mechanism for functions.
+**Notes**:
+- Phase 3a and 3b implemented the full iterative partial solve mechanism as designed
+- Phase 3c used a simpler immediate inlining approach, avoiding deferral complexity for functions
+- The architecture successfully handles cascading dependencies across multiple iterations
