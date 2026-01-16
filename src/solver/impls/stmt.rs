@@ -42,7 +42,7 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                             let var_type = var_def.var_type.as_ref().ok_or_else(|| {
                                 SolverError::ContextError("Variable type not resolved".to_string())
                             })?;
-                            ctx.declare_variable(var_name, var_type)?;
+                            ctx.declare_variable_at_path(&full_path, var_type)?;
 
                             // If there's an initializer, add constraint
                             if let Some(init_expr) = init {

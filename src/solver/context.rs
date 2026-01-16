@@ -298,6 +298,82 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         Ok(())
     }
 
+    /// Declare a new variable at a specific path
+    ///
+    /// This is used for dot-prefix variables in with-statements,
+    /// where variables are declared under a container path.
+    /// The path should be the full path including the variable name.
+    pub fn declare_variable_at_path(
+        &mut self,
+        path: &VariablePath<'src>,
+        typ: &'arena ResolvedType<'src, 'arena>,
+    ) -> Result<(), SolverError> {
+        // Build the variable tree for this type
+        let node = self.build_variable_tree(path, typ)?;
+
+        // If path has only one component, it's a root variable
+        if path.components().len() == 1 {
+            let root_name = match path.components().first() {
+                Some(PathComponent::Field(name)) => name,
+                _ => {
+                    return Err(SolverError::ContextError(
+                        "Invalid path for variable declaration".to_string(),
+                    ));
+                }
+            };
+            self.variables.insert(root_name, node);
+            return Ok(());
+        }
+
+        // Otherwise, we need to insert it as a child of its parent
+        // Extract parent path and field name
+        let components = path.components();
+        let parent_components = &components[..components.len() - 1];
+        let field_name = match components.last() {
+            Some(PathComponent::Field(name)) => name,
+            _ => {
+                return Err(SolverError::ContextError(
+                    "Last component must be a field name".to_string(),
+                ));
+            }
+        };
+
+        // Get root name for parent lookup
+        let root_name = match parent_components.first() {
+            Some(PathComponent::Field(name)) => name,
+            _ => {
+                return Err(SolverError::ContextError(
+                    "Parent path must start with a field".to_string(),
+                ));
+            }
+        };
+
+        // Navigate to parent and insert child
+        let root = self
+            .variables
+            .get_mut(root_name)
+            .ok_or_else(|| SolverError::UndefinedVariable(root_name.to_string()))?;
+
+        let parent_node = root
+            .get_at_path_mut(&parent_components[1..])
+            .ok_or_else(|| {
+                SolverError::UndefinedVariable(
+                    "Parent path not found for variable declaration".to_string(),
+                )
+            })?;
+
+        // Insert as child
+        match parent_node {
+            VariableNode::Struct { children, .. } => {
+                children.insert(field_name, node);
+                Ok(())
+            }
+            _ => Err(SolverError::ContextError(
+                "Cannot add field to non-struct variable".to_string(),
+            )),
+        }
+    }
+
     /// Recursively build variable tree from type
     ///
     /// This is where the magic happens: we create a tree structure
