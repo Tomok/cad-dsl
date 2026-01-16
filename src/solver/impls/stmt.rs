@@ -54,12 +54,8 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                                     (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
                                     (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
                                     (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
-                                    (Z3Expr::Int(var), Z3Expr::Real(val)) => {
-                                        var.to_real().eq(&val)
-                                    }
-                                    (Z3Expr::Real(var), Z3Expr::Int(val)) => {
-                                        var.eq(val.to_real())
-                                    }
+                                    (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
+                                    (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
                                     _ => {
                                         return Err(SolverError::UnsupportedExpression(
                                             "Type mismatch in initialization".to_string(),
@@ -428,7 +424,9 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                     SolverError::UndefinedVariable(format!("{}.{}", base_path, field_name))
                 })?;
 
-                let z3_var = var_node.as_primitive().ok_or(SolverError::NotAPrimitiveType)?;
+                let z3_var = var_node
+                    .as_primitive()
+                    .ok_or(SolverError::NotAPrimitiveType)?;
 
                 Ok(match z3_var {
                     crate::solver::context::Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
@@ -458,7 +456,9 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                     SolverError::UndefinedVariable(format!("{}[{}]", base_path, index_val))
                 })?;
 
-                let z3_var = var_node.as_primitive().ok_or(SolverError::NotAPrimitiveType)?;
+                let z3_var = var_node
+                    .as_primitive()
+                    .ok_or(SolverError::NotAPrimitiveType)?;
 
                 Ok(match z3_var {
                     crate::solver::context::Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
@@ -739,7 +739,9 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
             .get_variable(path)
             .ok_or_else(|| SolverError::UndefinedVariable(path.to_z3_name()))?;
 
-        let z3_var = var_node.as_primitive().ok_or(SolverError::NotAPrimitiveType)?;
+        let z3_var = var_node
+            .as_primitive()
+            .ok_or(SolverError::NotAPrimitiveType)?;
 
         Ok(match z3_var {
             crate::solver::context::Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
