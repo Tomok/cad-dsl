@@ -278,7 +278,10 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     }
 
     /// Push a with-statement context onto the stack
-    pub fn push_with_context(&mut self, with_context: &'arena crate::hir::WithContext<'src, 'arena>) {
+    pub fn push_with_context(
+        &mut self,
+        with_context: &'arena crate::hir::WithContext<'src, 'arena>,
+    ) {
         use crate::hir::expr::ResolvedExprKind;
 
         // Check if this is a container context
