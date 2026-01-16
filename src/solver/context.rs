@@ -776,26 +776,71 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
 
         // Phase 3c: Pre-pass to register all function return expressions
         for stmt in statements {
-            if let ResolvedStmtKind::FunctionDef {
-                func_def,
-                body,
-                return_expr,
-                ..
-            } = &stmt.kind
-            {
-                // Try implicit return first
-                if let Some(ret_expr) = return_expr {
-                    self.register_function_return(func_def.name, ret_expr);
-                } else if body.len() == 1 {
-                    // Try extracting from explicit return statement
-                    if let ResolvedStmtKind::Return {
-                        value: Some(ret_expr),
-                        ..
-                    } = &body[0].kind
-                    {
+            match &stmt.kind {
+                // Register standalone functions
+                ResolvedStmtKind::FunctionDef {
+                    func_def,
+                    body,
+                    return_expr,
+                    ..
+                } => {
+                    // Try implicit return first
+                    if let Some(ret_expr) = return_expr {
                         self.register_function_return(func_def.name, ret_expr);
+                    } else if body.len() == 1 {
+                        // Try extracting from explicit return statement
+                        if let ResolvedStmtKind::Return {
+                            value: Some(ret_expr),
+                            ..
+                        } = &body[0].kind
+                        {
+                            self.register_function_return(func_def.name, ret_expr);
+                        }
                     }
                 }
+
+                // Register methods from struct definitions
+                ResolvedStmtKind::StructDef { methods, .. } => {
+                    for method_stmt in methods {
+                        if let ResolvedStmtKind::FunctionDef {
+                            func_def,
+                            body,
+                            return_expr,
+                            ..
+                        } = &method_stmt.kind
+                        {
+                            // For methods, use qualified name (StructName::method_name)
+                            let qualified_name = if let Some(parent) = func_def.parent_struct {
+                                format!("{}::{}", parent.name, func_def.name)
+                            } else {
+                                func_def.name.to_string()
+                            };
+
+                            // Leak the string to get a 'src lifetime
+                            // This is safe because we're storing it for the lifetime of the solver context
+                            let qualified_name_leaked: &'src str =
+                                Box::leak(qualified_name.into_boxed_str());
+
+                            // Try implicit return first
+                            if let Some(ret_expr) = return_expr {
+                                self.function_return_exprs
+                                    .insert(qualified_name_leaked, ret_expr);
+                            } else if body.len() == 1 {
+                                // Try extracting from explicit return statement
+                                if let ResolvedStmtKind::Return {
+                                    value: Some(ret_expr),
+                                    ..
+                                } = &body[0].kind
+                                {
+                                    self.function_return_exprs
+                                        .insert(qualified_name_leaked, ret_expr);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                _ => {}
             }
         }
 
