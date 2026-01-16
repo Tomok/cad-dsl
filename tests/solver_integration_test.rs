@@ -601,3 +601,264 @@ fn test_for_loop_unresolvable_range() {
         );
     }
 }
+
+// ============================================================================
+// Array Tests
+// ============================================================================
+//
+// Tests for array support including array indexing, array of primitives,
+// and array of structs.
+
+#[test]
+fn test_array_simple_primitive() {
+    // Create a simple test inline since we may not have this fixture yet
+    let test_code = r#"
+let arr: [i32; 3];
+arr[0] == 10;
+arr[1] == 20;
+arr[2] == 30;
+"#;
+
+    // Write temporary test file
+    std::fs::write("/tmp/array_simple_primitive.cad", test_code).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--", "solve", "/tmp/array_simple_primitive.cad"])
+        .output()
+        .expect("Failed to execute command");
+
+    let success = output.status.success();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "arr[0]", "10");
+    verify_solution(&stdout, "arr[1]", "20");
+    verify_solution(&stdout, "arr[2]", "30");
+
+    // Cleanup
+    let _ = std::fs::remove_file("/tmp/array_simple_primitive.cad");
+}
+
+#[test]
+fn test_array_of_structs() {
+    // Test array of structs with field constraints
+    let test_code = r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+let points: [Point; 2];
+points[0].x == 1;
+points[0].y == 2;
+points[1].x == 3;
+points[1].y == 4;
+"#;
+
+    std::fs::write("/tmp/array_of_structs.cad", test_code).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--", "solve", "/tmp/array_of_structs.cad"])
+        .output()
+        .expect("Failed to execute command");
+
+    let success = output.status.success();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "points[0].x", "1");
+    verify_solution(&stdout, "points[0].y", "2");
+    verify_solution(&stdout, "points[1].x", "3");
+    verify_solution(&stdout, "points[1].y", "4");
+
+    let _ = std::fs::remove_file("/tmp/array_of_structs.cad");
+}
+
+#[test]
+fn test_array_with_arithmetic() {
+    // Test array elements used in arithmetic expressions
+    let test_code = r#"
+let arr: [i32; 3];
+arr[0] == 5;
+arr[1] == arr[0] + 3;
+arr[2] == arr[1] * 2;
+"#;
+
+    std::fs::write("/tmp/array_with_arithmetic.cad", test_code).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--", "solve", "/tmp/array_with_arithmetic.cad"])
+        .output()
+        .expect("Failed to execute command");
+
+    let success = output.status.success();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "arr[0]", "5");
+    verify_solution(&stdout, "arr[1]", "8");
+    verify_solution(&stdout, "arr[2]", "16");
+
+    let _ = std::fs::remove_file("/tmp/array_with_arithmetic.cad");
+}
+
+// ============================================================================
+// With-Statement Tests (Container Context)
+// ============================================================================
+//
+// Tests for container with-statements which provide namespace management
+// using dot-prefix syntax.
+
+#[test]
+#[ignore] // With-statements not yet fully implemented in solver
+fn test_with_statement_simple() {
+    let (success, stdout, stderr) = solve_fixture("with_statement_simple.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    // Verify namespaced variables
+    verify_solution(&stdout, "sketch.entities.p1.x", "10");
+    verify_solution(&stdout, "sketch.entities.p1.y", "20");
+    verify_solution(&stdout, "sketch.entities.p2.x", "30");
+    verify_solution(&stdout, "sketch.entities.p2.y", "40");
+}
+
+#[test]
+#[ignore] // With-statements not yet fully implemented in solver
+fn test_with_statement_primitive_types() {
+    let (success, stdout, stderr) = solve_fixture("with_statement_primitive_types.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    // This test should verify primitive types can be used in with-statements
+    // The exact assertions depend on the fixture content
+    assert!(stdout.contains("entities"));
+}
+
+#[test]
+#[ignore] // With-statements not yet fully implemented in solver
+fn test_with_statement_nested_struct() {
+    let (success, stdout, stderr) = solve_fixture("with_statement_nested_struct.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    // Verify nested struct handling in with-statements
+    assert!(stdout.contains("entities"));
+}
+
+#[test]
+#[ignore] // With-statements not yet fully implemented in solver
+fn test_with_statement_constraints() {
+    let (success, stdout, stderr) = solve_fixture("with_statement_constraints.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    // Verify constraints work correctly within with-statement context
+    assert!(stdout.contains("entities"));
+}
+
+// ============================================================================
+// If-Statement Tests
+// ============================================================================
+//
+// Tests for conditional constraints using if-statements.
+
+#[test]
+#[ignore] // If-statements on top-level not supported by parser (by design)
+fn test_if_statement_simple() {
+    // Test simple conditional constraint
+    let test_code = r#"
+let x: i32;
+let y: i32;
+x == 10;
+
+if x > 5 {
+    y == 20;
+}
+"#;
+
+    std::fs::write("/tmp/if_statement_simple.cad", test_code).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--", "solve", "/tmp/if_statement_simple.cad"])
+        .output()
+        .expect("Failed to execute command");
+
+    let success = output.status.success();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "10");
+    verify_solution(&stdout, "y", "20");
+
+    let _ = std::fs::remove_file("/tmp/if_statement_simple.cad");
+}
+
+#[test]
+#[ignore] // If-statements on top-level not supported by parser (by design)
+fn test_if_statement_false_condition() {
+    // Test that constraints in false branch are not enforced
+    let test_code = r#"
+let x: i32;
+let y: i32;
+x == 3;
+y == 100;
+
+if x > 5 {
+    y == 20;
+}
+"#;
+
+    std::fs::write("/tmp/if_statement_false.cad", test_code).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--", "solve", "/tmp/if_statement_false.cad"])
+        .output()
+        .expect("Failed to execute command");
+
+    let success = output.status.success();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "3");
+    verify_solution(&stdout, "y", "100");
+
+    let _ = std::fs::remove_file("/tmp/if_statement_false.cad");
+}
+
+#[test]
+#[ignore] // If-statements on top-level not supported by parser (by design)
+fn test_if_statement_with_bool() {
+    // Test if-statement with boolean condition variable
+    let test_code = r#"
+let condition: bool;
+let x: i32;
+let y: i32;
+
+condition == true;
+x == 10;
+
+if condition {
+    y == x + 5;
+}
+"#;
+
+    std::fs::write("/tmp/if_statement_bool.cad", test_code).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--", "solve", "/tmp/if_statement_bool.cad"])
+        .output()
+        .expect("Failed to execute command");
+
+    let success = output.status.success();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "condition", "true");
+    verify_solution(&stdout, "x", "10");
+    verify_solution(&stdout, "y", "15");
+
+    let _ = std::fs::remove_file("/tmp/if_statement_bool.cad");
+}
