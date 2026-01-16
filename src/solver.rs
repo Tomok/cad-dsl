@@ -426,6 +426,148 @@ pub mod impls;
 pub use context::SolverContext;
 
 // ============================================================================
+// API Wrapper for Legacy Compatibility
+// ============================================================================
+
+/// Solve a CAD-DSL program using the new trait-based solver
+///
+/// This is a compatibility wrapper that provides the same API as solver_legacy::solve()
+/// but uses the new trait-based solver implementation with iterative solving and deferral.
+///
+/// # Arguments
+///
+/// * `statements` - Slice of HIR statements to solve
+/// * `arena` - Arena allocator for temporary allocations
+///
+/// # Returns
+///
+/// * `Ok(String)` - Formatted solution string on success
+/// * `Err(SolverError)` - Error if solving fails
+///
+/// # Example
+///
+/// ```ignore
+/// let arena = Bump::new();
+/// let solution = solver::solve(&hir[..], &arena)?;
+/// println!("{}", solution);
+/// ```
+pub fn solve<'src, 'arena>(
+    statements: &[&'arena crate::hir::expr::ResolvedStmt<'src, 'arena>],
+    _arena: &'arena bumpalo::Bump,
+) -> Result<String, SolverError> {
+    // Validate input (empty programs are valid, just return empty solution)
+    if statements.is_empty() {
+        return Ok(String::new());
+    }
+
+    // Create Z3 solver (which contains its own context)
+    let z3_solver = z3::Solver::new();
+
+    // Get the context from the solver
+    // We need to clone the context to satisfy ownership requirements
+    // The solver internally keeps its own context reference
+    let z3_ctx = z3_solver.get_context().clone();
+
+    // Create solver context (takes ownership of both)
+    let mut ctx = SolverContext::new(z3_ctx, z3_solver);
+
+    // Run iterative solver
+    let result = ctx.solve(statements)?;
+
+    // Format solution
+    match result {
+        SolveResult::Complete {
+            solution,
+            iterations,
+        } => {
+            // Format as string (same as legacy solver output)
+            let mut output = String::new();
+
+            // Add iteration count for debugging if > 1
+            if iterations > 1 {
+                writeln!(
+                    output,
+                    "// Solved in {} iterations (iterative solving)",
+                    iterations
+                )
+                .unwrap();
+            }
+
+            // Format each variable assignment
+            for (path, value) in &solution.assignments {
+                let var_name = path.to_z3_name();
+                let value_str = match value {
+                    Value::Int(v) => format!("{}", v),
+                    Value::Real(v) => format!("{}", v),
+                    Value::Bool(v) => format!("{}", v),
+                    Value::UnderConstrained => "<underconstrained>".to_string(),
+                };
+                writeln!(output, "{} = {}", var_name, value_str).unwrap();
+            }
+
+            Ok(output)
+        }
+        SolveResult::Partial {
+            solution,
+            deferred,
+            reason,
+            iterations,
+        } => {
+            // For now, treat partial results as errors
+            // TODO: In the future, we might want to return partial results through CLI
+            let mut error_msg = format!(
+                "Partial solution after {} iterations. Could not resolve all constraints.\n\n",
+                iterations
+            );
+
+            error_msg.push_str("Reason: ");
+            match reason {
+                PartialReason::NoProgress { stuck_constraints } => {
+                    error_msg.push_str("No progress made. Stuck constraints:\n");
+                    for constraint in stuck_constraints {
+                        error_msg.push_str(&format!("  - {}\n", constraint));
+                    }
+                }
+                PartialReason::UnknownLoopRange { range_var } => {
+                    error_msg.push_str(&format!("Unknown loop range variable: {}\n", range_var));
+                }
+                PartialReason::UnresolvedFunctionCall {
+                    function_name,
+                    missing_deps,
+                } => {
+                    error_msg.push_str(&format!(
+                        "Unresolved function call '{}', missing dependencies: {:?}\n",
+                        function_name, missing_deps
+                    ));
+                }
+            }
+
+            error_msg.push_str("\nResolved variables:\n");
+            for (path, value) in &solution.assignments {
+                let var_name = path.to_z3_name();
+                let value_str = match value {
+                    Value::Int(v) => format!("{}", v),
+                    Value::Real(v) => format!("{}", v),
+                    Value::Bool(v) => format!("{}", v),
+                    Value::UnderConstrained => "<underconstrained>".to_string(),
+                };
+                error_msg.push_str(&format!("  {} = {}\n", var_name, value_str));
+            }
+
+            error_msg.push_str("\nDeferred constraints:\n");
+            for dc in &deferred {
+                error_msg.push_str(&format!(
+                    "  - {} (needs: {:?})\n",
+                    dc.description, dc.dependencies
+                ));
+            }
+
+            Err(SolverError::ContextError(error_msg))
+        }
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 

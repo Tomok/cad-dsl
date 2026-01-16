@@ -17,8 +17,8 @@ mod solver_legacy;
 // New trait-based solver (under development)
 mod solver;
 
-// Use legacy solver for now until new solver is complete
-use solver_legacy as active_solver;
+// Use new trait-based solver with Phase 3b iterative solving
+use solver as active_solver;
 
 use active_solver::SolverError;
 use ariadne::{Color, Label, Report, ReportKind, Source};

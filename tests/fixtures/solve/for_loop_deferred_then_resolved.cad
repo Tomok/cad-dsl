@@ -1,0 +1,16 @@
+// Phase 3b Test: For-loop with unknown range that gets resolved
+// The range depends on variable 'n' which is constrained separately
+// Expected behavior:
+// - Iteration 1: Constraint 'n * 2 == 6' is solved -> n = 3
+// - Iteration 2: For-loop range 0..n is now known -> unroll and solve
+
+let n: i32;
+let arr: [i32; 10];
+
+// Constraint on n (solvable immediately)
+n * 2 == 6;
+
+// For-loop depends on n (deferred until n is known)
+for i in 0..n {
+    arr[i] == i + 100;
+}

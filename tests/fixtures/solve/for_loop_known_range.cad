@@ -1,0 +1,8 @@
+// Phase 3b Test: For-loop with known range (immediate unrolling)
+// This should work in first iteration without deferral
+
+let arr: [i32; 3];
+
+for i in 0..3 {
+    arr[i] == i * 10;
+}

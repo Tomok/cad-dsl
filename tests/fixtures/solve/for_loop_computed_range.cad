@@ -1,0 +1,16 @@
+// Phase 3b Test: For-loop with computed range bounds
+// Range uses arithmetic expressions
+// Expected behavior:
+// - Iteration 1: Constraint 'n == 5' is solved
+// - Iteration 2: Range '0..(n - 2)' evaluates to '0..3' -> unroll and solve
+
+let n: i32;
+let arr: [i32; 10];
+
+// Constraint on n
+n == 5;
+
+// For-loop with computed end bound
+for i in 0..(n - 2) {
+    arr[i] == i * 2;
+}
