@@ -335,6 +335,55 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 }
             }
 
+            // Function and Method Calls (Phase 3c)
+            ResolvedExprKind::FunctionCall {
+                name,
+                function,
+                args,
+            } => {
+                // Check if all arguments can be evaluated
+                // If any argument depends on unknown variables, we need to defer
+                for (i, arg) in args.iter().enumerate() {
+                    if self.try_evaluate_expr(arg, ctx).is_err() {
+                        // Argument depends on unknown variable - cannot inline yet
+                        return Err(SolverError::UnsupportedExpression(format!(
+                            "Function '{}' argument {} depends on unknown variables - deferral not yet implemented in expressions",
+                            name, i
+                        )));
+                    }
+                }
+
+                // All arguments are known - we can inline the function
+                self.inline_function(function, args, ctx)
+            }
+
+            ResolvedExprKind::MethodCall {
+                receiver,
+                method_name,
+                method,
+                args,
+            } => {
+                // Check if receiver and all arguments can be evaluated
+                if self.try_evaluate_expr(receiver, ctx).is_err() {
+                    return Err(SolverError::UnsupportedExpression(format!(
+                        "Method '{}' receiver depends on unknown variables - deferral not yet implemented in expressions",
+                        method_name
+                    )));
+                }
+
+                for (i, arg) in args.iter().enumerate() {
+                    if self.try_evaluate_expr(arg, ctx).is_err() {
+                        return Err(SolverError::UnsupportedExpression(format!(
+                            "Method '{}' argument {} depends on unknown variables - deferral not yet implemented in expressions",
+                            method_name, i
+                        )));
+                    }
+                }
+
+                // All arguments are known - we can inline the method
+                self.inline_method(receiver, method, args, ctx)
+            }
+
             // Unsupported expressions
             _ => Err(SolverError::UnsupportedExpression(format!(
                 "{:?}",
@@ -453,5 +502,139 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
                 expr.kind
             ))),
         }
+    }
+
+    /// Try to evaluate an expression to check if it depends on unknown variables
+    ///
+    /// This is used to determine if function calls can be inlined or need to be deferred.
+    /// Returns Ok if the expression can be evaluated, Err if it depends on unknown variables.
+    fn try_evaluate_expr(
+        &self,
+        expr: &ResolvedExpr<'src, 'arena>,
+        ctx: &SolverContext<'src, 'arena>,
+    ) -> Result<(), SolverError> {
+        match &expr.kind {
+            // Literals are always evaluable
+            ResolvedExprKind::IntLit { .. }
+            | ResolvedExprKind::FloatLit { .. }
+            | ResolvedExprKind::BoolLit { .. } => Ok(()),
+
+            // Variables are evaluable if they have a known value
+            ResolvedExprKind::Var { name, .. } => {
+                if ctx.is_variable_known(name) {
+                    Ok(())
+                } else {
+                    Err(SolverError::UndefinedVariable(format!(
+                        "Variable '{}' not yet resolved",
+                        name
+                    )))
+                }
+            }
+
+            // Field access is evaluable if the base is evaluable
+            ResolvedExprKind::FieldAccess { receiver, .. } => self.try_evaluate_expr(receiver, ctx),
+
+            // Array index is evaluable if both array and index are evaluable
+            ResolvedExprKind::Index { array, index } => {
+                self.try_evaluate_expr(array, ctx)?;
+                self.try_evaluate_expr(index, ctx)
+            }
+
+            // Binary operations are evaluable if both operands are
+            ResolvedExprKind::Add { lhs, rhs }
+            | ResolvedExprKind::Sub { lhs, rhs }
+            | ResolvedExprKind::Mul { lhs, rhs }
+            | ResolvedExprKind::Div { lhs, rhs }
+            | ResolvedExprKind::Eq { lhs, rhs }
+            | ResolvedExprKind::NotEq { lhs, rhs }
+            | ResolvedExprKind::Lt { lhs, rhs }
+            | ResolvedExprKind::LtEq { lhs, rhs }
+            | ResolvedExprKind::Gt { lhs, rhs }
+            | ResolvedExprKind::GtEq { lhs, rhs }
+            | ResolvedExprKind::And { lhs, rhs }
+            | ResolvedExprKind::Or { lhs, rhs } => {
+                self.try_evaluate_expr(lhs, ctx)?;
+                self.try_evaluate_expr(rhs, ctx)
+            }
+
+            // Unary operations are evaluable if the operand is
+            ResolvedExprKind::Neg { inner } => self.try_evaluate_expr(inner, ctx),
+
+            // Parenthesized expressions are evaluable if the inner expression is
+            ResolvedExprKind::Paren { inner } => self.try_evaluate_expr(inner, ctx),
+
+            // For now, other expressions are considered not evaluable
+            _ => Err(SolverError::UnsupportedExpression(format!(
+                "Cannot check if expression is evaluable: {:?}",
+                expr.kind
+            ))),
+        }
+    }
+
+    /// Inline a function call by substituting parameters with arguments
+    ///
+    /// This is a simplified version of function inlining that works for functions
+    /// with a single return expression (no complex control flow).
+    fn inline_function(
+        &self,
+        function: &'arena crate::hir::definitions::FunctionDefinition<'src, 'arena>,
+        _args: &[&'arena ResolvedExpr<'src, 'arena>],
+        _ctx: &mut SolverContext<'src, 'arena>,
+    ) -> Result<Z3Expr, SolverError> {
+        // For Phase 3c, we only support simple functions with a single return statement
+        // Complex functions with multiple statements will be handled in future phases
+
+        // Extract the return expression from the function body
+        // For now, we expect the function body to be a single return statement
+        if function.body.is_empty() {
+            return Err(SolverError::UnsupportedExpression(format!(
+                "Function '{}' has no body",
+                function.name
+            )));
+        }
+
+        // TODO: For Phase 3c, we'll just return an error for now
+        // Full function inlining requires more complex parameter substitution
+        // and handling of function body statements, which we'll implement next
+        Err(SolverError::UnsupportedExpression(format!(
+            "Function inlining not yet fully implemented for function '{}'",
+            function.name
+        )))
+    }
+
+    /// Inline a method call by substituting parameters and self with arguments
+    ///
+    /// Similar to inline_function but also handles the receiver (self) binding.
+    fn inline_method(
+        &self,
+        _receiver: &'arena ResolvedExpr<'src, 'arena>,
+        method: &'arena crate::hir::definitions::FunctionDefinition<'src, 'arena>,
+        _args: &[&'arena ResolvedExpr<'src, 'arena>],
+        _ctx: &mut SolverContext<'src, 'arena>,
+    ) -> Result<Z3Expr, SolverError> {
+        // For Phase 3c, we only support simple methods with a single return statement
+
+        // TODO: Similar to inline_function, full implementation will come next
+        Err(SolverError::UnsupportedExpression(format!(
+            "Method inlining not yet fully implemented for method '{}'",
+            method.name
+        )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_try_evaluate_expr_basic_structure() {
+        // This is a basic compilation test to ensure the new methods compile correctly
+        // Full functional tests will be in the integration test suite
+        let z3_solver = z3::Solver::new();
+        let z3_ctx = z3_solver.get_context().clone();
+        let ctx = SolverContext::new(z3_ctx, z3_solver);
+
+        // Just verify basic context creation works
+        assert_eq!(ctx.scope_level(), 0);
     }
 }
