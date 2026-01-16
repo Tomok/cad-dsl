@@ -209,7 +209,7 @@ Once new solver is working:
 - **Phase 3**: 12-20 hours (port features + partial solve) 🚧 IN PROGRESS
   - Phase 3a: 1-2 days (basic iterative solving)
   - Phase 3b: 2-3 days (for-loop deferral)
-  - Phase 3c: 2-3 days (function deferral)
+  - Phase 3c: ✅ DONE (function and method call support)
   - Phase 3d: 1-2 days (testing & refinement)
 - **Phase 4**: 4-8 hours (integration)
 - **Phase 5**: 2-4 hours (cleanup)

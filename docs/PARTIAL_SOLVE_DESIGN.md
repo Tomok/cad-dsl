@@ -5,11 +5,11 @@
 This document describes the **iterative partial solving** architecture for Phase 3 of the solver migration. The goal is to enable the solver to handle constraints that depend on values that are initially unknown but can be determined through solving.
 
 **Phase 3 Scope** (from MIGRATION_STRATEGY.md):
-- Priority 4: For loops (loop unrolling)
-- Priority 6: Functions (function inlining, method calls, parameter binding)
-- Priority 7: Transforms (transform with-statements, shadow variables, auto-call __transform__)
+- Priority 4: For loops (loop unrolling) - TODO
+- Priority 6: Functions (function inlining, method calls, symbolic parameters) - ✅ COMPLETED
+- Priority 7: Transforms (transform with-statements, shadow variables, auto-call __transform__) - TODO
 
-The partial solve mechanism is critical for Priorities 4 and 6, where constraints may depend on values solved in earlier iterations.
+**Note**: Priority 6 was completed using immediate inlining with symbolic parameter support, eliminating the need for deferral. The partial solve mechanism is still critical for Priority 4 (for-loops), where constraints may depend on values solved in earlier iterations.
 
 ## Motivation
 
