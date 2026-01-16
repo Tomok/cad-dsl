@@ -21,7 +21,6 @@ use super::PartialReason;
 use super::{
     DeferredConstraint, PathComponent, Solution, SolveResult, SolverError, Value, VariablePath,
 };
-use crate::hir::definitions::FieldDefinition;
 use crate::hir::types::ResolvedType;
 use std::collections::HashMap;
 
@@ -198,7 +197,7 @@ pub enum WithContextInfo<'src, 'arena> {
         container_path: VariablePath<'src>,
 
         /// The container field definition
-        container_field: &'arena FieldDefinition<'src, 'arena>,
+        container_field: &'arena crate::hir::definitions::ContainerField<'src, 'arena>,
     },
 
     /// Transform with-statement: coordinate transformations (Phase 3+)
@@ -276,6 +275,33 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     /// Get current with-statement context (if any)
     pub fn current_with_context(&self) -> Option<&WithContextInfo<'src, 'arena>> {
         self.with_stack.last()
+    }
+
+    /// Push a with-statement context onto the stack
+    pub fn push_with_context(&mut self, with_context: &'arena crate::hir::WithContext<'src, 'arena>) {
+        use crate::hir::expr::ResolvedExprKind;
+
+        // Check if this is a container context
+        if let Some(container_field) = with_context.container_field {
+            // Extract the container variable from the context expression
+            if let ResolvedExprKind::Var { definition, .. } = &with_context.context_expr.kind {
+                let info = WithContextInfo::Container {
+                    container_path: VariablePath::from_name(definition.name),
+                    container_field,
+                };
+                self.with_stack.push(info);
+                self.scope_level += 1;
+            }
+        }
+        // Transform contexts are not yet implemented - just ignore them
+    }
+
+    /// Pop a with-statement context from the stack
+    pub fn pop_with_context(&mut self) {
+        self.with_stack.pop();
+        if self.scope_level > 0 {
+            self.scope_level -= 1;
+        }
     }
 
     // ========================================================================
