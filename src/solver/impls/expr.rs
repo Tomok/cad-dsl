@@ -341,20 +341,9 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 function,
                 args,
             } => {
-                // Check if all arguments can be evaluated
-                // If any argument depends on unknown variables, we need to defer
-                for (i, arg) in args.iter().enumerate() {
-                    if self.try_evaluate_expr(arg, ctx).is_err() {
-                        // Argument depends on unknown variable - cannot inline yet
-                        return Err(SolverError::UnsupportedExpression(format!(
-                            "Function '{}' argument {} depends on unknown variables - deferral not yet implemented in expressions",
-                            name, i
-                        )));
-                    }
-                }
-
-                // All arguments are known - we can inline the function
-                self.inline_function(function, args, ctx)
+                // Inline the function immediately by substituting parameters with arguments
+                // We do NOT check if arguments are known - Z3 can handle symbolic variables
+                self.inline_function(name, function, args, ctx)
             }
 
             ResolvedExprKind::MethodCall {
@@ -363,25 +352,9 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 method,
                 args,
             } => {
-                // Check if receiver and all arguments can be evaluated
-                if self.try_evaluate_expr(receiver, ctx).is_err() {
-                    return Err(SolverError::UnsupportedExpression(format!(
-                        "Method '{}' receiver depends on unknown variables - deferral not yet implemented in expressions",
-                        method_name
-                    )));
-                }
-
-                for (i, arg) in args.iter().enumerate() {
-                    if self.try_evaluate_expr(arg, ctx).is_err() {
-                        return Err(SolverError::UnsupportedExpression(format!(
-                            "Method '{}' argument {} depends on unknown variables - deferral not yet implemented in expressions",
-                            method_name, i
-                        )));
-                    }
-                }
-
-                // All arguments are known - we can inline the method
-                self.inline_method(receiver, method, args, ctx)
+                // Inline the method immediately by substituting parameters and self
+                // We do NOT check if receiver/arguments are known - Z3 can handle symbolic variables
+                self.inline_method(receiver, method_name, method, args, ctx)
             }
 
             // Unsupported expressions
@@ -573,33 +546,39 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
 
     /// Inline a function call by substituting parameters with arguments
     ///
-    /// This is a simplified version of function inlining that works for functions
-    /// with a single return expression (no complex control flow).
+    /// This works by:
+    /// 1. Getting the return expression from the solver context
+    /// 2. Creating a parameter->argument mapping
+    /// 3. Recursively substituting parameters with arguments in the return expression
     fn inline_function(
         &self,
+        function_name: &'src str,
         function: &'arena crate::hir::definitions::FunctionDefinition<'src, 'arena>,
-        _args: &[&'arena ResolvedExpr<'src, 'arena>],
-        _ctx: &mut SolverContext<'src, 'arena>,
+        args: &[&'arena ResolvedExpr<'src, 'arena>],
+        ctx: &mut SolverContext<'src, 'arena>,
     ) -> Result<Z3Expr, SolverError> {
-        // For Phase 3c, we only support simple functions with a single return statement
-        // Complex functions with multiple statements will be handled in future phases
+        use std::collections::HashMap;
 
-        // Extract the return expression from the function body
-        // For now, we expect the function body to be a single return statement
-        if function.body.is_empty() {
-            return Err(SolverError::UnsupportedExpression(format!(
-                "Function '{}' has no body",
-                function.name
-            )));
+        // Get the return expression from the context
+        // (it was registered during the pre-pass in solve())
+        let return_expr = ctx.get_function_return(function_name).ok_or_else(|| {
+            SolverError::UnsupportedExpression(format!(
+                "Function '{}' has no return expression registered",
+                function_name
+            ))
+        })?;
+
+        // Create parameter substitution map
+        let mut param_map: HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>> = HashMap::new();
+        for (param, arg) in function.params.iter().zip(args.iter()) {
+            param_map.insert(param.name, *arg);
         }
 
-        // TODO: For Phase 3c, we'll just return an error for now
-        // Full function inlining requires more complex parameter substitution
-        // and handling of function body statements, which we'll implement next
-        Err(SolverError::UnsupportedExpression(format!(
-            "Function inlining not yet fully implemented for function '{}'",
-            function.name
-        )))
+        // Substitute parameters in the return expression
+        let inlined_expr = self.substitute_parameters(return_expr, &param_map, ctx)?;
+
+        // Solve the inlined expression
+        inlined_expr.solve(ctx)
     }
 
     /// Inline a method call by substituting parameters and self with arguments
@@ -607,18 +586,299 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
     /// Similar to inline_function but also handles the receiver (self) binding.
     fn inline_method(
         &self,
-        _receiver: &'arena ResolvedExpr<'src, 'arena>,
+        receiver: &'arena ResolvedExpr<'src, 'arena>,
+        method_name: &'src str,
         method: &'arena crate::hir::definitions::FunctionDefinition<'src, 'arena>,
-        _args: &[&'arena ResolvedExpr<'src, 'arena>],
-        _ctx: &mut SolverContext<'src, 'arena>,
+        args: &[&'arena ResolvedExpr<'src, 'arena>],
+        ctx: &mut SolverContext<'src, 'arena>,
     ) -> Result<Z3Expr, SolverError> {
-        // For Phase 3c, we only support simple methods with a single return statement
+        use std::collections::HashMap;
 
-        // TODO: Similar to inline_function, full implementation will come next
-        Err(SolverError::UnsupportedExpression(format!(
-            "Method inlining not yet fully implemented for method '{}'",
-            method.name
-        )))
+        // Get the return expression from the context
+        // For methods, we need to use qualified name (StructName::method_name)
+        let qualified_name = if let Some(parent) = method.parent_struct {
+            format!("{}::{}", parent.name, method_name)
+        } else {
+            method_name.to_string()
+        };
+
+        let return_expr = ctx.get_function_return(&qualified_name).ok_or_else(|| {
+            SolverError::UnsupportedExpression(format!(
+                "Method '{}' has no return expression registered",
+                method_name
+            ))
+        })?;
+
+        // Create parameter substitution map
+        // First, map "self" to the receiver
+        let mut param_map: HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>> = HashMap::new();
+        param_map.insert("self", receiver);
+
+        // Then, map the explicit parameters to the arguments
+        for (param, arg) in method.params.iter().zip(args.iter()) {
+            param_map.insert(param.name, *arg);
+        }
+
+        // Substitute parameters in the return expression
+        let inlined_expr = self.substitute_parameters(return_expr, &param_map, ctx)?;
+
+        // Solve the inlined expression
+        inlined_expr.solve(ctx)
+    }
+
+    /// Substitute parameters with argument expressions in an expression
+    ///
+    /// This recursively walks the expression tree and replaces variable references
+    /// to parameters with the corresponding argument expressions.
+    fn substitute_parameters(
+        &self,
+        expr: &'arena ResolvedExpr<'src, 'arena>,
+        param_map: &std::collections::HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>>,
+        ctx: &SolverContext<'src, 'arena>,
+    ) -> Result<&'arena ResolvedExpr<'src, 'arena>, SolverError> {
+        let kind = match &expr.kind {
+            // Variable reference - check if it's a parameter
+            ResolvedExprKind::Var { name, .. } => {
+                // If this variable name is in the parameter map, substitute it
+                if let Some(arg_expr) = param_map.get(name) {
+                    // Return the argument expression directly - no need to create new node
+                    return Ok(*arg_expr);
+                } else {
+                    // Not a parameter, keep as is
+                    return Ok(expr);
+                }
+            }
+
+            // Binary operations - recursively substitute in both operands
+            ResolvedExprKind::Add { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::Add {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            ResolvedExprKind::Sub { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::Sub {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            ResolvedExprKind::Mul { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::Mul {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            ResolvedExprKind::Div { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::Div {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            ResolvedExprKind::Mod { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::Mod {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            ResolvedExprKind::Pow { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::Pow {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            // Comparison operations
+            ResolvedExprKind::Eq { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::Eq {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            ResolvedExprKind::NotEq { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::NotEq {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            ResolvedExprKind::Lt { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::Lt {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            ResolvedExprKind::LtEq { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::LtEq {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            ResolvedExprKind::Gt { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::Gt {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            ResolvedExprKind::GtEq { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::GtEq {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            // Logical operations
+            ResolvedExprKind::And { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::And {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            ResolvedExprKind::Or { lhs, rhs } => {
+                let sub_lhs = self.substitute_parameters(lhs, param_map, ctx)?;
+                let sub_rhs = self.substitute_parameters(rhs, param_map, ctx)?;
+                ResolvedExprKind::Or {
+                    lhs: sub_lhs,
+                    rhs: sub_rhs,
+                }
+            }
+
+            // Unary operations
+            ResolvedExprKind::Neg { inner } => {
+                let sub_inner = self.substitute_parameters(inner, param_map, ctx)?;
+                ResolvedExprKind::Neg { inner: sub_inner }
+            }
+
+            ResolvedExprKind::Ref { inner } => {
+                let sub_inner = self.substitute_parameters(inner, param_map, ctx)?;
+                ResolvedExprKind::Ref { inner: sub_inner }
+            }
+
+            ResolvedExprKind::Paren { inner } => {
+                let sub_inner = self.substitute_parameters(inner, param_map, ctx)?;
+                ResolvedExprKind::Paren { inner: sub_inner }
+            }
+
+            // Field access - substitute in receiver
+            ResolvedExprKind::FieldAccess {
+                receiver,
+                field_name,
+                field,
+            } => {
+                let sub_receiver = self.substitute_parameters(receiver, param_map, ctx)?;
+                ResolvedExprKind::FieldAccess {
+                    receiver: sub_receiver,
+                    field_name,
+                    field,
+                }
+            }
+
+            // Array indexing - substitute in array and index
+            ResolvedExprKind::Index { array, index } => {
+                let sub_array = self.substitute_parameters(array, param_map, ctx)?;
+                let sub_index = self.substitute_parameters(index, param_map, ctx)?;
+                ResolvedExprKind::Index {
+                    array: sub_array,
+                    index: sub_index,
+                }
+            }
+
+            // Nested function calls - substitute in arguments
+            ResolvedExprKind::FunctionCall {
+                name,
+                function,
+                args,
+            } => {
+                let sub_args = args
+                    .iter()
+                    .map(|arg| self.substitute_parameters(arg, param_map, ctx))
+                    .collect::<Result<Vec<_>, _>>()?;
+                ResolvedExprKind::FunctionCall {
+                    name,
+                    function,
+                    args: sub_args,
+                }
+            }
+
+            // Method calls - substitute in receiver and arguments
+            ResolvedExprKind::MethodCall {
+                receiver,
+                method_name,
+                method,
+                args,
+            } => {
+                let sub_receiver = self.substitute_parameters(receiver, param_map, ctx)?;
+                let sub_args = args
+                    .iter()
+                    .map(|arg| self.substitute_parameters(arg, param_map, ctx))
+                    .collect::<Result<Vec<_>, _>>()?;
+                ResolvedExprKind::MethodCall {
+                    receiver: sub_receiver,
+                    method_name,
+                    method,
+                    args: sub_args,
+                }
+            }
+
+            // Literals - no substitution needed
+            ResolvedExprKind::IntLit { .. }
+            | ResolvedExprKind::FloatLit { .. }
+            | ResolvedExprKind::BoolLit { .. } => {
+                // Return original expression for literals
+                return Ok(expr);
+            }
+
+            // Struct literals, array literals, ranges, closures - not needed for basic function calls
+            _ => {
+                return Err(SolverError::UnsupportedExpression(format!(
+                    "Parameter substitution not supported for this expression type: {:?}",
+                    expr.kind
+                )));
+            }
+        };
+
+        // Allocate new expression node with the substituted kind
+        // Use the arena from the solver context
+        Ok(ctx.arena.alloc(ResolvedExpr {
+            span: expr.span,
+            kind,
+            ty: expr.ty,
+        }))
     }
 }
 
@@ -630,9 +890,10 @@ mod tests {
     fn test_try_evaluate_expr_basic_structure() {
         // This is a basic compilation test to ensure the new methods compile correctly
         // Full functional tests will be in the integration test suite
+        let arena = bumpalo::Bump::new();
         let z3_solver = z3::Solver::new();
         let z3_ctx = z3_solver.get_context().clone();
-        let ctx = SolverContext::new(z3_ctx, z3_solver);
+        let ctx = SolverContext::new(z3_ctx, z3_solver, &arena);
 
         // Just verify basic context creation works
         assert_eq!(ctx.scope_level(), 0);

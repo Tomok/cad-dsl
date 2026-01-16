@@ -227,6 +227,9 @@ pub struct SolverContext<'src, 'arena> {
     /// Z3 solver (persistent, constraints accumulate)
     pub z3_solver: z3::Solver,
 
+    /// Arena allocator for creating new HIR nodes during function inlining
+    pub arena: &'arena bumpalo::Bump,
+
     /// Root variable tree (maps root variable names to their trees)
     variables: HashMap<&'src str, VariableNode<'src, 'arena>>,
 
@@ -235,6 +238,11 @@ pub struct SolverContext<'src, 'arena> {
 
     /// Stack of active with-statement contexts
     with_stack: Vec<WithContextInfo<'src, 'arena>>,
+
+    // Phase 3c: Function inlining support
+    /// Map from function name to its return expression
+    /// Populated during the first pass over statements
+    function_return_exprs: HashMap<&'src str, &'arena crate::hir::expr::ResolvedExpr<'src, 'arena>>,
 
     // Phase 3a: Iterative solving fields
     /// Constraints that have been deferred
@@ -253,18 +261,38 @@ pub struct SolverContext<'src, 'arena> {
 
 impl<'src, 'arena> SolverContext<'src, 'arena> {
     /// Create a new solver context
-    pub fn new(z3_ctx: z3::Context, z3_solver: z3::Solver) -> Self {
+    pub fn new(z3_ctx: z3::Context, z3_solver: z3::Solver, arena: &'arena bumpalo::Bump) -> Self {
         Self {
             z3_ctx,
             z3_solver,
+            arena,
             variables: HashMap::new(),
             scope_level: 0,
             with_stack: Vec::new(),
+            function_return_exprs: HashMap::new(),
             deferred_constraints: Vec::new(),
             iteration: 0,
             current_solution: None,
             previous_solved_count: 0,
         }
+    }
+
+    /// Register a function's return expression for inlining
+    pub fn register_function_return(
+        &mut self,
+        function_name: &'src str,
+        return_expr: &'arena crate::hir::expr::ResolvedExpr<'src, 'arena>,
+    ) {
+        self.function_return_exprs
+            .insert(function_name, return_expr);
+    }
+
+    /// Get a function's return expression
+    pub fn get_function_return(
+        &self,
+        function_name: &str,
+    ) -> Option<&'arena crate::hir::expr::ResolvedExpr<'src, 'arena>> {
+        self.function_return_exprs.get(function_name).copied()
     }
 
     /// Get current scope level
@@ -743,7 +771,33 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         &mut self,
         statements: &[&'arena crate::hir::expr::ResolvedStmt<'src, 'arena>],
     ) -> Result<SolveResult<'src>, SolverError> {
+        use crate::hir::expr::ResolvedStmtKind;
         use crate::solver::Solvable;
+
+        // Phase 3c: Pre-pass to register all function return expressions
+        for stmt in statements {
+            if let ResolvedStmtKind::FunctionDef {
+                func_def,
+                body,
+                return_expr,
+                ..
+            } = &stmt.kind
+            {
+                // Try implicit return first
+                if let Some(ret_expr) = return_expr {
+                    self.register_function_return(func_def.name, ret_expr);
+                } else if body.len() == 1 {
+                    // Try extracting from explicit return statement
+                    if let ResolvedStmtKind::Return {
+                        value: Some(ret_expr),
+                        ..
+                    } = &body[0].kind
+                    {
+                        self.register_function_return(func_def.name, ret_expr);
+                    }
+                }
+            }
+        }
 
         const MAX_ITERATIONS: usize = 100; // Prevent infinite loops
 
