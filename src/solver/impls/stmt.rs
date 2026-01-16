@@ -314,6 +314,11 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                 Ok(-val)
             }
 
+            ResolvedExprKind::Paren { inner } => {
+                // Parenthesized expressions - just evaluate the inner expression
+                self.evaluate_const_expr(inner, ctx)
+            }
+
             _ => Err(SolverError::UnsupportedExpression(format!(
                 "Cannot evaluate expression to constant: {:?}",
                 expr.kind

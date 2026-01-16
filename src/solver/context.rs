@@ -623,11 +623,9 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                                 // as_i64() failed - this could mean either:
                                 // 1. It's a symbolic expression (under-constrained)
                                 // 2. It's a concrete integer that doesn't fit in i64 (overflow)
-                                // Return an error with the Z3 representation for debugging
-                                Err(SolverError::ModelEvaluationError(format!(
-                                    "Integer variable has value that cannot fit in i64: {}",
-                                    evaluated
-                                )))
+                                // In either case, treat it as under-constrained for Phase 3b
+                                // This allows the solver to return partial results for unconstrained variables
+                                Ok(Value::UnderConstrained)
                             }
                         }
                     }

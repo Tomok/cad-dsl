@@ -1,0 +1,21 @@
+// Phase 3b Test: For-loop with cascading dependencies
+// The range depends on 'n', which depends on 'm'
+// Expected behavior:
+// - Iteration 1: Solve 'm == 10' -> m = 10
+// - Iteration 2: Solve 'n == m / 2' -> n = 5
+// - Iteration 3: Unroll for-loop with range 0..5
+
+let m: i32;
+let n: i32;
+let arr: [i32; 10];
+
+// First constraint (solvable immediately)
+m == 10;
+
+// Second constraint (depends on m)
+n == m / 2;
+
+// For-loop (depends on n, which depends on m)
+for i in 0..n {
+    arr[i] == i * i;
+}

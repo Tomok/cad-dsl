@@ -1,0 +1,19 @@
+// Phase 3b Test: For-loop with unresolvable range
+// The range depends on variable 'n' which has no constraints
+// Expected behavior:
+// - Iteration 1: No progress (n is unconstrained)
+// - Result: Partial solution with deferred for-loop
+// Note: This should return a Partial result, not an error
+
+let n: i32;
+let arr: [i32; 10];
+
+// No constraint on n - it remains unknown
+// The for-loop cannot be unrolled
+for i in 0..n {
+    arr[i] == i * 10;
+}
+
+// Some other constraint that can be solved
+let x: i32;
+x == 42;
