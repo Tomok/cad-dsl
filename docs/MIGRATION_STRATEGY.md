@@ -126,12 +126,13 @@ See `docs/PARTIAL_SOLVE_DESIGN.md` for detailed design.
 - [ ] Re-evaluate deferred loops after progress
 - [ ] Tests for for-loop deferral scenarios
 
-**Phase 3c: Function Deferral - Priority 6 (2-3 days)**
-- [ ] Function inlining (adapt `function_inliner.rs`)
-- [ ] Method calls
-- [ ] Parameter binding with current solution
-- [ ] Defer function calls with unknown parameters
-- [ ] Tests for function deferral scenarios
+**Phase 3c: Function and Method Call Support - Priority 6 (COMPLETED)**
+- [x] Function call detection and inlining
+- [x] Method call detection and inlining
+- [x] Parameter substitution with symbolic variables
+- [x] Function inlining works with unsolved parameters (Z3 solves symbolically)
+- [x] Support for implicit returns and explicit return statements
+- [x] Tests for function and method call scenarios
 
 **Phase 3d: Testing & Refinement (1-2 days)**
 - [ ] Comprehensive integration tests

@@ -464,18 +464,32 @@ pub trait Solvable<'src, 'arena> {
    }
    ```
 
-### Phase 3c: Function Deferral (Priority 6)
+### Phase 3c: Function and Method Call Support (Priority 6) - COMPLETED
 
-**Goal**: Defer function calls with unknown dependencies
+**Goal**: Support function and method calls with symbolic parameter solving
 
-1. **Implement function inlining with deferral**
-   - Adapt `function_inliner.rs` to work with deferral mechanism
-   - Defer function calls when parameters depend on unknown values
-   - Method calls treated similarly to functions
+**Implemented approach (differs from original deferral plan):**
+- Function calls are **inlined immediately** through parameter substitution
+- No need to defer calls with unknown parameters
+- Z3 solves symbolic variables in parameters directly
+- Method calls treated similarly to functions
 
-2. **Parameter binding with current solution**
-   - Evaluate parameter expressions using current solution
-   - Defer if parameters can't be fully evaluated
+**Key implementation details:**
+1. **Immediate function inlining**
+   - Detect function calls and method calls in expressions
+   - Substitute parameters directly into function body
+   - Create new HIR nodes with arena allocation
+   - No "known value" checks needed
+
+2. **Symbolic parameter handling**
+   - Parameters can be unsolved variables
+   - Z3 handles symbolic computation naturally
+   - Example: `c == foo(a, b, 7)` where `b` is unknown works correctly
+
+3. **Return value handling**
+   - Support implicit returns (last expression)
+   - Support explicit return statements
+   - Return expressions registered during solve() pre-pass
 
 ### Phase 3d: Testing & Refinement
 
@@ -564,9 +578,11 @@ This design provides:
 - ✅ **Extensibility** - easy to add new deferral types
 
 The implementation can be done incrementally within Phase 3:
-1. Phase 3a: Basic iteration infrastructure (1-2 days)
-2. Phase 3b: For-loop deferral - Priority 4 (2-3 days)
-3. Phase 3c: Function deferral - Priority 6 (2-3 days)
-4. Phase 3d: Testing & refinement (1-2 days)
+1. Phase 3a: Basic iteration infrastructure (1-2 days) - TODO
+2. Phase 3b: For-loop deferral - Priority 4 (2-3 days) - TODO
+3. Phase 3c: Function and method call support - Priority 6 (COMPLETED)
+   - Functions now inline immediately with symbolic parameter support
+   - No deferral needed - Z3 handles symbolic computation
+4. Phase 3d: Testing & refinement (1-2 days) - TODO
 
-**Total estimate: 6-10 days** (integrated into Phase 3 of migration)
+**Note**: Phase 3c was completed using a simpler approach than originally planned. Instead of deferring function calls with unknown parameters, we inline them immediately and let Z3 solve symbolically. This is more elegant and avoids the complexity of the deferral mechanism for functions.
