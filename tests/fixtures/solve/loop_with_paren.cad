@@ -1,0 +1,8 @@
+// Test for loop variable substitution with parenthesized expressions
+// This should fail before the fix because Paren is not handled in solve_expr_with_substitution
+
+let arr: [i32; 3];
+
+for i in 0..3 {
+    arr[i] == (i + 1) * 2;
+}

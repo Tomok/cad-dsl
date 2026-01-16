@@ -692,13 +692,50 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                 }
             }
 
+            ResolvedExprKind::Ref { inner } => {
+                // Reference expressions: just recurse into the inner expression
+                self.solve_expr_with_substitution(ctx, inner, loop_var_name, loop_value)
+            }
+
+            // Additional binary operations
+            ResolvedExprKind::Mod { lhs, rhs } => {
+                // Recursively substitute to handle loop variables in operands
+                let _lhs_z3 =
+                    self.solve_expr_with_substitution(ctx, lhs, loop_var_name, loop_value)?;
+                let _rhs_z3 =
+                    self.solve_expr_with_substitution(ctx, rhs, loop_var_name, loop_value)?;
+
+                todo!(
+                    "Modulo operator not yet implemented in constraint solver. \
+                     This will cause incorrect behavior. Please report this case."
+                )
+            }
+
+            ResolvedExprKind::Pow { lhs, rhs } => {
+                // Recursively substitute to handle loop variables in operands
+                let _lhs_z3 =
+                    self.solve_expr_with_substitution(ctx, lhs, loop_var_name, loop_value)?;
+                let _rhs_z3 =
+                    self.solve_expr_with_substitution(ctx, rhs, loop_var_name, loop_value)?;
+
+                todo!(
+                    "Power operator not yet implemented in constraint solver. \
+                     This will cause incorrect behavior. Please report this case."
+                )
+            }
+
+            // Parenthesized expressions - just unwrap and recurse
+            ResolvedExprKind::Paren { inner } => {
+                self.solve_expr_with_substitution(ctx, inner, loop_var_name, loop_value)
+            }
+
             // Literals - these don't contain the loop variable, so just evaluate normally
             ResolvedExprKind::IntLit { .. }
             | ResolvedExprKind::FloatLit { .. }
             | ResolvedExprKind::BoolLit { .. } => expr.solve(ctx),
 
-            // For all other expressions, use the regular solve without substitution
-            // (they don't depend on the loop variable)
+            // For all other expressions that cannot contain the loop variable,
+            // use the regular solve without substitution
             _ => expr.solve(ctx),
         }
     }
@@ -738,6 +775,11 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                 let base_path =
                     self.build_var_path_with_substitution(array, ctx, loop_var_name, loop_value)?;
                 Ok(base_path.with_index(index_val as usize))
+            }
+
+            ResolvedExprKind::Paren { inner } => {
+                // Unwrap parentheses and recurse
+                self.build_var_path_with_substitution(inner, ctx, loop_var_name, loop_value)
             }
 
             _ => Err(SolverError::UnsupportedExpression(
@@ -858,6 +900,56 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                     loop_value,
                 )?;
                 Ok(-val)
+            }
+
+            ResolvedExprKind::Mod { lhs, rhs } => {
+                let lhs_val = self.evaluate_const_expr_with_substitution(
+                    lhs,
+                    ctx,
+                    loop_var_name,
+                    loop_value,
+                )?;
+                let rhs_val = self.evaluate_const_expr_with_substitution(
+                    rhs,
+                    ctx,
+                    loop_var_name,
+                    loop_value,
+                )?;
+                if rhs_val == 0 {
+                    return Err(SolverError::UnsupportedExpression(
+                        "Modulo by zero".to_string(),
+                    ));
+                }
+                Ok(lhs_val % rhs_val)
+            }
+
+            ResolvedExprKind::Pow { lhs, rhs } => {
+                let lhs_val = self.evaluate_const_expr_with_substitution(
+                    lhs,
+                    ctx,
+                    loop_var_name,
+                    loop_value,
+                )?;
+                let rhs_val = self.evaluate_const_expr_with_substitution(
+                    rhs,
+                    ctx,
+                    loop_var_name,
+                    loop_value,
+                )?;
+                if rhs_val < 0 {
+                    return Err(SolverError::UnsupportedExpression(
+                        "Negative exponent not supported for integer power".to_string(),
+                    ));
+                }
+                Ok(lhs_val.pow(rhs_val as u32))
+            }
+
+            ResolvedExprKind::Paren { inner } => {
+                self.evaluate_const_expr_with_substitution(inner, ctx, loop_var_name, loop_value)
+            }
+
+            ResolvedExprKind::Ref { inner } => {
+                self.evaluate_const_expr_with_substitution(inner, ctx, loop_var_name, loop_value)
             }
 
             _ => Err(SolverError::UnsupportedExpression(format!(

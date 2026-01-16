@@ -1,0 +1,8 @@
+// Test for loop variable substitution with parenthesized expressions
+// This tests that parentheses around expressions containing loop variables work correctly
+
+let arr: [i32; 3];
+
+for i in 0..3 {
+    (arr[i] == i + 1);
+}
