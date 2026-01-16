@@ -559,6 +559,144 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                 }
             }
 
+            // Remaining comparison operations
+            ResolvedExprKind::NotEq { lhs, rhs } => {
+                let lhs_z3 =
+                    self.solve_expr_with_substitution(ctx, lhs, loop_var_name, loop_value)?;
+                let rhs_z3 =
+                    self.solve_expr_with_substitution(ctx, rhs, loop_var_name, loop_value)?;
+
+                match (lhs_z3, rhs_z3) {
+                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.eq(&r).not())),
+                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.eq(&r).not())),
+                    (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real().eq(&r).not())),
+                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.eq(r.to_real()).not())),
+                    (Z3Expr::Bool(l), Z3Expr::Bool(r)) => Ok(Z3Expr::Bool(l.eq(&r).not())),
+                    _ => Err(SolverError::UnsupportedExpression(
+                        "Invalid types for not-equal comparison in loop".to_string(),
+                    )),
+                }
+            }
+
+            ResolvedExprKind::Lt { lhs, rhs } => {
+                let lhs_z3 =
+                    self.solve_expr_with_substitution(ctx, lhs, loop_var_name, loop_value)?;
+                let rhs_z3 =
+                    self.solve_expr_with_substitution(ctx, rhs, loop_var_name, loop_value)?;
+
+                match (lhs_z3, rhs_z3) {
+                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.lt(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.lt(&r))),
+                    (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real().lt(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.lt(r.to_real()))),
+                    _ => Err(SolverError::UnsupportedExpression(
+                        "Invalid types for less-than comparison in loop".to_string(),
+                    )),
+                }
+            }
+
+            ResolvedExprKind::LtEq { lhs, rhs } => {
+                let lhs_z3 =
+                    self.solve_expr_with_substitution(ctx, lhs, loop_var_name, loop_value)?;
+                let rhs_z3 =
+                    self.solve_expr_with_substitution(ctx, rhs, loop_var_name, loop_value)?;
+
+                match (lhs_z3, rhs_z3) {
+                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.le(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.le(&r))),
+                    (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real().le(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.le(r.to_real()))),
+                    _ => Err(SolverError::UnsupportedExpression(
+                        "Invalid types for less-or-equal comparison in loop".to_string(),
+                    )),
+                }
+            }
+
+            ResolvedExprKind::Gt { lhs, rhs } => {
+                let lhs_z3 =
+                    self.solve_expr_with_substitution(ctx, lhs, loop_var_name, loop_value)?;
+                let rhs_z3 =
+                    self.solve_expr_with_substitution(ctx, rhs, loop_var_name, loop_value)?;
+
+                match (lhs_z3, rhs_z3) {
+                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.gt(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.gt(&r))),
+                    (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real().gt(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.gt(r.to_real()))),
+                    _ => Err(SolverError::UnsupportedExpression(
+                        "Invalid types for greater-than comparison in loop".to_string(),
+                    )),
+                }
+            }
+
+            ResolvedExprKind::GtEq { lhs, rhs } => {
+                let lhs_z3 =
+                    self.solve_expr_with_substitution(ctx, lhs, loop_var_name, loop_value)?;
+                let rhs_z3 =
+                    self.solve_expr_with_substitution(ctx, rhs, loop_var_name, loop_value)?;
+
+                match (lhs_z3, rhs_z3) {
+                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.ge(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.ge(&r))),
+                    (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real().ge(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.ge(r.to_real()))),
+                    _ => Err(SolverError::UnsupportedExpression(
+                        "Invalid types for greater-or-equal comparison in loop".to_string(),
+                    )),
+                }
+            }
+
+            // Logical operations
+            ResolvedExprKind::And { lhs, rhs } => {
+                let lhs_z3 =
+                    self.solve_expr_with_substitution(ctx, lhs, loop_var_name, loop_value)?;
+                let rhs_z3 =
+                    self.solve_expr_with_substitution(ctx, rhs, loop_var_name, loop_value)?;
+
+                match (lhs_z3, rhs_z3) {
+                    (Z3Expr::Bool(l), Z3Expr::Bool(r)) => {
+                        Ok(Z3Expr::Bool(z3::ast::Bool::and(&[&l, &r])))
+                    }
+                    _ => Err(SolverError::UnsupportedExpression(
+                        "Invalid types for logical AND in loop".to_string(),
+                    )),
+                }
+            }
+
+            ResolvedExprKind::Or { lhs, rhs } => {
+                let lhs_z3 =
+                    self.solve_expr_with_substitution(ctx, lhs, loop_var_name, loop_value)?;
+                let rhs_z3 =
+                    self.solve_expr_with_substitution(ctx, rhs, loop_var_name, loop_value)?;
+
+                match (lhs_z3, rhs_z3) {
+                    (Z3Expr::Bool(l), Z3Expr::Bool(r)) => {
+                        Ok(Z3Expr::Bool(z3::ast::Bool::or(&[&l, &r])))
+                    }
+                    _ => Err(SolverError::UnsupportedExpression(
+                        "Invalid types for logical OR in loop".to_string(),
+                    )),
+                }
+            }
+
+            // Unary operations
+            ResolvedExprKind::Neg { inner } => {
+                let operand_z3 =
+                    self.solve_expr_with_substitution(ctx, inner, loop_var_name, loop_value)?;
+                match operand_z3 {
+                    Z3Expr::Int(i) => Ok(Z3Expr::Int(-i)),
+                    Z3Expr::Real(r) => Ok(Z3Expr::Real(-r)),
+                    _ => Err(SolverError::UnsupportedExpression(
+                        "Cannot negate boolean expression in loop".to_string(),
+                    )),
+                }
+            }
+
+            // Literals - these don't contain the loop variable, so just evaluate normally
+            ResolvedExprKind::IntLit { .. }
+            | ResolvedExprKind::FloatLit { .. }
+            | ResolvedExprKind::BoolLit { .. } => expr.solve(ctx),
+
             // For all other expressions, use the regular solve without substitution
             // (they don't depend on the loop variable)
             _ => expr.solve(ctx),
