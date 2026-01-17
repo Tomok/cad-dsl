@@ -4,7 +4,7 @@
 
 This document describes the **iterative partial solving** architecture for Phase 3 of the solver migration. The goal is to enable the solver to handle constraints that depend on values that are initially unknown but can be determined through solving.
 
-**Phase 3 Scope** (from MIGRATION_STRATEGY.md):
+**Phase 3 Scope**:
 - Priority 4: For loops (loop unrolling) - ✅ COMPLETED
 - Priority 6: Functions (function inlining, method calls, symbolic parameters) - ✅ COMPLETED
 - Priority 7: Transforms (transform with-statements, shadow variables, auto-call __transform__) - TODO

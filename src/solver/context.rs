@@ -50,63 +50,27 @@ pub enum Z3Primitive {
 /// Primitive types are leaves with Z3 variables, while composite types
 /// (structs and arrays) are branches with children.
 #[derive(Debug)]
-pub enum VariableNode<'src, 'arena> {
+pub enum VariableNode<'src> {
     /// Primitive variable (leaf node with Z3 variable)
     Primitive {
-        /// The resolved type of this variable
-        typ: &'arena ResolvedType<'src, 'arena>,
-
         /// The Z3 variable
         z3_var: Z3Primitive,
-
-        /// Scope level where this variable was declared
-        scope_level: usize,
     },
 
     /// Struct variable (branch node with named fields)
     Struct {
-        /// The resolved type of this variable
-        typ: &'arena ResolvedType<'src, 'arena>,
-
         /// Child nodes (struct fields)
-        children: HashMap<&'src str, VariableNode<'src, 'arena>>,
-
-        /// Scope level where this variable was declared
-        scope_level: usize,
+        children: HashMap<&'src str, VariableNode<'src>>,
     },
 
     /// Array variable (branch node with indexed elements)
     Array {
-        /// The resolved type of this variable
-        typ: &'arena ResolvedType<'src, 'arena>,
-
         /// Child nodes (array elements)
-        children: Vec<VariableNode<'src, 'arena>>,
-
-        /// Scope level where this variable was declared
-        scope_level: usize,
+        children: Vec<VariableNode<'src>>,
     },
 }
 
-impl<'src, 'arena> VariableNode<'src, 'arena> {
-    /// Get the scope level of this node
-    pub fn scope_level(&self) -> usize {
-        match self {
-            Self::Primitive { scope_level, .. } => *scope_level,
-            Self::Struct { scope_level, .. } => *scope_level,
-            Self::Array { scope_level, .. } => *scope_level,
-        }
-    }
-
-    /// Get the type of this node
-    pub fn typ(&self) -> &'arena ResolvedType<'src, 'arena> {
-        match self {
-            Self::Primitive { typ, .. } => typ,
-            Self::Struct { typ, .. } => typ,
-            Self::Array { typ, .. } => typ,
-        }
-    }
-
+impl<'src> VariableNode<'src> {
     /// Navigate to descendant node by path
     ///
     /// Returns `None` if the path doesn't exist or is invalid for this node type.
@@ -148,32 +112,6 @@ impl<'src, 'arena> VariableNode<'src, 'arena> {
         match self {
             Self::Primitive { z3_var, .. } => Some(z3_var),
             _ => None,
-        }
-    }
-
-    /// Recursively collect all primitive leaves under this node
-    ///
-    /// Returns a vector of (path, z3_variable) pairs for all primitives
-    /// reachable from this node.
-    pub fn collect_primitives(
-        &self,
-        base_path: &VariablePath<'src>,
-    ) -> Vec<(VariablePath<'src>, &Z3Primitive)> {
-        match self {
-            Self::Primitive { z3_var, .. } => {
-                vec![(base_path.clone(), z3_var)]
-            }
-            Self::Struct { children, .. } => children
-                .iter()
-                .flat_map(|(field_name, child)| {
-                    child.collect_primitives(&base_path.with_field(field_name))
-                })
-                .collect(),
-            Self::Array { children, .. } => children
-                .iter()
-                .enumerate()
-                .flat_map(|(idx, child)| child.collect_primitives(&base_path.with_index(idx)))
-                .collect(),
         }
     }
 }
@@ -231,7 +169,7 @@ pub struct SolverContext<'src, 'arena> {
     pub arena: &'arena bumpalo::Bump,
 
     /// Root variable tree (maps root variable names to their trees)
-    variables: HashMap<&'src str, VariableNode<'src, 'arena>>,
+    variables: HashMap<&'src str, VariableNode<'src>>,
 
     /// Current scope depth (incremented on scope entry)
     scope_level: usize,
@@ -293,11 +231,6 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         function_name: &str,
     ) -> Option<&'arena crate::hir::expr::ResolvedExpr<'src, 'arena>> {
         self.function_return_exprs.get(function_name).copied()
-    }
-
-    /// Get current scope level
-    pub fn scope_level(&self) -> usize {
-        self.scope_level
     }
 
     /// Get current with-statement context (if any)
@@ -440,16 +373,12 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         &self,
         path: &VariablePath<'src>,
         typ: &'arena ResolvedType<'src, 'arena>,
-    ) -> Result<VariableNode<'src, 'arena>, SolverError> {
+    ) -> Result<VariableNode<'src>, SolverError> {
         match typ {
             ResolvedType::I32 { .. } | ResolvedType::F64 { .. } | ResolvedType::Bool { .. } => {
                 // Leaf node: create Z3 primitive
                 let z3_var = self.create_z3_primitive(path, typ)?;
-                Ok(VariableNode::Primitive {
-                    typ,
-                    z3_var,
-                    scope_level: self.scope_level,
-                })
+                Ok(VariableNode::Primitive { z3_var })
             }
 
             ResolvedType::UserDefined { definition, .. } => {
@@ -460,11 +389,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                     let child_node = self.build_variable_tree(&child_path, &field.field_type)?;
                     children.insert(field.name, child_node);
                 }
-                Ok(VariableNode::Struct {
-                    typ,
-                    children,
-                    scope_level: self.scope_level,
-                })
+                Ok(VariableNode::Struct { children })
             }
 
             ResolvedType::Array {
@@ -477,11 +402,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                     let child_node = self.build_variable_tree(&child_path, element_type)?;
                     children.push(child_node);
                 }
-                Ok(VariableNode::Array {
-                    typ,
-                    children,
-                    scope_level: self.scope_level,
-                })
+                Ok(VariableNode::Array { children })
             }
 
             ResolvedType::Reference { inner, .. } => {
@@ -516,7 +437,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     // ========================================================================
 
     /// Lookup variable by path
-    pub fn get_variable(&self, path: &VariablePath<'src>) -> Option<&VariableNode<'src, 'arena>> {
+    pub fn get_variable(&self, path: &VariablePath<'src>) -> Option<&VariableNode<'src>> {
         if path.is_empty() {
             return None;
         }
@@ -532,37 +453,6 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         root.get_at_path(&path.components()[1..])
     }
 
-    /// Mutable variable lookup
-    pub fn get_variable_mut(
-        &mut self,
-        path: &VariablePath<'src>,
-    ) -> Option<&mut VariableNode<'src, 'arena>> {
-        if path.is_empty() {
-            return None;
-        }
-
-        let root_name = match path.components().first()? {
-            PathComponent::Field(name) => name,
-            _ => return None,
-        };
-
-        let root = self.variables.get_mut(root_name)?;
-        root.get_at_path_mut(&path.components()[1..])
-    }
-
-    // ========================================================================
-    // Scope Management
-    // ========================================================================
-
-    /// Remove all variables from current scope level
-    ///
-    /// Called automatically by scope guards when they drop.
-    fn pop_scope(&mut self) {
-        self.variables
-            .retain(|_, node| node.scope_level() < self.scope_level);
-        self.scope_level = self.scope_level.saturating_sub(1);
-    }
-
     // ========================================================================
     // Deferral Management
     // ========================================================================
@@ -573,16 +463,6 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             dependencies,
             description,
         });
-    }
-
-    /// Check if a variable has a known value in the current solution
-    pub fn is_variable_known(&self, var: &str) -> bool {
-        if let Some(solution) = &self.current_solution {
-            let path = VariablePath::from_name(var);
-            solution.assignments.contains_key(&path)
-        } else {
-            false
-        }
     }
 
     /// Get the value of a variable from the current solution
@@ -634,7 +514,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     fn extract_node_values(
         &self,
         path: &VariablePath<'src>,
-        node: &VariableNode<'src, 'arena>,
+        node: &VariableNode<'src>,
         model: &z3::Model,
         solution: &mut Solution<'src>,
     ) -> Result<(), SolverError> {
@@ -911,81 +791,6 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
 }
 
 // ============================================================================
-// RAII Scope Guards
-// ============================================================================
-
-/// General scope guard
-///
-/// Automatically increments scope level on creation and pops scope on drop.
-/// This ensures scopes are always cleaned up properly using RAII.
-pub struct ScopeGuard<'a, 'src, 'arena> {
-    ctx: &'a mut SolverContext<'src, 'arena>,
-    active: bool,
-}
-
-impl<'a, 'src, 'arena> ScopeGuard<'a, 'src, 'arena> {
-    /// Create a new scope guard, incrementing the scope level
-    pub fn new(ctx: &'a mut SolverContext<'src, 'arena>) -> Self {
-        ctx.scope_level += 1;
-        ScopeGuard { ctx, active: true }
-    }
-
-    /// Get mutable access to the context
-    pub fn context(&mut self) -> &mut SolverContext<'src, 'arena> {
-        self.ctx
-    }
-
-    /// Manually disable the guard if needed (advanced usage)
-    #[allow(dead_code)]
-    pub fn disarm(mut self) {
-        self.active = false;
-    }
-}
-
-impl Drop for ScopeGuard<'_, '_, '_> {
-    fn drop(&mut self) {
-        if self.active {
-            self.ctx.pop_scope();
-        }
-    }
-}
-
-/// With-statement guard
-///
-/// Handles both container and transform with-statement contexts.
-/// Automatically pushes with-context on creation and pops on drop.
-pub struct WithGuard<'a, 'src, 'arena> {
-    ctx: &'a mut SolverContext<'src, 'arena>,
-    active: bool,
-}
-
-impl<'a, 'src, 'arena> WithGuard<'a, 'src, 'arena> {
-    /// Create a new with-statement guard
-    pub fn new(
-        ctx: &'a mut SolverContext<'src, 'arena>,
-        with_info: WithContextInfo<'src, 'arena>,
-    ) -> Self {
-        ctx.with_stack.push(with_info);
-        ctx.scope_level += 1;
-        WithGuard { ctx, active: true }
-    }
-
-    /// Get mutable access to the context
-    pub fn context(&mut self) -> &mut SolverContext<'src, 'arena> {
-        self.ctx
-    }
-}
-
-impl Drop for WithGuard<'_, '_, '_> {
-    fn drop(&mut self) {
-        if self.active {
-            self.ctx.pop_scope();
-            self.ctx.with_stack.pop();
-        }
-    }
-}
-
-// ============================================================================
 // Tests
 // ============================================================================
 
@@ -1006,21 +811,18 @@ mod tests {
     #[test]
     fn test_path_from_name() {
         let path = VariablePath::from_name("x");
-        assert_eq!(path.len(), 1);
         assert_eq!(path.to_z3_name(), "x");
     }
 
     #[test]
     fn test_path_with_field() {
         let path = VariablePath::from_name("p").with_field("x");
-        assert_eq!(path.len(), 2);
         assert_eq!(path.to_z3_name(), "p.x");
     }
 
     #[test]
     fn test_path_with_index() {
         let path = VariablePath::from_name("arr").with_index(0);
-        assert_eq!(path.len(), 2);
         assert_eq!(path.to_z3_name(), "arr[0]");
     }
 
@@ -1029,7 +831,6 @@ mod tests {
         let path = VariablePath::from_name("points")
             .with_index(0)
             .with_field("x");
-        assert_eq!(path.len(), 3);
         assert_eq!(path.to_z3_name(), "points[0].x");
     }
 
@@ -1043,15 +844,12 @@ mod tests {
         let path = VariablePath::from_name("test");
         assert_eq!(path.to_z3_name(), "test");
         assert!(!path.is_empty());
-        assert_eq!(path.len(), 1);
 
         let nested = path.with_field("field");
         assert_eq!(nested.to_z3_name(), "test.field");
-        assert_eq!(nested.len(), 2);
 
         let indexed = nested.with_index(5);
         assert_eq!(indexed.to_z3_name(), "test.field[5]");
-        assert_eq!(indexed.len(), 3);
     }
 
     #[test]
@@ -1059,7 +857,6 @@ mod tests {
         let path = VariablePath::from_name("x").with_field("y").with_index(0);
         let components = path.components();
 
-        assert_eq!(components.len(), 3);
         assert_matches!(components[0], PathComponent::Field("x"));
         assert_matches!(components[1], PathComponent::Field("y"));
         assert_matches!(components[2], PathComponent::Index(0));

@@ -42,21 +42,8 @@
 use std::fmt::{self, Write as _};
 
 // ============================================================================
-// Utilities
-// ============================================================================
-
-/// Struct and array field flattening for Z3 variable mapping
-pub mod struct_flattener;
-
-/// Recursive struct cycle detection
-pub mod recursive_struct_detector;
-
-// ============================================================================
 // Public Re-exports
 // ============================================================================
-
-pub use recursive_struct_detector::detect_cycles;
-pub use struct_flattener::flatten_type;
 
 // ============================================================================
 // Core Types and Trait
@@ -98,13 +85,6 @@ impl<'src> VariablePath<'src> {
         }
     }
 
-    /// Create empty path (used internally)
-    pub fn empty() -> Self {
-        Self {
-            components: Vec::new(),
-        }
-    }
-
     /// Extend path with field access
     pub fn with_field(&self, field: &'src str) -> Self {
         let mut new_path = self.clone();
@@ -127,11 +107,6 @@ impl<'src> VariablePath<'src> {
     /// Check if path is empty
     pub fn is_empty(&self) -> bool {
         self.components.is_empty()
-    }
-
-    /// Get the length of the path
-    pub fn len(&self) -> usize {
-        self.components.len()
     }
 
     /// Generate Z3 variable name
@@ -206,11 +181,6 @@ impl<'src> Solution<'src> {
         }
     }
 
-    /// Get the value of a variable
-    pub fn get(&self, path: &VariablePath<'src>) -> Option<&Value> {
-        self.assignments.get(path)
-    }
-
     /// Number of resolved variables
     pub fn resolved_count(&self) -> usize {
         self.assignments.len()
@@ -236,15 +206,6 @@ pub struct DeferredConstraint<'src> {
 /// Reason why solving was only partial
 #[derive(Debug, Clone, PartialEq)]
 pub enum PartialReason {
-    /// For-loop with unresolved range variable
-    UnknownLoopRange { range_var: String },
-
-    /// Function call with unresolved dependencies
-    UnresolvedFunctionCall {
-        function_name: String,
-        missing_deps: Vec<String>,
-    },
-
     /// No progress made - deferred constraints still have unknown dependencies
     ///
     /// Solving stops when no new variables are resolved between iterations,
@@ -256,23 +217,6 @@ pub enum PartialReason {
 impl fmt::Display for PartialReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PartialReason::UnknownLoopRange { range_var } => {
-                write!(
-                    f,
-                    "for-loop range depends on unknown variable '{}'",
-                    range_var
-                )
-            }
-            PartialReason::UnresolvedFunctionCall {
-                function_name,
-                missing_deps,
-            } => {
-                write!(
-                    f,
-                    "function '{}' has unresolved dependencies: {:?}",
-                    function_name, missing_deps
-                )
-            }
             PartialReason::NoProgress { stuck_constraints } => {
                 write!(
                     f,
@@ -308,29 +252,6 @@ pub enum SolveResult<'src> {
         reason: PartialReason,
         iterations: usize,
     },
-}
-
-impl<'src> SolveResult<'src> {
-    /// Check if the solve was complete (all constraints resolved)
-    pub fn is_complete(&self) -> bool {
-        matches!(self, SolveResult::Complete { .. })
-    }
-
-    /// Get the solution (works for both complete and partial)
-    pub fn solution(&self) -> &Solution<'src> {
-        match self {
-            SolveResult::Complete { solution, .. } => solution,
-            SolveResult::Partial { solution, .. } => solution,
-        }
-    }
-
-    /// Get number of iterations performed
-    pub fn iterations(&self) -> usize {
-        match self {
-            SolveResult::Complete { iterations, .. } => *iterations,
-            SolveResult::Partial { iterations, .. } => *iterations,
-        }
-    }
 }
 
 // ============================================================================
@@ -527,18 +448,6 @@ pub fn solve<'src, 'arena>(
                         error_msg.push_str(&format!("  - {}\n", constraint));
                     }
                 }
-                PartialReason::UnknownLoopRange { range_var } => {
-                    error_msg.push_str(&format!("Unknown loop range variable: {}\n", range_var));
-                }
-                PartialReason::UnresolvedFunctionCall {
-                    function_name,
-                    missing_deps,
-                } => {
-                    error_msg.push_str(&format!(
-                        "Unresolved function call '{}', missing dependencies: {:?}\n",
-                        function_name, missing_deps
-                    ));
-                }
             }
 
             error_msg.push_str("\nResolved variables:\n");
@@ -627,16 +536,7 @@ mod tests {
     fn test_variable_path_from_name() {
         let path = VariablePath::from_name("variable");
         assert_eq!(path.to_z3_name(), "variable");
-        assert_eq!(path.len(), 1);
         assert!(!path.is_empty());
-    }
-
-    #[test]
-    fn test_variable_path_empty() {
-        let path = VariablePath::empty();
-        assert_eq!(path.to_z3_name(), "");
-        assert_eq!(path.len(), 0);
-        assert!(path.is_empty());
     }
 
     #[test]
@@ -644,11 +544,9 @@ mod tests {
         let path = VariablePath::from_name("base");
         let nested = path.with_field("field1");
         assert_eq!(nested.to_z3_name(), "base.field1");
-        assert_eq!(nested.len(), 2);
 
         let double_nested = nested.with_field("field2");
         assert_eq!(double_nested.to_z3_name(), "base.field1.field2");
-        assert_eq!(double_nested.len(), 3);
     }
 
     #[test]
@@ -656,11 +554,9 @@ mod tests {
         let path = VariablePath::from_name("array");
         let indexed = path.with_index(0);
         assert_eq!(indexed.to_z3_name(), "array[0]");
-        assert_eq!(indexed.len(), 2);
 
         let double_indexed = indexed.with_index(1);
         assert_eq!(double_indexed.to_z3_name(), "array[0][1]");
-        assert_eq!(double_indexed.len(), 3);
     }
 
     #[test]
@@ -669,7 +565,6 @@ mod tests {
             .with_index(0)
             .with_field("x");
         assert_eq!(path.to_z3_name(), "points[0].x");
-        assert_eq!(path.len(), 3);
     }
 
     #[test]
@@ -679,7 +574,6 @@ mod tests {
             .with_index(5);
 
         let components = path.components();
-        assert_eq!(components.len(), 3);
         assert_eq!(components[0], PathComponent::Field("var"));
         assert_eq!(components[1], PathComponent::Field("field"));
         assert_eq!(components[2], PathComponent::Index(5));
