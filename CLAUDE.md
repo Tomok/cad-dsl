@@ -357,6 +357,7 @@ When adding new features to the constraint solver:
 **Control Flow:**
 - Variable declarations inside if-statement branches are not supported (only constraints and assignments)
 - Assignments inside if-statements create conditional constraints (not mutations)
+- For-loop bodies only support constraint expressions (e.g., `arr[i] == value`), not assignment statements or variable declarations
 
 **Operators:**
 - Modulo (`%`) and power (`^`) operators only work in constant evaluation contexts (not as Z3 symbolic constraints)
@@ -505,7 +506,7 @@ y = 42
 let arr: [i32; 3];
 
 for i in 0..3 {
-    arr[i] = i * 10;
+    arr[i] == i * 10;
 }
 ```
 
@@ -521,7 +522,7 @@ arr[1] = 10
 arr[2] = 20
 ```
 
-**How it works:** The for loop is automatically unrolled into separate constraints for each iteration. The loop body is executed with `i` substituted for each value in the range `0..3`, creating three assignment constraints that the solver resolves.
+**How it works:** The for loop is automatically unrolled into separate constraints for each iteration. The loop body is executed with `i` substituted for each value in the range `0..3`, creating three equality constraints (`arr[0] == 0`, `arr[1] == 10`, `arr[2] == 20`) that the solver resolves.
 
 #### Function Call Example
 
