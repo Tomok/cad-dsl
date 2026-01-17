@@ -264,8 +264,8 @@ The project has comprehensive test suites for each component. All major componen
   - Array indexing with constant integer indices
   - Arithmetic operators: `+`, `-`, `*`, `/`
   - Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=`
-  - Logical operators: `&&` (AND), `||` (OR)
-  - Unary operators: `-` (negation), `!` (logical NOT)
+  - Logical operators: `and`, `or`
+  - Unary operators: `-` (negation), `&` (reference)
   - **If-statements**: Conditional constraints with Z3 ITE, nested if-statements, assignments in branches
   - **For loops**: Loop unrolling with constant ranges, deferred constraint solving for variable-dependent ranges
   - **Function calls**: Function inlining with parameter substitution
@@ -339,7 +339,7 @@ When adding new features to the constraint solver:
 - **Operators**:
   - Arithmetic: `+`, `-`, `*`, `/`, unary `-`
   - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
-  - Logical: `&&` (AND), `||` (OR), `!` (NOT)
+  - Logical: `and`, `or`
 - **Array Access**: Constant integer indices (e.g., `arr[0]`, `points[1].x`)
 - **Control Flow**:
   - If-statements with conditional constraints (Z3 ITE), nested if-statements, assignments in branches

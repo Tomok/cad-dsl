@@ -149,13 +149,13 @@ pub enum ResolvedExprKind<'src, 'arena> {
     // ========================================================================
     // Binary Operations
     // ========================================================================
-    /// Logical AND: `lhs && rhs`
+    /// Logical AND: `lhs and rhs`
     And {
         lhs: &'arena ResolvedExpr<'src, 'arena>,
         rhs: &'arena ResolvedExpr<'src, 'arena>,
     },
 
-    /// Logical OR: `lhs || rhs`
+    /// Logical OR: `lhs or rhs`
     Or {
         lhs: &'arena ResolvedExpr<'src, 'arena>,
         rhs: &'arena ResolvedExpr<'src, 'arena>,
