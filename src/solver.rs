@@ -18,7 +18,6 @@
 //! **Phase 1** ✓ - Extracted reusable components from legacy solver:
 //! - `struct_flattener.rs` - Flattens struct/array types to primitive fields
 //! - `recursive_struct_detector.rs` - Detects cycles in struct definitions
-//! - `solution_formatter.rs` - Formats Z3 solutions for display
 //!
 //! **Phase 2** (In Progress) - Core infrastructure:
 //! - `PathComponent` and `VariablePath` types for tree navigation
@@ -44,9 +43,6 @@ pub mod struct_flattener;
 /// Recursive struct cycle detection
 pub mod recursive_struct_detector;
 
-/// Solution formatting for Z3 models
-pub mod solution_formatter;
-
 // ============================================================================
 // Public Re-exports (Phase 1)
 // ============================================================================
@@ -54,8 +50,6 @@ pub mod solution_formatter;
 // NOTE: These are part of the public API and will be used in Phase 3+
 #[allow(unused_imports)]
 pub use recursive_struct_detector::detect_cycles;
-#[allow(unused_imports)]
-pub use solution_formatter::{SolutionFormatter, SolutionFormatterError};
 #[allow(unused_imports)]
 pub use struct_flattener::flatten_type;
 
