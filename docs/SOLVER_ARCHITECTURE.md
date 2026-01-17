@@ -1,8 +1,6 @@
 # Solver Architecture
 
-This document describes the trait-based constraint solver architecture for CAD-DSL, including the tree-based variable management, scope handling with RAII guards, and transform mechanics for coordinate system transformations.
-
-> **Note**: This document describes the **target architecture**. For migrating from the existing solver implementation (~8500 lines), see **[MIGRATION_STRATEGY.md](MIGRATION_STRATEGY.md)** which provides an incremental migration plan that reuses existing code.
+This document describes the trait-based constraint solver architecture for CAD-DSL, including the tree-based variable management, scope handling with RAII guards, transform mechanics for coordinate system transformations, and iterative solving with deferred constraints.
 
 ## Table of Contents
 
@@ -14,28 +12,22 @@ This document describes the trait-based constraint solver architecture for CAD-D
   - [Solver Context](#solver-context)
   - [RAII Scope Guards](#raii-scope-guards)
 - [Solvable Trait](#solvable-trait)
+- [Iterative Solving](#iterative-solving)
 - [Transform Mechanics](#transform-mechanics)
 - [Module Structure](#module-structure)
-- [Implementation Guide](#implementation-guide)
+- [Usage Guide](#usage-guide)
 
 ## Overview
 
-The solver architecture uses a **trait-based design** where HIR (High-level Intermediate Representation) nodes implement a `Solvable` trait that allows them to translate themselves into Z3 constraints. This approach:
+The solver uses a **trait-based design** where HIR (High-level Intermediate Representation) nodes implement a `Solvable` trait that translates them into Z3 constraints. This architecture provides:
 
-- Decouples constraint extraction from specific HIR node types
-- Enables incremental feature development (implement `Solvable` for new nodes)
-- Maintains clean separation between HIR semantics and solver mechanics
+- **Modular constraint generation**: Each HIR node type implements its own solving logic
+- **Type-safe variable management**: Tree structure enforces correct variable access patterns
+- **Automatic scope cleanup**: RAII guards prevent scope leaks
+- **Iterative solving**: Handles deferred constraints (e.g., for-loops with computed ranges)
+- **Zero-copy efficiency**: String allocation only when creating Z3 variables
 
-**Key Innovation**: Instead of flattening all variables to strings upfront, we maintain a **tree structure** that mirrors the type hierarchy and only generate flattened Z3 variable names when creating Z3 primitives.
-
-### Migration from Existing Implementation
-
-**Current state**: There is a working solver implementation in `src/solver/` (~8500 lines) using an imperative extraction approach with a monolithic `extract_constraints()` function.
-
-**This document** describes the target trait-based architecture. **For implementation**, see:
-- **[MIGRATION_STRATEGY.md](MIGRATION_STRATEGY.md)** - Incremental migration plan
-- Strategy preserves and reuses existing code (struct flattening, Z3 bridge, etc.)
-- Estimated: 21-42 hours over 3-6 working days
+**Key Innovation**: Variables are stored in a **tree structure** that mirrors the type hierarchy. Instead of flattening everything to strings upfront (e.g., `"p.x"`, `"p.y"`, `"points[0].x"`), we maintain structural hierarchy and only generate flattened Z3 variable names when creating Z3 primitives.
 
 ## Core Design Principles
 
@@ -1107,129 +1099,194 @@ pub trait Solvable<'src, 'arena, 'ctx> {
 }
 ```
 
-## Implementation Guide
+## Iterative Solving
 
-### Important: Reuse Existing Code
+The solver supports **iterative solving** to handle constraints that depend on values computed in earlier iterations. This is essential for features like for-loops with computed ranges.
 
-**There is already a working solver implementation (~8500 lines) in `src/solver/`!**
+### How It Works
 
-This guide describes building the trait-based architecture from scratch, but **you should not delete the existing code**. Instead:
+1. **First Iteration**: Solve all constraints that can be immediately satisfied
+2. **Extract Values**: Get concrete values for resolved variables from the Z3 model
+3. **Check Deferred**: Try to resolve deferred constraints (e.g., for-loops) using the new values
+4. **Repeat**: If progress was made, run another iteration
+5. **Terminate**: Stop when either all constraints are resolved or no progress is made
 
-1. **See `MIGRATION_STRATEGY.md`** for the incremental migration approach
-2. **Reuse existing components**:
-   - ✅ `struct_flattener.rs` - Struct/array flattening logic (pure functions)
-   - ✅ `recursive_struct_detector.rs` - Cycle detection (independent utility)
-   - ✅ `solution_formatter.rs` - Output formatting (reusable as-is)
-   - 🔄 `z3_bridge.rs` - Z3 integration patterns (adapt to new context)
-   - 🔄 `function_inliner.rs` - Function inlining logic (adapt for trait-based)
-   - ❌ `constraint_extractor.rs` - Replaced by `Solvable` trait impls
+### Result Types
 
-**Recommended approach**: Incremental migration (see `MIGRATION_STRATEGY.md`)
-- Preserve legacy as `solver_legacy/`
-- Build new trait-based solver in parallel
-- Extract reusable components
-- Test incrementally
-- Switch when ready
+The solver returns a `SolveResult` which can be either:
 
-The phases below describe the **new architecture** if building from scratch, but refer to `MIGRATION_STRATEGY.md` for how to migrate the existing implementation.
+- **`Complete`**: All constraints fully resolved
+  ```rust
+  SolveResult::Complete {
+      solution: Solution,     // Variable assignments
+      iterations: usize,      // Number of iterations performed
+  }
+  ```
 
----
+- **`Partial`**: Some constraints could not be resolved (still a valid outcome, not an error)
+  ```rust
+  SolveResult::Partial {
+      solution: Solution,            // Partial variable assignments
+      deferred: Vec<DeferredConstraint>,  // Unresolved constraints
+      reason: PartialReason,         // Why solving stopped
+      iterations: usize,             // Number of iterations performed
+  }
+  ```
 
-### Phase 0: Module Setup
-1. Create `src/solver.rs` with trait definition and submodule declarations
-2. Create `src/solver/` directory structure
-3. Create `src/solver/impls.rs` with submodule declarations
-4. Create `src/solver/impls/` subdirectory
-5. Create placeholder files: `solver/context.rs`, `solver/impls/expr.rs`, `solver/impls/stmt.rs`
+### Example: For-Loop with Computed Range
 
-### Phase 1: Core Infrastructure
-1. Implement `VariablePath` and `PathComponent` in `src/solver.rs`
-2. Implement `VariableNode` with tree operations in `src/solver/context.rs`
-3. Implement `SolverContext` with basic variable management in `src/solver/context.rs`
-4. Write tests for tree navigation and lookup
+```rust
+let n: i32;
+n == 5;
 
-### Phase 2: Guards and Scopes
-1. Implement `ScopeGuard`
-2. Implement `WithGuard`
-3. Add scope management to `SolverContext`
-4. Write tests for scope push/pop
+for i in 0..n {
+    // Loop body uses i
+}
+```
 
-### Phase 3: Basic Solving
-1. Implement `Solvable` for simple statements in `src/solver/impls/stmt.rs`
-   - `Let` statements (variable declaration)
-   - `Expression` statements (constraints)
-2. Implement `Solvable` for expressions in `src/solver/impls/expr.rs`
-   - Literals, variables, binary operations
-   - Expression-to-Z3 conversion
-3. Declare submodules in `src/solver/impls.rs`
-4. Write end-to-end tests for simple constraint problems
+**Iteration 1**: The for-loop is deferred because `n` is unknown
+**After iteration 1**: Z3 solves `n = 5`
+**Iteration 2**: For-loop can now be unrolled with range `0..5`
+**Result**: Complete solution
 
-### Phase 4: Container With-Statements
-1. Implement container context handling in `WithGuard`
-2. Add dot-prefix variable name resolution
-3. Write tests for container namespacing
+## Usage Guide
 
-### Phase 5: Function and Method Inlining
-1. Add `FunctionCall` and `MethodCall` cases to `src/solver/impls/expr.rs`
-2. Implement `inline_function` helper in `src/solver/context.rs`
-3. Implement `inline_method` helper in `src/solver/context.rs`
-4. Add parameter binding and scope management to context
-5. Write tests for simple function/method calls
+### Basic Usage
 
-### Phase 6: Transform With-Statements (Auto-call)
-1. Implement transform context detection in `WithGuard`
-2. Implement shadow variable creation
-3. Add auto-call logic in variable declaration
-4. **Reuse `inline_method`** from Phase 5 - no new inlining code needed!
-5. Write comprehensive tests for transforms
+The primary entry point is the `solve()` function in `src/solver.rs`:
 
-### Testing Strategy
+```rust
+use cad_dsl::solver;
+use bumpalo::Bump;
 
-**Unit Tests**:
-- Path operations (construction, extension, to_z3_name)
-- Tree navigation (get_at_path, get_at_path_mut)
-- Scope management (push, pop, shadowing)
+let arena = Bump::new();
+let statements = /* HIR statements */;
 
-**Integration Tests**:
-- Simple constraints (primitives, arithmetic)
-- Struct constraints (field access, nested structs)
-- Array constraints (indexing, array of structs)
-- Container with-statements (dot-prefix syntax)
-- Transform with-statements (coordinate transformations)
+match solver::solve(&statements, &arena) {
+    Ok(solution_string) => println!("{}", solution_string),
+    Err(e) => eprintln!("Solver error: {}", e),
+}
+```
 
-**End-to-End Tests**:
-- Complete CAD-DSL programs with transforms
-- Multi-level scope nesting
-- Complex transform chains
+### Implementing `Solvable` for New HIR Nodes
 
-## Future Extensions
+To add solver support for a new HIR node type:
 
-### Function Calls
-Function calls will use similar inlining mechanics:
-- Inline function body with parameter substitution
-- Generate constraints for return value
-- Handle recursive calls with depth limits
+1. **Import the trait**:
+   ```rust
+   use crate::solver::{Solvable, SolverContext, SolverError};
+   ```
 
-### For Loops
-For loops will be unrolled:
-- Expand loop body N times
-- Each iteration gets unique variables (scoped)
-- Constraints from all iterations accumulated
+2. **Implement the trait**:
+   ```rust
+   impl<'src, 'arena> Solvable<'src, 'arena> for MyHirNode<'src, 'arena> {
+       type Output = (); // or Z3 AST type for expressions
 
-### Optimization
-Potential optimizations:
+       fn solve(&self, ctx: &mut SolverContext<'src, 'arena>)
+           -> Result<Self::Output, SolverError>
+       {
+           // Your constraint generation logic here
+       }
+   }
+   ```
+
+3. **Add implementation to** `src/solver/impls/`:
+   - Statement nodes → `impls/stmt.rs`
+   - Expression nodes → `impls/expr.rs`
+
+### Working with Variable Paths
+
+The `VariablePath` type represents navigation through the variable tree:
+
+```rust
+// Create path from variable name
+let path = VariablePath::from_name("p");
+
+// Extend with field access
+let x_path = path.with_field("x");  // p.x
+
+// Extend with array index
+let elem_path = path.with_index(0);  // p[0]
+
+// Chain operations
+let nested = VariablePath::from_name("points")
+    .with_index(0)      // points[0]
+    .with_field("x");   // points[0].x
+
+// Generate Z3 variable name (only allocation point!)
+let z3_name = nested.to_z3_name();  // "points[0].x"
+```
+
+### RAII Scope Management
+
+Use scope guards to ensure automatic cleanup:
+
+```rust
+fn solve_with_scope(ctx: &mut SolverContext) -> Result<(), SolverError> {
+    // Create scope guard - increments scope level
+    let mut guard = ScopeGuard::new(ctx);
+
+    // Declare variables in this scope
+    guard.context().declare_variable("local", type_ref)?;
+
+    // Solve statements
+    for stmt in statements {
+        stmt.solve(guard.context())?;
+    }
+
+    // Scope automatically cleaned up when guard drops here
+    Ok(())
+}
+```
+
+### Key Components
+
+- **`VariablePath`**: Zero-copy navigation through variable tree
+- **`VariableNode`**: Tree structure (Primitive, Struct, or Array)
+- **`SolverContext`**: Manages variables, scopes, Z3 integration
+- **`ScopeGuard`/`WithGuard`**: RAII automatic scope cleanup
+- **`Solvable` trait**: HIR nodes implement constraint generation
+- **`Solution`**: Maps variable paths to concrete values
+- **`SolveResult`**: Complete or Partial solving outcome
+
+### Testing
+
+The solver has comprehensive test coverage:
+
+```bash
+# Run all solver tests
+cargo test solver
+
+# Run specific integration tests
+cargo test solver_integration
+
+# Run with output visible
+cargo test solver -- --nocapture
+```
+
+**Test organization**:
+- Unit tests in module files (`src/solver.rs`, `src/solver/context.rs`)
+- Integration tests in `tests/solver_integration_test.rs`
+- Performance tests in `tests/solver_performance_test.rs`
+
+## Future Optimizations
+
+Potential improvements for performance and functionality:
+
 - **Lazy Z3 variable creation**: Only create Z3 variables when referenced in constraints
-- **Constraint simplification**: Detect trivial constraints before sending to Z3
+- **Constraint simplification**: Detect trivial constraints (e.g., `x == x`) before sending to Z3
 - **Incremental solving**: Use Z3's push/pop for faster repeated solving
+- **Parallel constraint generation**: Generate constraints for independent statements in parallel
 
 ## Summary
 
-This architecture provides:
-- ✅ **Zero-copy efficiency**: String allocation only when creating Z3 variables
-- ✅ **Type-safe navigation**: Rust compiler enforces valid tree operations
-- ✅ **Automatic cleanup**: RAII guards prevent scope leaks
-- ✅ **Extensibility**: New HIR nodes implement `Solvable` trait
-- ✅ **Transform support**: Automatic shadow variable creation with constraints
-- ✅ **Clear separation**: HIR semantics vs. solver mechanics
+The trait-based solver architecture provides:
 
-The trait-based design makes adding new language features straightforward: implement `Solvable` for the new HIR node type, and the solver infrastructure handles the rest.
+- ✅ **Modularity**: HIR nodes implement their own constraint logic
+- ✅ **Efficiency**: Zero-copy navigation, string allocation only for Z3 variables
+- ✅ **Safety**: RAII guards prevent scope leaks, type system enforces correct access
+- ✅ **Extensibility**: Add features by implementing `Solvable` trait
+- ✅ **Robustness**: Iterative solving handles complex dependency chains
+- ✅ **Clarity**: Clean separation between HIR semantics and solver mechanics
+
+Adding new language features is straightforward: implement `Solvable` for the new HIR node type, and the solver infrastructure handles variable management, scoping, and Z3 integration automatically.

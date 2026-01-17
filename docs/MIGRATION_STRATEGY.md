@@ -1,6 +1,8 @@
 # Solver Architecture Migration Strategy
 
-## Current State
+> **⚠️ MIGRATION COMPLETE**: This document is kept for historical reference only. All migration phases have been completed successfully. The trait-based solver is now the active implementation. See `SOLVER_ARCHITECTURE.md` for current architecture documentation.
+
+## Historical Context - Original State
 
 The existing solver implementation (~8500 lines) uses an **imperative extraction** approach:
 - Single `extract_constraints()` function walks the HIR

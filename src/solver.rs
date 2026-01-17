@@ -1,40 +1,48 @@
-//! New Trait-Based Solver Architecture
+//! Constraint Solver for CAD-DSL
 //!
-//! This module implements a trait-based constraint solver architecture for the CAD-DSL language.
-//! Unlike the legacy imperative solver, this version uses the `Solvable` trait pattern where
-//! HIR nodes implement their own constraint generation logic.
+//! This module implements a trait-based constraint solver that translates CAD-DSL programs
+//! into Z3 constraints and finds solutions for geometric design problems.
 //!
-//! # Architecture Overview
+//! # Architecture
 //!
-//! The new solver follows these design principles:
+//! The solver uses a **trait-based design** where HIR (High-level Intermediate Representation)
+//! nodes implement the `Solvable` trait to generate their own constraints:
 //!
-//! 1. **Trait-Based**: HIR nodes implement `Solvable` trait for constraint generation
-//! 2. **Modular**: Functionality split into focused modules in `impls/` subdirectory
-//! 3. **Tree-Based Variables**: Variables organized in a tree structure for scoping
-//! 4. **RAII Guards**: Scope management using guard types
+//! 1. **Trait-Based**: HIR nodes implement `Solvable` trait for modular constraint generation
+//! 2. **Tree-Based Variables**: Variables stored in a tree mirroring the type hierarchy
+//! 3. **Zero-Copy**: String allocation only when creating Z3 variables, navigation uses `&'src str`
+//! 4. **RAII Scoping**: Automatic scope cleanup with guard types
+//! 5. **Iterative Solving**: Handles deferred constraints (e.g., for-loops with computed ranges)
 //!
-//! # Migration Status
+//! # Key Components
 //!
-//! **Phase 1** ✓ - Extracted reusable components from legacy solver:
-//! - `struct_flattener.rs` - Flattens struct/array types to primitive fields
-//! - `recursive_struct_detector.rs` - Detects cycles in struct definitions
+//! - **`VariablePath`**: Zero-copy navigation through variable tree (field access, array indexing)
+//! - **`VariableNode`**: Tree structure (Primitive, Struct, or Array nodes)
+//! - **`SolverContext`**: Manages variables, scopes, Z3 solver state
+//! - **`Solvable` trait**: HIR nodes implement constraint generation
+//! - **`SolveResult`**: Complete or Partial solving outcomes
 //!
-//! **Phase 2** (In Progress) - Core infrastructure:
-//! - `PathComponent` and `VariablePath` types for tree navigation
-//! - `Solvable` trait for HIR nodes
-//! - `SolverContext` with tree-based variable management
-//! - RAII guards for scope management
+//! # Usage
 //!
-//! **Phase 3+** (Planned) - Trait implementations for expressions and statements
+//! ```ignore
+//! use cad_dsl::solver;
+//! use bumpalo::Bump;
 //!
-//! See `docs/SOLVER_ARCHITECTURE.md` and `docs/MIGRATION_STRATEGY.md` for details.
-
-#![allow(dead_code)] // Module under development
+//! let arena = Bump::new();
+//! let statements = /* HIR statements from semantic analysis */;
+//!
+//! match solver::solve(&statements, &arena) {
+//!     Ok(solution) => println!("{}", solution),
+//!     Err(e) => eprintln!("Solver error: {}", e),
+//! }
+//! ```
+//!
+//! See `docs/SOLVER_ARCHITECTURE.md` for detailed architecture documentation.
 
 use std::fmt::{self, Write as _};
 
 // ============================================================================
-// Reusable Components (Phase 1)
+// Utilities
 // ============================================================================
 
 /// Struct and array field flattening for Z3 variable mapping
@@ -44,17 +52,14 @@ pub mod struct_flattener;
 pub mod recursive_struct_detector;
 
 // ============================================================================
-// Public Re-exports (Phase 1)
+// Public Re-exports
 // ============================================================================
 
-// NOTE: These are part of the public API and will be used in Phase 3+
-#[allow(unused_imports)]
 pub use recursive_struct_detector::detect_cycles;
-#[allow(unused_imports)]
 pub use struct_flattener::flatten_type;
 
 // ============================================================================
-// Phase 2: Core Types and Trait
+// Core Types and Trait
 // ============================================================================
 
 /// Component of a variable path for tree navigation
@@ -159,7 +164,7 @@ impl fmt::Display for VariablePath<'_> {
 }
 
 // ============================================================================
-// Phase 3a: Solution and Result Types
+// Solution and Result Types
 // ============================================================================
 
 /// Concrete value extracted from Z3 model
@@ -400,21 +405,21 @@ pub trait Solvable<'src, 'arena> {
 }
 
 // ============================================================================
-// Phase 2: Modules
+// Modules
 // ============================================================================
 
 /// Solver context with tree-based variable management and RAII guards
 pub mod context;
 
 // ============================================================================
-// Phase 3: Trait Implementations
+// Trait Implementations
 // ============================================================================
 
 /// Trait implementations for HIR nodes (expressions and statements)
 pub mod impls;
 
 // ============================================================================
-// Public Re-exports (Phase 2)
+// Public Re-exports
 // ============================================================================
 
 pub use context::SolverContext;
