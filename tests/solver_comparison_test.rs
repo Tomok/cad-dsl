@@ -1,12 +1,14 @@
-//! Performance comparison between legacy and new trait-based solver
+//! Solver validation test suite
 //!
-//! This test suite validates that the new trait-based solver produces
-//! correct results and documents the migration completion.
+//! This test suite validates that the trait-based solver produces correct results
+//! for all major language features including:
+//! - Basic constraints (linear equations, systems)
+//! - Struct constraints (nested, arrays)
+//! - Function calls with inlining
+//! - For-loop unrolling with deferred evaluation
+//! - Iterative partial solving
 //!
-//! Note: Since both solvers share the same Z3 backend and the new solver
-//! has been validated through comprehensive integration tests, we focus
-//! on documenting the successful migration rather than running duplicated
-//! performance benchmarks.
+//! Tests use the solver as a black box via CLI to validate end-to-end behavior.
 
 use std::process::Command;
 use std::time::Instant;

@@ -16,7 +16,6 @@
 //! This structure enables zero-copy navigation using `&'src str` references,
 //! with string allocation only when creating Z3 variables.
 
-#[allow(unused_imports)] // Used in commented solve() implementation (Phase 3b+)
 use super::PartialReason;
 use super::{
     DeferredConstraint, PathComponent, Solution, SolveResult, SolverError, Value, VariablePath,
@@ -200,10 +199,11 @@ pub enum WithContextInfo<'src, 'arena> {
         container_field: &'arena crate::hir::definitions::ContainerField<'src, 'arena>,
     },
 
-    /// Transform with-statement: coordinate transformations (Phase 3+)
+    /// Transform with-statement: coordinate transformations
     ///
     /// Variables get shadow variables linked by transform constraints.
-    #[allow(dead_code)] // Will be used in Phase 3+
+    /// Not yet implemented - planned feature for coordinate system transformations.
+    #[allow(dead_code)] // Reserved for future transform implementation
     Transform {
         /// Path to the source variable
         source_path: VariablePath<'src>,
@@ -239,13 +239,13 @@ pub struct SolverContext<'src, 'arena> {
     /// Stack of active with-statement contexts
     with_stack: Vec<WithContextInfo<'src, 'arena>>,
 
-    // Phase 3c: Function inlining support
+    // Function inlining support
     /// Map from function name to its return expression
-    /// Populated during the first pass over statements
+    /// Populated during the first pass over statements for correct scoping
     function_return_exprs: HashMap<&'src str, &'arena crate::hir::expr::ResolvedExpr<'src, 'arena>>,
 
-    // Phase 3a: Iterative solving fields
-    /// Constraints that have been deferred
+    // Iterative solving fields
+    /// Constraints that have been deferred for later resolution
     deferred_constraints: Vec<DeferredConstraint<'src>>,
 
     /// Current iteration number (for diagnostics)
@@ -564,7 +564,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     }
 
     // ========================================================================
-    // Phase 3a: Deferral Management
+    // Deferral Management
     // ========================================================================
 
     /// Defer a constraint for later resolution
@@ -588,8 +588,8 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     /// Get the value of a variable from the current solution
     ///
     /// Note: This method is only usable for variables that match the 'src lifetime.
-    /// For Phase 3b+, this will need to be extended to handle arbitrary variable names.
-    #[allow(dead_code)] // Will be used in Phase 3b+
+    /// Future extension: handle qualified paths (e.g., "p.x", "points[0].y").
+    #[allow(dead_code)] // Reserved for future use
     pub fn get_variable_value(&self, var: &'src str) -> Option<&Value> {
         let path = VariablePath::from_name(var);
         self.current_solution
@@ -605,7 +605,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     }
 
     // ========================================================================
-    // Phase 3a: Solution Extraction
+    // Solution Extraction
     // ========================================================================
 
     /// Extract solution from Z3 model
@@ -680,7 +680,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                                 // as_i64() failed - this could mean either:
                                 // 1. It's a symbolic expression (under-constrained)
                                 // 2. It's a concrete integer that doesn't fit in i64 (overflow)
-                                // In either case, treat it as under-constrained for Phase 3b
+                                // In either case, treat it as under-constrained
                                 // This allows the solver to return partial results for unconstrained variables
                                 Ok(Value::UnderConstrained)
                             }
@@ -754,7 +754,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     }
 
     // ========================================================================
-    // Phase 3a: Iterative Solve Loop
+    // Iterative Solve Loop
     // ========================================================================
 
     /// Main solve function with iterative partial solving
@@ -774,7 +774,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         use crate::hir::expr::ResolvedStmtKind;
         use crate::solver::Solvable;
 
-        // Phase 3c: Pre-pass to register all function return expressions
+        // Pre-pass to register all function return expressions for correct scoping
         for stmt in statements {
             match &stmt.kind {
                 // Register standalone functions

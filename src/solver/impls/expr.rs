@@ -335,7 +335,7 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 }
             }
 
-            // Function and Method Calls (Phase 3c)
+            // Function and Method Calls
             ResolvedExprKind::FunctionCall {
                 name,
                 function,
