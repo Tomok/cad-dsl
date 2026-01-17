@@ -859,3 +859,170 @@ if condition {
 
     let _ = std::fs::remove_file("/tmp/if_statement_bool.cad");
 }
+
+#[test]
+fn test_if_statement_with_assignment() {
+    // Test assignment statements in if-statement branches
+    let test_code = r#"
+let x: i32;
+let y: i32;
+
+x > 10;
+
+if x > 20 {
+    y = x * 2;
+} else {
+    y = x + 5;
+}
+"#;
+
+    std::fs::write("/tmp/if_statement_assignment.cad", test_code).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--", "solve", "/tmp/if_statement_assignment.cad"])
+        .output()
+        .expect("Failed to execute command");
+
+    let success = output.status.success();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    // The solver should find a solution satisfying all constraints
+    // Since x > 10, we could have x = 21 (which is > 20), leading to y = 42
+    // or x = 11 (which is <= 20), leading to y = 16
+    // Both are valid solutions
+
+    let _ = std::fs::remove_file("/tmp/if_statement_assignment.cad");
+}
+
+#[test]
+fn test_if_statement_nested() {
+    // Test nested if-statements
+    let test_code = r#"
+let x: i32;
+let y: i32;
+
+x > 10;
+
+if x > 20 {
+    if x > 30 {
+        y = 100;
+    } else {
+        y = 50;
+    }
+} else {
+    y = x + 5;
+}
+"#;
+
+    std::fs::write("/tmp/if_statement_nested.cad", test_code).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--", "solve", "/tmp/if_statement_nested.cad"])
+        .output()
+        .expect("Failed to execute command");
+
+    let success = output.status.success();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    // Valid solutions include:
+    // - x = 31 (> 30), y = 100
+    // - x = 21 (> 20 but <= 30), y = 50
+    // - x = 11 (<= 20), y = 16
+
+    let _ = std::fs::remove_file("/tmp/if_statement_nested.cad");
+}
+
+#[test]
+fn test_if_statement_field_assignment() {
+    // Test field assignment statements in if-statement branches
+    let test_code = r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+let p: Point;
+let condition: bool;
+
+condition == true;
+
+if condition {
+    p.x = 10;
+    p.y = 20;
+} else {
+    p.x = 5;
+    p.y = 15;
+}
+"#;
+
+    std::fs::write("/tmp/if_statement_field_assignment.cad", test_code).unwrap();
+
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "solve",
+            "/tmp/if_statement_field_assignment.cad",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    let success = output.status.success();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "condition", "true");
+    verify_solution(&stdout, "p.x", "10");
+    verify_solution(&stdout, "p.y", "20");
+
+    let _ = std::fs::remove_file("/tmp/if_statement_field_assignment.cad");
+}
+
+#[test]
+fn test_if_statement_deeply_nested() {
+    // Test deeply nested if-statements (3 levels)
+    let test_code = r#"
+let x: i32;
+let y: i32;
+
+x == 25;
+
+if x > 10 {
+    if x > 20 {
+        if x > 30 {
+            y = 1;
+        } else {
+            y = 2;
+        }
+    } else {
+        y = 3;
+    }
+} else {
+    y = 4;
+}
+"#;
+
+    std::fs::write("/tmp/if_statement_deeply_nested.cad", test_code).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--", "solve", "/tmp/if_statement_deeply_nested.cad"])
+        .output()
+        .expect("Failed to execute command");
+
+    let success = output.status.success();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "25");
+    verify_solution(&stdout, "y", "2"); // x = 25 is > 20 but <= 30, so y = 2
+
+    let _ = std::fs::remove_file("/tmp/if_statement_deeply_nested.cad");
+}
