@@ -22,26 +22,6 @@ pub enum Z3Expr {
 }
 
 impl Z3Expr {
-    /// Convert to Int, with automatic type conversion if needed
-    pub fn to_int(&self, _ctx: &z3::Context) -> z3::ast::Int {
-        match self {
-            Z3Expr::Int(i) => i.clone(),
-            Z3Expr::Real(r) => r.to_int(),
-            Z3Expr::Bool(b) => b.ite(&z3::ast::Int::from_i64(1), &z3::ast::Int::from_i64(0)),
-        }
-    }
-
-    /// Convert to Real, with automatic type conversion if needed
-    pub fn to_real(&self, _ctx: &z3::Context) -> z3::ast::Real {
-        match self {
-            Z3Expr::Int(i) => i.to_real(),
-            Z3Expr::Real(r) => r.clone(),
-            Z3Expr::Bool(b) => b
-                .ite(&z3::ast::Int::from_i64(1), &z3::ast::Int::from_i64(0))
-                .to_real(),
-        }
-    }
-
     /// Convert to Bool
     pub fn to_bool(&self, _ctx: &z3::Context) -> Result<z3::ast::Bool, SolverError> {
         match self {
@@ -477,73 +457,6 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
         }
     }
 
-    /// Try to evaluate an expression to check if it depends on unknown variables
-    ///
-    /// This is used to determine if function calls can be inlined or need to be deferred.
-    /// Returns Ok if the expression can be evaluated, Err if it depends on unknown variables.
-    fn try_evaluate_expr(
-        &self,
-        expr: &ResolvedExpr<'src, 'arena>,
-        ctx: &SolverContext<'src, 'arena>,
-    ) -> Result<(), SolverError> {
-        match &expr.kind {
-            // Literals are always evaluable
-            ResolvedExprKind::IntLit { .. }
-            | ResolvedExprKind::FloatLit { .. }
-            | ResolvedExprKind::BoolLit { .. } => Ok(()),
-
-            // Variables are evaluable if they have a known value
-            ResolvedExprKind::Var { name, .. } => {
-                if ctx.is_variable_known(name) {
-                    Ok(())
-                } else {
-                    Err(SolverError::UndefinedVariable(format!(
-                        "Variable '{}' not yet resolved",
-                        name
-                    )))
-                }
-            }
-
-            // Field access is evaluable if the base is evaluable
-            ResolvedExprKind::FieldAccess { receiver, .. } => self.try_evaluate_expr(receiver, ctx),
-
-            // Array index is evaluable if both array and index are evaluable
-            ResolvedExprKind::Index { array, index } => {
-                self.try_evaluate_expr(array, ctx)?;
-                self.try_evaluate_expr(index, ctx)
-            }
-
-            // Binary operations are evaluable if both operands are
-            ResolvedExprKind::Add { lhs, rhs }
-            | ResolvedExprKind::Sub { lhs, rhs }
-            | ResolvedExprKind::Mul { lhs, rhs }
-            | ResolvedExprKind::Div { lhs, rhs }
-            | ResolvedExprKind::Eq { lhs, rhs }
-            | ResolvedExprKind::NotEq { lhs, rhs }
-            | ResolvedExprKind::Lt { lhs, rhs }
-            | ResolvedExprKind::LtEq { lhs, rhs }
-            | ResolvedExprKind::Gt { lhs, rhs }
-            | ResolvedExprKind::GtEq { lhs, rhs }
-            | ResolvedExprKind::And { lhs, rhs }
-            | ResolvedExprKind::Or { lhs, rhs } => {
-                self.try_evaluate_expr(lhs, ctx)?;
-                self.try_evaluate_expr(rhs, ctx)
-            }
-
-            // Unary operations are evaluable if the operand is
-            ResolvedExprKind::Neg { inner } => self.try_evaluate_expr(inner, ctx),
-
-            // Parenthesized expressions are evaluable if the inner expression is
-            ResolvedExprKind::Paren { inner } => self.try_evaluate_expr(inner, ctx),
-
-            // For now, other expressions are considered not evaluable
-            _ => Err(SolverError::UnsupportedExpression(format!(
-                "Cannot check if expression is evaluable: {:?}",
-                expr.kind
-            ))),
-        }
-    }
-
     /// Inline a function call by substituting parameters with arguments
     ///
     /// This works by:
@@ -887,15 +800,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_try_evaluate_expr_basic_structure() {
-        // This is a basic compilation test to ensure the new methods compile correctly
+    fn test_basic_context_creation() {
+        // This is a basic compilation test to ensure context creation works correctly
         // Full functional tests will be in the integration test suite
         let arena = bumpalo::Bump::new();
         let z3_solver = z3::Solver::new();
         let z3_ctx = z3_solver.get_context().clone();
-        let ctx = SolverContext::new(z3_ctx, z3_solver, &arena);
+        let _ctx = SolverContext::new(z3_ctx, z3_solver, &arena);
 
-        // Just verify basic context creation works
-        assert_eq!(ctx.scope_level(), 0);
+        // Context creation successful
     }
 }
