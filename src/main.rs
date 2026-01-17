@@ -11,13 +11,10 @@ mod semantic_analyzer;
 // Type checking module
 mod type_checker;
 
-// Solver pipeline module (legacy implementation)
-mod solver_legacy;
-
-// New trait-based solver (under development)
+// Trait-based solver implementation
 mod solver;
 
-// Use new trait-based solver with Phase 3b iterative solving
+// Public API
 use solver as active_solver;
 
 use active_solver::SolverError;
