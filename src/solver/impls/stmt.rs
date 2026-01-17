@@ -713,28 +713,37 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
             // Additional binary operations
             ResolvedExprKind::Mod { lhs, rhs } => {
                 // Recursively substitute to handle loop variables in operands
-                let _lhs_z3 =
+                let lhs_z3 =
                     self.solve_expr_with_substitution(ctx, lhs, loop_var_name, loop_value)?;
-                let _rhs_z3 =
+                let rhs_z3 =
                     self.solve_expr_with_substitution(ctx, rhs, loop_var_name, loop_value)?;
 
-                todo!(
-                    "Modulo operator not yet implemented in constraint solver. \
-                     This will cause incorrect behavior. Please report this case."
-                )
+                match (lhs_z3, rhs_z3) {
+                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Int(l.modulo(&r))),
+                    // Modulo is only defined for integers in Z3
+                    _ => Err(SolverError::UnsupportedExpression(
+                        "Modulo operation only supported for integer types in loop".to_string(),
+                    )),
+                }
             }
 
             ResolvedExprKind::Pow { lhs, rhs } => {
                 // Recursively substitute to handle loop variables in operands
-                let _lhs_z3 =
+                let lhs_z3 =
                     self.solve_expr_with_substitution(ctx, lhs, loop_var_name, loop_value)?;
-                let _rhs_z3 =
+                let rhs_z3 =
                     self.solve_expr_with_substitution(ctx, rhs, loop_var_name, loop_value)?;
 
-                todo!(
-                    "Power operator not yet implemented in constraint solver. \
-                     This will cause incorrect behavior. Please report this case."
-                )
+                // Power operations in Z3 always return Real type
+                match (lhs_z3, rhs_z3) {
+                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Real(l.power(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Real(l.power(&r))),
+                    (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Real(l.to_real().power(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Real(l.power(r.to_real()))),
+                    _ => Err(SolverError::UnsupportedExpression(
+                        "Invalid types for power operation in loop".to_string(),
+                    )),
+                }
             }
 
             // Parenthesized expressions - just unwrap and recurse

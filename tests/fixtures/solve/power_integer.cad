@@ -1,0 +1,6 @@
+// Power with integer operands (returns Real in Z3)
+// Expected: x = 3.0, y = 27.0
+let x: i32;
+let y: f64;
+x == 3;
+y == x ^ 3;
