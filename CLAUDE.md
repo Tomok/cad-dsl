@@ -264,17 +264,19 @@ The project has comprehensive test suites for each component. All major componen
   - Array indexing with constant integer indices
   - Arithmetic operators: `+`, `-`, `*`, `/`
   - Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=`
-  - If-statements with conditional constraints (Z3 ITE)
+  - Logical operators: `&&` (AND), `||` (OR)
+  - Unary operators: `-` (negation), `!` (logical NOT)
+  - **If-statements**: Conditional constraints with Z3 ITE, nested if-statements, assignments in branches
+  - **For loops**: Loop unrolling with constant ranges, deferred constraint solving for variable-dependent ranges
+  - **Function calls**: Function inlining with parameter substitution
+  - **Method calls**: Method inlining with receiver binding
   - Nested structs with qualified names
   - Recursive struct detection
   - **Container with-statements** (dot-prefix syntax for namespacing)
 
-### 🚧 Partially Implemented (Parser/HIR Only)
+### 🚧 Partially Implemented
 
-These features have parser and HIR support but **not yet in constraint solver**:
-
-- **For Loops**: Parsed and in HIR, needs loop unrolling in constraint extractor
-- **Functions**: Definitions parsed and in HIR, function calls need solver support
+- **Modulo and Power operators** (`%`, `^`): Work in constant evaluation contexts (loop bounds, literal folding), but not yet supported as Z3 symbolic constraints
 - **Transform With-Statements**: Parsed and in HIR, transform semantics not in solver (container contexts fully supported)
 
 ### ❌ Not Yet Implemented
@@ -296,24 +298,27 @@ These features have parser and HIR support but **not yet in constraint solver**:
 
 ### Recommended Priority Order
 
-1. **For Loops** (High Priority)
-   - Requires arrays to be useful (arrays are now implemented)
-   - Implement loop unrolling in constraint extractor
-   - Generate constraints for each iteration
-
-2. **Function Calls** (High Priority - Game Changer)
-   - Function call inlining/expansion in HIR
-   - Standard library basics: `point()`, `distance()`
+1. **Standard Library** (High Priority - Game Changer)
+   - Basic constructors: `point(x, y)` for Point creation
+   - Geometric functions: `distance(p1, p2)`, `midpoint(p1, p2)`
+   - Math functions: `sqrt()`, `sin()`, `cos()`, `tan()`, `abs()`
    - Makes language practically usable for CAD workflows
+   - Builds on existing function call infrastructure
+
+2. **Modulo and Power Operators** (Medium Priority)
+   - Add Z3 support for `%` (modulo) and `^` (power) in symbolic expressions
+   - Currently only work in constant evaluation contexts
+   - Required for more complex mathematical constraints
 
 3. **Reference Types** (Medium Priority)
    - Entity vs. reference distinction
    - Reference type validation
    - Important for correct semantics
+   - Requires type system enhancements
 
-4. **With Statements + Transforms** (Low Priority)
-   - Coordinate transformations
-   - Requires container structs
+4. **Transform With-Statements** (Low Priority)
+   - Coordinate transformations via `__transform__` methods
+   - Automatic variable transformation in transform contexts
    - Complex feature, defer until core is stable
 
 ### Extension Guidelines
@@ -329,29 +334,40 @@ When adding new features to the constraint solver:
 
 ### Supported
 
-- Basic types: `i32`, `f64`, `bool`
-- Struct types (automatically flattened to primitive fields)
-- Array types (fixed-size, automatically flattened to indexed primitive fields)
-- Array indexing with constant integer indices (e.g., `arr[0]`, `points[1].x`)
-- Let statements with/without initializers
-- Arithmetic: `+`, `-`, `*`, `/`
-- Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
-- If-statements with conditional constraints
-- Nested structs with qualified names (e.g., `line.start.x`)
-- Struct literal type inference
-- **Container with-statements** (dot-prefix syntax for container field namespacing)
+- **Types**: `i32`, `f64`, `bool`, structs (auto-flattened), arrays (fixed-size, auto-flattened)
+- **Variable Declarations**: Let statements with/without initializers, dot-prefix variables in containers
+- **Operators**:
+  - Arithmetic: `+`, `-`, `*`, `/`, unary `-`
+  - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
+  - Logical: `&&` (AND), `||` (OR), `!` (NOT)
+- **Array Access**: Constant integer indices (e.g., `arr[0]`, `points[1].x`)
+- **Control Flow**:
+  - If-statements with conditional constraints (Z3 ITE), nested if-statements, assignments in branches
+  - For loops with constant or variable-dependent ranges (automatic loop unrolling and deferred solving)
+- **Functions**: Function calls (inlining with parameter substitution), method calls (with receiver binding)
+- **Struct Features**: Nested structs with qualified names (e.g., `line.start.x`), struct literal type inference
+- **With-Statements**: Container contexts with dot-prefix syntax for namespacing
 
 ### Limitations
 
-**If-Statement Current Implementation:**
-- Variable declarations inside if-statement branches are not supported (only constraints)
-- Assignments inside if-statements create conditional constraints (not mutations)
-- Nested if-statements are supported
-
-**Other Limitations:**
+**Type System:**
 - Array indexing only supports constant integer indices (not variable indices)
-- No for loops or function calls in solver (yet - parsed and in HIR)
-- Transform with-statements not supported (only container contexts)
+- No generic types or type parameters
+
+**Control Flow:**
+- Variable declarations inside if-statement branches are not supported (only constraints and assignments)
+- Assignments inside if-statements create conditional constraints (not mutations)
+
+**Operators:**
+- Modulo (`%`) and power (`^`) operators only work in constant evaluation contexts (not as Z3 symbolic constraints)
+
+**Functions:**
+- No standard library yet (no built-in `point()`, `distance()`, math functions)
+- No recursion support
+
+**With-Statements:**
+- Transform with-statements (coordinate transformations via `__transform__` methods) not supported
+- Only container contexts are supported
 
 ### Examples
 
@@ -481,6 +497,59 @@ y = 42
 ```
 
 **How it works:** The if-statement is translated to a Z3 ITE (if-then-else) constraint. The solver finds values satisfying: `x > 10` AND `(x > 20 → y = x*2) OR (x ≤ 20 → y = x+5)`. Since `x > 20` is possible, the solver chooses a value like `x = 21`, which triggers the then-branch (`y = 42`).
+
+#### For Loop Example
+
+**Input file (for_loop_example.cad):**
+```
+let arr: [i32; 3];
+
+for i in 0..3 {
+    arr[i] = i * 10;
+}
+```
+
+**Command:**
+```bash
+cargo run -- solve for_loop_example.cad
+```
+
+**Output:**
+```
+arr[0] = 0
+arr[1] = 10
+arr[2] = 20
+```
+
+**How it works:** The for loop is automatically unrolled into separate constraints for each iteration. The loop body is executed with `i` substituted for each value in the range `0..3`, creating three assignment constraints that the solver resolves.
+
+#### Function Call Example
+
+**Input file (function_call_example.cad):**
+```
+fn double(x: i32) -> i32 {
+    return x * 2;
+}
+
+let a: i32;
+let b: i32;
+
+a == 5;
+b = double(a);
+```
+
+**Command:**
+```bash
+cargo run -- solve function_call_example.cad
+```
+
+**Output:**
+```
+a = 5
+b = 10
+```
+
+**How it works:** The function call `double(a)` is inlined by substituting the parameter `x` with the argument `a` in the function's return expression. This creates the constraint `b = a * 2`, which the solver resolves using the constraint `a == 5`.
 
 ## Dependencies
 
