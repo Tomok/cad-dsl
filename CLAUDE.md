@@ -264,7 +264,7 @@ The project has comprehensive test suites for each component. All major componen
   - Array indexing with constant integer indices
   - Arithmetic operators: `+`, `-`, `*`, `/`
   - Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=`
-  - If-statements with conditional constraints (Z3 ITE)
+  - If-statements with conditional constraints (Z3 ITE) - **Note:** Fully supported in solver and allowed by language spec, but not yet enabled at top-level in parser (only in function bodies/loops/with-statements)
   - Nested structs with qualified names
   - Recursive struct detection
   - **Container with-statements** (dot-prefix syntax for namespacing)
@@ -343,13 +343,16 @@ When adding new features to the constraint solver:
 
 ### Limitations
 
-- No variable declarations inside if-statement branches
-- No assignments inside if-statement branches
-- Only constraint expressions in if-statement branches
-- No nested if-statements
+**If-Statement Current Implementation:**
+- Variable declarations inside if-statement branches are not supported (only constraints)
+- Assignments inside if-statements create conditional constraints (not mutations)
+- Nested if-statements are supported
+
+**Other Limitations:**
 - Array indexing only supports constant integer indices (not variable indices)
-- No for loops or function calls (yet)
+- No for loops or function calls in solver (yet - parsed and in HIR)
 - Transform with-statements not supported (only container contexts)
+- If-statements not yet enabled at top-level in parser (solver supports them - see note in examples)
 
 ### Examples
 
@@ -450,6 +453,37 @@ sketch.entities.p2.y = 10
 ```
 
 **How it works:** The `with sketch { ... }` block creates a container context. Inside the block, the dot-prefix syntax (`.p1`, `.p2`) creates variables in the container's namespace (`sketch.entities.p1`, `sketch.entities.p2`). These variables are automatically flattened and solved like regular struct variables.
+
+#### If-Statement Example
+
+**Input file (if_statement_example.cad):**
+```
+let x: i32;
+let y: i32;
+
+x > 10;
+
+if x > 20 {
+    y = x * 2;
+} else {
+    y = x + 5;
+}
+```
+
+**Command:**
+```bash
+cargo run -- solve if_statement_example.cad
+```
+
+**Output (example solution):**
+```
+x = 21
+y = 42
+```
+
+**How it works:** The if-statement is translated to a Z3 ITE (if-then-else) constraint. The solver finds values satisfying: `x > 10` AND `(x > 20 → y = x*2) OR (x ≤ 20 → y = x+5)`. Since `x > 20` is possible, the solver chooses a value like `x = 21`, which triggers the then-branch (`y = 42`).
+
+**Note:** If-statements are currently supported in function bodies and within with-statements/for-loops. Top-level if-statement support requires updating the parser in `src/main.rs` (the solver already handles them correctly).
 
 ## Dependencies
 
