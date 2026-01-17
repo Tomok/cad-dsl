@@ -179,38 +179,13 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
 
                 // Process then branch - wrap constraints with condition
                 for stmt in then_branch {
-                    // For constraint expressions, wrap with if-then-else
-                    if let ResolvedStmtKind::Expression { expr, .. } = &stmt.kind {
-                        let constraint = expr.solve(ctx)?;
-                        let constraint_bool = constraint.to_bool(&ctx.z3_ctx)?;
-
-                        // Add implication: condition => constraint
-                        let implication = cond_bool.implies(&constraint_bool);
-                        ctx.z3_solver.assert(&implication);
-                    } else {
-                        return Err(SolverError::UnsupportedStatement(
-                            "Only constraint expressions allowed in if-statement branches"
-                                .to_string(),
-                        ));
-                    }
+                    self.process_conditional_stmt(ctx, stmt, &cond_bool, false)?;
                 }
 
                 // Process else branch if present
                 if let Some(else_stmts) = else_branch {
                     for stmt in else_stmts {
-                        if let ResolvedStmtKind::Expression { expr, .. } = &stmt.kind {
-                            let constraint = expr.solve(ctx)?;
-                            let constraint_bool = constraint.to_bool(&ctx.z3_ctx)?;
-
-                            // Add implication: !condition => constraint
-                            let implication = cond_bool.not().implies(&constraint_bool);
-                            ctx.z3_solver.assert(&implication);
-                        } else {
-                            return Err(SolverError::UnsupportedStatement(
-                                "Only constraint expressions allowed in if-statement branches"
-                                    .to_string(),
-                            ));
-                        }
+                        self.process_conditional_stmt(ctx, stmt, &cond_bool, true)?;
                     }
                 }
 
@@ -1016,5 +991,179 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
             crate::solver::context::Z3Primitive::Real(z3_real) => Z3Expr::Real(z3_real.clone()),
             crate::solver::context::Z3Primitive::Bool(z3_bool) => Z3Expr::Bool(z3_bool.clone()),
         })
+    }
+
+    /// Process a statement inside a conditional branch (if-statement)
+    ///
+    /// Wraps the statement's constraints with the condition using implication.
+    /// If `negate` is true, uses !condition (for else branch).
+    fn process_conditional_stmt(
+        &self,
+        ctx: &mut SolverContext<'src, 'arena>,
+        stmt: &'arena ResolvedStmt<'src, 'arena>,
+        condition: &z3::ast::Bool,
+        negate: bool,
+    ) -> Result<(), SolverError> {
+        let actual_condition = if negate {
+            condition.not()
+        } else {
+            condition.clone()
+        };
+
+        match &stmt.kind {
+            // Expression statement - add as conditional constraint
+            ResolvedStmtKind::Expression { expr, .. } => {
+                let constraint = expr.solve(ctx)?;
+                let constraint_bool = constraint.to_bool(&ctx.z3_ctx)?;
+
+                // Add implication: condition => constraint
+                let implication = actual_condition.implies(&constraint_bool);
+                ctx.z3_solver.assert(&implication);
+                Ok(())
+            }
+
+            // Assignment statement - create conditional constraint
+            ResolvedStmtKind::Assignment { var_def, value, .. } => {
+                let var_name = var_def.name;
+                let path = VariablePath::from_name(var_name);
+                let z3_var = self.get_variable_z3(ctx, &path)?;
+                let z3_value = value.solve(ctx)?;
+
+                // Create equality constraint
+                let equality = match (z3_var, z3_value) {
+                    (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                    (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                    (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                    (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
+                    (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
+                    _ => {
+                        return Err(SolverError::UnsupportedExpression(
+                            "Type mismatch in conditional assignment".to_string(),
+                        ));
+                    }
+                };
+
+                // Add implication: condition => (var = value)
+                let implication = actual_condition.implies(&equality);
+                ctx.z3_solver.assert(&implication);
+                Ok(())
+            }
+
+            // Field assignment statement - create conditional constraint
+            ResolvedStmtKind::FieldAssignment { target, value, .. } => {
+                // Build the path for the target field
+                let path = self.build_var_path(target, ctx)?;
+                let z3_var = self.get_variable_z3(ctx, &path)?;
+                let z3_value = value.solve(ctx)?;
+
+                // Create equality constraint
+                let equality = match (z3_var, z3_value) {
+                    (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                    (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                    (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                    (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
+                    (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
+                    _ => {
+                        return Err(SolverError::UnsupportedExpression(
+                            "Type mismatch in conditional field assignment".to_string(),
+                        ));
+                    }
+                };
+
+                // Add implication: condition => (field = value)
+                let implication = actual_condition.implies(&equality);
+                ctx.z3_solver.assert(&implication);
+                Ok(())
+            }
+
+            // Nested if statement - recursively process
+            ResolvedStmtKind::If {
+                condition: inner_cond,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                // Solve inner condition
+                let inner_cond_z3 = inner_cond.solve(ctx)?;
+                let inner_cond_bool = inner_cond_z3.to_bool(&ctx.z3_ctx).map_err(|_| {
+                    SolverError::UnsupportedExpression(
+                        "Nested if condition must be boolean".to_string(),
+                    )
+                })?;
+
+                // Process then branch: outer_condition => (inner_condition => inner_constraint)
+                // Which is equivalent to: (outer_condition AND inner_condition) => inner_constraint
+                let combined_then_cond = z3::ast::Bool::and(&[&actual_condition, &inner_cond_bool]);
+                for inner_stmt in then_branch {
+                    self.process_conditional_stmt(ctx, inner_stmt, &combined_then_cond, false)?;
+                }
+
+                // Process else branch: outer_condition => (!inner_condition => inner_constraint)
+                // Which is equivalent to: (outer_condition AND !inner_condition) => inner_constraint
+                if let Some(else_stmts) = else_branch {
+                    let combined_else_cond =
+                        z3::ast::Bool::and(&[&actual_condition, &inner_cond_bool.not()]);
+                    for inner_stmt in else_stmts {
+                        self.process_conditional_stmt(ctx, inner_stmt, &combined_else_cond, false)?;
+                    }
+                }
+
+                Ok(())
+            }
+
+            // Block statement - process all statements in the block
+            ResolvedStmtKind::Block { statements, .. } => {
+                for inner_stmt in statements {
+                    self.process_conditional_stmt(ctx, inner_stmt, condition, negate)?;
+                }
+                Ok(())
+            }
+
+            // Let statements are not allowed in conditional branches
+            // (they would need scoping semantics we don't support)
+            ResolvedStmtKind::Let { .. } => Err(SolverError::UnsupportedStatement(
+                "Variable declarations (let) are not allowed inside if-statement branches"
+                    .to_string(),
+            )),
+
+            // Other statements are not supported in conditional branches
+            _ => Err(SolverError::UnsupportedStatement(format!(
+                "Statement type not supported in if-statement branches: {:?}",
+                stmt.kind
+            ))),
+        }
+    }
+
+    /// Build a variable path from an expression
+    fn build_var_path(
+        &self,
+        expr: &ResolvedExpr<'src, 'arena>,
+        ctx: &SolverContext<'src, 'arena>,
+    ) -> Result<VariablePath<'src>, SolverError> {
+        match &expr.kind {
+            ResolvedExprKind::Var { name, .. } => Ok(VariablePath::from_name(name)),
+
+            ResolvedExprKind::FieldAccess {
+                receiver,
+                field_name,
+                ..
+            } => {
+                let base_path = self.build_var_path(receiver, ctx)?;
+                Ok(base_path.with_field(field_name))
+            }
+
+            ResolvedExprKind::Index { array, index } => {
+                // Evaluate index to constant
+                let index_val = self.evaluate_const_expr(index, ctx)?;
+                let base_path = self.build_var_path(array, ctx)?;
+                Ok(base_path.with_index(index_val as usize))
+            }
+
+            ResolvedExprKind::Paren { inner } => self.build_var_path(inner, ctx),
+
+            _ => Err(SolverError::UnsupportedExpression(
+                "Cannot build variable path from this expression".to_string(),
+            )),
+        }
     }
 }
