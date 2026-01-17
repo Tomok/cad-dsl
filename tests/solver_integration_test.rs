@@ -763,7 +763,6 @@ fn test_with_statement_constraints() {
 // Tests for conditional constraints using if-statements.
 
 #[test]
-#[ignore] // If-statements on top-level not supported by parser (by design)
 fn test_if_statement_simple() {
     // Test simple conditional constraint
     let test_code = r#"
@@ -795,7 +794,6 @@ if x > 5 {
 }
 
 #[test]
-#[ignore] // If-statements on top-level not supported by parser (by design)
 fn test_if_statement_false_condition() {
     // Test that constraints in false branch are not enforced
     let test_code = r#"
@@ -828,7 +826,6 @@ if x > 5 {
 }
 
 #[test]
-#[ignore] // If-statements on top-level not supported by parser (by design)
 fn test_if_statement_with_bool() {
     // Test if-statement with boolean condition variable
     let test_code = r#"

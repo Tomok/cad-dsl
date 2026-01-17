@@ -753,6 +753,100 @@ let center: &Point = c.get_center();
 
 ## Control Flow
 
+### If Statements
+
+If statements enable conditional constraints based on boolean expressions. The solver determines values that satisfy the constraints in the active branch.
+
+```rust
+let x: i32;
+let y: i32;
+
+x > 10;
+
+if x > 20 {
+    y = x * 2;
+} else {
+    y = x + 5;
+}
+// Solver finds values where: x > 10 AND (x > 20 → y = x*2) AND (x ≤ 20 → y = x+5)
+```
+
+### If Statement Syntax
+
+If statements consist of a condition expression and a then-branch, with an optional else-branch:
+
+```rust
+// If without else
+if condition {
+    // Constraints that apply when condition is true
+    constraint1;
+    constraint2;
+}
+
+// If with else
+if condition {
+    // Constraints when condition is true
+    constraint1;
+} else {
+    // Constraints when condition is false
+    constraint2;
+}
+```
+
+### Conditional Constraints
+
+If statements are translated to conditional constraints in the solver (Z3's if-then-else or ITE). Unlike imperative programming, both branches are visible to the solver, which determines which constraints apply based on the condition.
+
+```rust
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+let p: Point;
+let quadrant: i32;
+
+// Determine quadrant based on coordinates
+if p.x >= 0 {
+    if p.y >= 0 {
+        quadrant = 1;  // Upper-right
+    } else {
+        quadrant = 4;  // Lower-right
+    }
+} else {
+    if p.y >= 0 {
+        quadrant = 2;  // Upper-left
+    } else {
+        quadrant = 3;  // Lower-left
+    }
+}
+
+// Additional constraint
+quadrant = 1;
+// Solver determines p.x >= 0 AND p.y >= 0
+```
+
+### If Statement Limitations
+
+Current implementation restrictions:
+
+- Variable declarations are not allowed inside if-statement branches (only constraints)
+- Assignments inside if-statements create conditional constraints (not mutations)
+- If-statements can be nested
+
+```rust
+// INVALID: Variable declaration in branch
+if condition {
+    let x: i32 = 5;  // Error: Not supported
+}
+
+// VALID: Constraint on existing variable
+let x: i32;
+if condition {
+    x = 5;  // OK: Conditional constraint
+}
+```
+
 ### For Loops
 
 For loops iterate over ranges or arrays to apply constraints to multiple elements.

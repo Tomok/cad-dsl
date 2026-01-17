@@ -270,6 +270,7 @@ fn main() {
                     parser::field_assignment_stmt(parser::expr_inner()),
                     parser::with_stmt(parser::expr_inner(), stmt_rec.clone()),
                     parser::for_stmt(parser::expr_inner(), stmt_rec.clone()),
+                    parser::if_stmt(parser::expr_inner(), stmt_rec.clone()),
                     parser::expression_stmt(parser::expr_inner()),
                 ))
             })
