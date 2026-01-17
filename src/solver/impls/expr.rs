@@ -22,26 +22,6 @@ pub enum Z3Expr {
 }
 
 impl Z3Expr {
-    /// Convert to Int, with automatic type conversion if needed
-    pub fn to_int(&self, _ctx: &z3::Context) -> z3::ast::Int {
-        match self {
-            Z3Expr::Int(i) => i.clone(),
-            Z3Expr::Real(r) => r.to_int(),
-            Z3Expr::Bool(b) => b.ite(&z3::ast::Int::from_i64(1), &z3::ast::Int::from_i64(0)),
-        }
-    }
-
-    /// Convert to Real, with automatic type conversion if needed
-    pub fn to_real(&self, _ctx: &z3::Context) -> z3::ast::Real {
-        match self {
-            Z3Expr::Int(i) => i.to_real(),
-            Z3Expr::Real(r) => r.clone(),
-            Z3Expr::Bool(b) => b
-                .ite(&z3::ast::Int::from_i64(1), &z3::ast::Int::from_i64(0))
-                .to_real(),
-        }
-    }
-
     /// Convert to Bool
     pub fn to_bool(&self, _ctx: &z3::Context) -> Result<z3::ast::Bool, SolverError> {
         match self {
@@ -481,6 +461,7 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
     ///
     /// This is used to determine if function calls can be inlined or need to be deferred.
     /// Returns Ok if the expression can be evaluated, Err if it depends on unknown variables.
+    #[cfg(test)]
     fn try_evaluate_expr(
         &self,
         expr: &ResolvedExpr<'src, 'arena>,

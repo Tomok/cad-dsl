@@ -54,58 +54,47 @@ pub enum VariableNode<'src, 'arena> {
     /// Primitive variable (leaf node with Z3 variable)
     Primitive {
         /// The resolved type of this variable
+        #[allow(dead_code)]
         typ: &'arena ResolvedType<'src, 'arena>,
 
         /// The Z3 variable
         z3_var: Z3Primitive,
 
         /// Scope level where this variable was declared
+        #[allow(dead_code)]
         scope_level: usize,
     },
 
     /// Struct variable (branch node with named fields)
     Struct {
         /// The resolved type of this variable
+        #[allow(dead_code)]
         typ: &'arena ResolvedType<'src, 'arena>,
 
         /// Child nodes (struct fields)
         children: HashMap<&'src str, VariableNode<'src, 'arena>>,
 
         /// Scope level where this variable was declared
+        #[allow(dead_code)]
         scope_level: usize,
     },
 
     /// Array variable (branch node with indexed elements)
     Array {
         /// The resolved type of this variable
+        #[allow(dead_code)]
         typ: &'arena ResolvedType<'src, 'arena>,
 
         /// Child nodes (array elements)
         children: Vec<VariableNode<'src, 'arena>>,
 
         /// Scope level where this variable was declared
+        #[allow(dead_code)]
         scope_level: usize,
     },
 }
 
 impl<'src, 'arena> VariableNode<'src, 'arena> {
-    /// Get the scope level of this node
-    pub fn scope_level(&self) -> usize {
-        match self {
-            Self::Primitive { scope_level, .. } => *scope_level,
-            Self::Struct { scope_level, .. } => *scope_level,
-            Self::Array { scope_level, .. } => *scope_level,
-        }
-    }
-
-    /// Get the type of this node
-    pub fn typ(&self) -> &'arena ResolvedType<'src, 'arena> {
-        match self {
-            Self::Primitive { typ, .. } => typ,
-            Self::Struct { typ, .. } => typ,
-            Self::Array { typ, .. } => typ,
-        }
-    }
 
     /// Navigate to descendant node by path
     ///
@@ -151,31 +140,6 @@ impl<'src, 'arena> VariableNode<'src, 'arena> {
         }
     }
 
-    /// Recursively collect all primitive leaves under this node
-    ///
-    /// Returns a vector of (path, z3_variable) pairs for all primitives
-    /// reachable from this node.
-    pub fn collect_primitives(
-        &self,
-        base_path: &VariablePath<'src>,
-    ) -> Vec<(VariablePath<'src>, &Z3Primitive)> {
-        match self {
-            Self::Primitive { z3_var, .. } => {
-                vec![(base_path.clone(), z3_var)]
-            }
-            Self::Struct { children, .. } => children
-                .iter()
-                .flat_map(|(field_name, child)| {
-                    child.collect_primitives(&base_path.with_field(field_name))
-                })
-                .collect(),
-            Self::Array { children, .. } => children
-                .iter()
-                .enumerate()
-                .flat_map(|(idx, child)| child.collect_primitives(&base_path.with_index(idx)))
-                .collect(),
-        }
-    }
 }
 
 // ============================================================================
@@ -293,11 +257,6 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         function_name: &str,
     ) -> Option<&'arena crate::hir::expr::ResolvedExpr<'src, 'arena>> {
         self.function_return_exprs.get(function_name).copied()
-    }
-
-    /// Get current scope level
-    pub fn scope_level(&self) -> usize {
-        self.scope_level
     }
 
     /// Get current with-statement context (if any)
@@ -532,37 +491,6 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         root.get_at_path(&path.components()[1..])
     }
 
-    /// Mutable variable lookup
-    pub fn get_variable_mut(
-        &mut self,
-        path: &VariablePath<'src>,
-    ) -> Option<&mut VariableNode<'src, 'arena>> {
-        if path.is_empty() {
-            return None;
-        }
-
-        let root_name = match path.components().first()? {
-            PathComponent::Field(name) => name,
-            _ => return None,
-        };
-
-        let root = self.variables.get_mut(root_name)?;
-        root.get_at_path_mut(&path.components()[1..])
-    }
-
-    // ========================================================================
-    // Scope Management
-    // ========================================================================
-
-    /// Remove all variables from current scope level
-    ///
-    /// Called automatically by scope guards when they drop.
-    fn pop_scope(&mut self) {
-        self.variables
-            .retain(|_, node| node.scope_level() < self.scope_level);
-        self.scope_level = self.scope_level.saturating_sub(1);
-    }
-
     // ========================================================================
     // Deferral Management
     // ========================================================================
@@ -576,6 +504,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     }
 
     /// Check if a variable has a known value in the current solution
+    #[cfg(test)]
     pub fn is_variable_known(&self, var: &str) -> bool {
         if let Some(solution) = &self.current_solution {
             let path = VariablePath::from_name(var);
@@ -906,81 +835,6 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                 z3::SatResult::Unsat => return Err(SolverError::Unsatisfiable),
                 z3::SatResult::Unknown => return Err(SolverError::Unknown),
             }
-        }
-    }
-}
-
-// ============================================================================
-// RAII Scope Guards
-// ============================================================================
-
-/// General scope guard
-///
-/// Automatically increments scope level on creation and pops scope on drop.
-/// This ensures scopes are always cleaned up properly using RAII.
-pub struct ScopeGuard<'a, 'src, 'arena> {
-    ctx: &'a mut SolverContext<'src, 'arena>,
-    active: bool,
-}
-
-impl<'a, 'src, 'arena> ScopeGuard<'a, 'src, 'arena> {
-    /// Create a new scope guard, incrementing the scope level
-    pub fn new(ctx: &'a mut SolverContext<'src, 'arena>) -> Self {
-        ctx.scope_level += 1;
-        ScopeGuard { ctx, active: true }
-    }
-
-    /// Get mutable access to the context
-    pub fn context(&mut self) -> &mut SolverContext<'src, 'arena> {
-        self.ctx
-    }
-
-    /// Manually disable the guard if needed (advanced usage)
-    #[allow(dead_code)]
-    pub fn disarm(mut self) {
-        self.active = false;
-    }
-}
-
-impl Drop for ScopeGuard<'_, '_, '_> {
-    fn drop(&mut self) {
-        if self.active {
-            self.ctx.pop_scope();
-        }
-    }
-}
-
-/// With-statement guard
-///
-/// Handles both container and transform with-statement contexts.
-/// Automatically pushes with-context on creation and pops on drop.
-pub struct WithGuard<'a, 'src, 'arena> {
-    ctx: &'a mut SolverContext<'src, 'arena>,
-    active: bool,
-}
-
-impl<'a, 'src, 'arena> WithGuard<'a, 'src, 'arena> {
-    /// Create a new with-statement guard
-    pub fn new(
-        ctx: &'a mut SolverContext<'src, 'arena>,
-        with_info: WithContextInfo<'src, 'arena>,
-    ) -> Self {
-        ctx.with_stack.push(with_info);
-        ctx.scope_level += 1;
-        WithGuard { ctx, active: true }
-    }
-
-    /// Get mutable access to the context
-    pub fn context(&mut self) -> &mut SolverContext<'src, 'arena> {
-        self.ctx
-    }
-}
-
-impl Drop for WithGuard<'_, '_, '_> {
-    fn drop(&mut self) {
-        if self.active {
-            self.ctx.pop_scope();
-            self.ctx.with_stack.pop();
         }
     }
 }

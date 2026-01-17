@@ -42,23 +42,6 @@
 use std::fmt::{self, Write as _};
 
 // ============================================================================
-// Utilities
-// ============================================================================
-
-/// Struct and array field flattening for Z3 variable mapping
-pub mod struct_flattener;
-
-/// Recursive struct cycle detection
-pub mod recursive_struct_detector;
-
-// ============================================================================
-// Public Re-exports
-// ============================================================================
-
-pub use recursive_struct_detector::detect_cycles;
-pub use struct_flattener::flatten_type;
-
-// ============================================================================
 // Core Types and Trait
 // ============================================================================
 
@@ -98,13 +81,6 @@ impl<'src> VariablePath<'src> {
         }
     }
 
-    /// Create empty path (used internally)
-    pub fn empty() -> Self {
-        Self {
-            components: Vec::new(),
-        }
-    }
-
     /// Extend path with field access
     pub fn with_field(&self, field: &'src str) -> Self {
         let mut new_path = self.clone();
@@ -130,6 +106,7 @@ impl<'src> VariablePath<'src> {
     }
 
     /// Get the length of the path
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.components.len()
     }
@@ -206,11 +183,6 @@ impl<'src> Solution<'src> {
         }
     }
 
-    /// Get the value of a variable
-    pub fn get(&self, path: &VariablePath<'src>) -> Option<&Value> {
-        self.assignments.get(path)
-    }
-
     /// Number of resolved variables
     pub fn resolved_count(&self) -> usize {
         self.assignments.len()
@@ -235,6 +207,7 @@ pub struct DeferredConstraint<'src> {
 
 /// Reason why solving was only partial
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)] // Future feature: for-loops and function calls with deferred resolution
 pub enum PartialReason {
     /// For-loop with unresolved range variable
     UnknownLoopRange { range_var: String },
@@ -312,11 +285,13 @@ pub enum SolveResult<'src> {
 
 impl<'src> SolveResult<'src> {
     /// Check if the solve was complete (all constraints resolved)
+    #[allow(dead_code)]
     pub fn is_complete(&self) -> bool {
         matches!(self, SolveResult::Complete { .. })
     }
 
     /// Get the solution (works for both complete and partial)
+    #[allow(dead_code)]
     pub fn solution(&self) -> &Solution<'src> {
         match self {
             SolveResult::Complete { solution, .. } => solution,
@@ -325,6 +300,7 @@ impl<'src> SolveResult<'src> {
     }
 
     /// Get number of iterations performed
+    #[allow(dead_code)]
     pub fn iterations(&self) -> usize {
         match self {
             SolveResult::Complete { iterations, .. } => *iterations,
