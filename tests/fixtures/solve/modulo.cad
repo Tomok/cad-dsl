@@ -1,0 +1,6 @@
+// Modulo operation
+// Expected: x = 7
+let x: i32;
+x % 5 == 2;
+x > 5;
+x < 10;

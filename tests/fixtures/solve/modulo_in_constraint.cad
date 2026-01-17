@@ -1,0 +1,6 @@
+// Modulo in a simple constraint
+// Expected: x = 13, y = 3
+let x: i32;
+let y: i32;
+x % 5 == y;
+x == 13;

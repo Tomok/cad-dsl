@@ -181,6 +181,35 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 }
             }
 
+            ResolvedExprKind::Mod { lhs, rhs } => {
+                let lhs_z3 = lhs.solve(ctx)?;
+                let rhs_z3 = rhs.solve(ctx)?;
+
+                match (lhs_z3, rhs_z3) {
+                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Int(l.modulo(&r))),
+                    // Modulo is only defined for integers in Z3
+                    _ => Err(SolverError::UnsupportedExpression(
+                        "Modulo operation only supported for integer types".to_string(),
+                    )),
+                }
+            }
+
+            ResolvedExprKind::Pow { lhs, rhs } => {
+                let lhs_z3 = lhs.solve(ctx)?;
+                let rhs_z3 = rhs.solve(ctx)?;
+
+                // Power operations in Z3 always return Real type
+                match (lhs_z3, rhs_z3) {
+                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Real(l.power(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Real(l.power(&r))),
+                    (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Real(l.to_real().power(&r))),
+                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Real(l.power(r.to_real()))),
+                    _ => Err(SolverError::UnsupportedExpression(
+                        "Invalid types for power operation".to_string(),
+                    )),
+                }
+            }
+
             // Binary operations - Comparisons
             ResolvedExprKind::Eq { lhs, rhs } => {
                 let lhs_z3 = lhs.solve(ctx)?;
@@ -443,6 +472,31 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
                     ));
                 }
                 Ok(lhs_val / rhs_val)
+            }
+
+            ResolvedExprKind::Mod { lhs, rhs } => {
+                let lhs_val = self.evaluate_const_expr(lhs, ctx)?;
+                let rhs_val = self.evaluate_const_expr(rhs, ctx)?;
+                if rhs_val == 0 {
+                    return Err(SolverError::UnsupportedExpression(
+                        "Modulo by zero".to_string(),
+                    ));
+                }
+                Ok(lhs_val % rhs_val)
+            }
+
+            ResolvedExprKind::Pow { lhs, rhs } => {
+                let lhs_val = self.evaluate_const_expr(lhs, ctx)?;
+                let rhs_val = self.evaluate_const_expr(rhs, ctx)?;
+                if rhs_val < 0 {
+                    return Err(SolverError::UnsupportedExpression(
+                        "Negative exponents not supported in constant evaluation".to_string(),
+                    ));
+                }
+                // Use checked_pow to prevent overflow
+                lhs_val.checked_pow(rhs_val as u32).ok_or_else(|| {
+                    SolverError::UnsupportedExpression("Power operation overflow".to_string())
+                })
             }
 
             ResolvedExprKind::Neg { inner } => {

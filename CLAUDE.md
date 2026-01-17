@@ -262,7 +262,7 @@ The project has comprehensive test suites for each component. All major componen
   - Struct types (flattened to primitive fields)
   - Array types (fixed-size, flattened to indexed primitive fields)
   - Array indexing with constant integer indices
-  - Arithmetic operators: `+`, `-`, `*`, `/`
+  - Arithmetic operators: `+`, `-`, `*`, `/`, `%` (modulo), `^` (power)
   - Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=`
   - Logical operators: `and`, `or`
   - Unary operators: `-` (negation), `&` (reference)
@@ -276,7 +276,6 @@ The project has comprehensive test suites for each component. All major componen
 
 ### 🚧 Partially Implemented
 
-- **Modulo and Power operators** (`%`, `^`): Work in constant evaluation contexts (loop bounds, literal folding), but not yet supported as Z3 symbolic constraints
 - **Transform With-Statements**: Parsed and in HIR, transform semantics not in solver (container contexts fully supported)
 
 ### ❌ Not Yet Implemented
@@ -305,18 +304,13 @@ The project has comprehensive test suites for each component. All major componen
    - Makes language practically usable for CAD workflows
    - Builds on existing function call infrastructure
 
-2. **Modulo and Power Operators** (Medium Priority)
-   - Add Z3 support for `%` (modulo) and `^` (power) in symbolic expressions
-   - Currently only work in constant evaluation contexts
-   - Required for more complex mathematical constraints
-
-3. **Reference Types** (Medium Priority)
+2. **Reference Types** (Medium Priority)
    - Entity vs. reference distinction
    - Reference type validation
    - Important for correct semantics
    - Requires type system enhancements
 
-4. **Transform With-Statements** (Low Priority)
+3. **Transform With-Statements** (Low Priority)
    - Coordinate transformations via `__transform__` methods
    - Automatic variable transformation in transform contexts
    - Complex feature, defer until core is stable
@@ -337,7 +331,7 @@ When adding new features to the constraint solver:
 - **Types**: `i32`, `f64`, `bool`, structs (auto-flattened), arrays (fixed-size, auto-flattened)
 - **Variable Declarations**: Let statements with/without initializers, dot-prefix variables in containers
 - **Operators**:
-  - Arithmetic: `+`, `-`, `*`, `/`, unary `-`
+  - Arithmetic: `+`, `-`, `*`, `/`, `%` (modulo), `^` (power), unary `-`
   - Comparisons: `==`, `!=`, `<`, `>`, `<=`, `>=`
   - Logical: `and`, `or`
 - **Array Access**: Constant integer indices (e.g., `arr[0]`, `points[1].x`)
@@ -358,9 +352,6 @@ When adding new features to the constraint solver:
 - Variable declarations inside if-statement branches are not supported (only constraints and assignments)
 - Assignments inside if-statements create conditional constraints (not mutations)
 - For-loop bodies only support constraint expressions (e.g., `arr[i] == value`), not assignment statements or variable declarations
-
-**Operators:**
-- Modulo (`%`) and power (`^`) operators only work in constant evaluation contexts (not as Z3 symbolic constraints)
 
 **Functions:**
 - No standard library yet (no built-in `point()`, `distance()`, math functions)

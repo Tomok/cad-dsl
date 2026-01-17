@@ -1,0 +1,7 @@
+// Power operation
+// Expected: x = 2.0, y = 8.0
+let x: f64;
+let y: f64;
+x ^ 3.0 == 8.0;
+y == x ^ 3.0;
+x > 0.0;

@@ -139,6 +139,39 @@ fn test_division() {
 }
 
 #[test]
+fn test_modulo() {
+    let (success, stdout, stderr) = solve_fixture("modulo.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "7");
+}
+
+#[test]
+fn test_modulo_in_constraint() {
+    let (success, stdout, stderr) = solve_fixture("modulo_in_constraint.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "13");
+    verify_solution(&stdout, "y", "3");
+}
+
+#[test]
+fn test_power() {
+    let (success, stdout, stderr) = solve_fixture("power.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    // Power of 2^3 = 8, so x should be 2.0
+    assert!(stdout.contains("x = 2"));
+    assert!(stdout.contains("y = 8"));
+}
+
+#[test]
+fn test_power_integer() {
+    let (success, stdout, stderr) = solve_fixture("power_integer.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "3");
+    // Power returns Real in Z3, so y should be 27.0
+    assert!(stdout.contains("y = 27"));
+}
+
+#[test]
 fn test_negation() {
     let (success, stdout, stderr) = solve_fixture("negation.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);
