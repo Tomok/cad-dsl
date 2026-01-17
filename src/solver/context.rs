@@ -256,8 +256,29 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                 self.with_stack.push(info);
                 self.scope_level += 1;
             }
+        } else if !with_context.transforms.is_empty() {
+            // This is a transform context
+            // Extract the source variable from the context expression
+            if let ResolvedExprKind::Var { definition, .. } = &with_context.context_expr.kind {
+                let info = WithContextInfo::Transform {
+                    source_path: VariablePath::from_name(definition.name),
+                    source_scope: definition.scope_level,
+                };
+                self.with_stack.push(info);
+                self.scope_level += 1;
+
+                // TODO: Implement transform application
+                // When variables are accessed or assigned in this context,
+                // we need to apply the transform methods from with_context.transforms
+                todo!(
+                    "Transform with-statements are recognized but not yet fully implemented. \
+                     The __transform__ methods have been collected from the struct, but automatic \
+                     application of transforms to variable accesses is not yet supported. \
+                     Transform context: {:?}",
+                    definition.name
+                );
+            }
         }
-        // Transform contexts are not yet implemented - just ignore them
     }
 
     /// Pop a with-statement context from the stack

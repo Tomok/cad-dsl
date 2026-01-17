@@ -790,6 +790,53 @@ fn test_with_statement_constraints() {
 }
 
 // ============================================================================
+// Transform With-Statement Tests
+// ============================================================================
+//
+// Tests for transform with-statements which apply coordinate transformations
+// using __transform__ methods.
+
+#[test]
+fn test_transform_with_statement_recognized() {
+    // Test that transform contexts are recognized (but not yet fully implemented)
+    let test_code = r#"
+struct Translate {
+    offset_x: i32,
+    offset_y: i32,
+
+    fn __transform__(p: &i32) -> i32 {
+        return p + self.offset_x;
+    }
+}
+
+let transform: Translate;
+transform.offset_x == 10;
+transform.offset_y == 5;
+
+with transform {
+    let x: i32;
+    x == 0;
+}
+"#;
+
+    std::fs::write("/tmp/transform_with_simple.cad", test_code).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--", "solve", "/tmp/transform_with_simple.cad"])
+        .output()
+        .expect("Failed to execute command");
+
+    // This should fail with the todo!() message
+    assert!(!output.status.success(), "Expected command to fail");
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    assert!(
+        stderr.contains("Transform with-statements are recognized"),
+        "Expected error message about transform with-statements, got: {}",
+        stderr
+    );
+}
+
+// ============================================================================
 // If-Statement Tests
 // ============================================================================
 //
