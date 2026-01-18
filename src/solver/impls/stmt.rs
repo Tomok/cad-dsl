@@ -38,32 +38,54 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                                 .with_field(container_field.name)
                                 .with_field(var_name);
 
-                            // Declare variable at the constructed path
-                            let var_type = var_def.var_type.as_ref().ok_or_else(|| {
-                                SolverError::ContextError("Variable type not resolved".to_string())
-                            })?;
-                            ctx.declare_variable_at_path(&full_path, var_type)?;
+                            // Check if this is a reference alias (let .r = &x)
+                            let is_alias = if let Some(init_expr) = init {
+                                self.extract_reference_target(init_expr, ctx).is_some()
+                            } else {
+                                false
+                            };
 
-                            // If there's an initializer, add constraint
-                            if let Some(init_expr) = init {
-                                let z3_value = init_expr.solve(ctx)?;
-                                let z3_var = self.get_variable_z3(ctx, &full_path)?;
+                            if is_alias {
+                                // This is an alias declaration (let .r = &x)
+                                // Don't create a variable, just register the alias
+                                let init_expr = init.unwrap(); // Safe because we checked is_some above
+                                let target_path =
+                                    self.extract_reference_target(init_expr, ctx).unwrap();
+                                ctx.register_alias(full_path.clone(), target_path);
+                            } else {
+                                // Regular variable declaration
+                                let var_type = var_def.var_type.as_ref().ok_or_else(|| {
+                                    SolverError::ContextError(
+                                        "Variable type not resolved".to_string(),
+                                    )
+                                })?;
+                                ctx.declare_variable_at_path(&full_path, var_type)?;
 
-                                // Add equality constraint
-                                let constraint = match (z3_var, z3_value) {
-                                    (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
-                                    (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
-                                    (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
-                                    (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
-                                    (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
-                                    _ => {
-                                        return Err(SolverError::UnsupportedExpression(
-                                            "Type mismatch in initialization".to_string(),
-                                        ));
-                                    }
-                                };
+                                // If there's an initializer, add constraint
+                                if let Some(init_expr) = init {
+                                    let z3_value = init_expr.solve(ctx)?;
+                                    let z3_var = self.get_variable_z3(ctx, &full_path)?;
 
-                                ctx.z3_solver.assert(&constraint);
+                                    // Add equality constraint
+                                    let constraint = match (z3_var, z3_value) {
+                                        (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                                        (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                                        (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                                        (Z3Expr::Int(var), Z3Expr::Real(val)) => {
+                                            var.to_real().eq(&val)
+                                        }
+                                        (Z3Expr::Real(var), Z3Expr::Int(val)) => {
+                                            var.eq(val.to_real())
+                                        }
+                                        _ => {
+                                            return Err(SolverError::UnsupportedExpression(
+                                                "Type mismatch in initialization".to_string(),
+                                            ));
+                                        }
+                                    };
+
+                                    ctx.z3_solver.assert(&constraint);
+                                }
                             }
 
                             full_path.to_z3_name()
@@ -81,33 +103,49 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                         .map(|(n, _)| *n)
                         .ok_or_else(|| SolverError::ContextError("Empty name path".to_string()))?;
 
-                    // Declare variable
-                    let var_type = var_def.var_type.as_ref().ok_or_else(|| {
-                        SolverError::ContextError("Variable type not resolved".to_string())
-                    })?;
-                    ctx.declare_variable(var_name, var_type)?;
+                    // Check if this is a reference alias (let r = &x)
+                    let is_alias = if let Some(init_expr) = init {
+                        self.extract_reference_target(init_expr, ctx).is_some()
+                    } else {
+                        false
+                    };
 
-                    // If there's an initializer, add constraint
-                    if let Some(init_expr) = init {
-                        let z3_value = init_expr.solve(ctx)?;
-                        let path = VariablePath::from_name(var_name);
-                        let z3_var = self.get_variable_z3(ctx, &path)?;
+                    if is_alias {
+                        // This is an alias declaration (let r = &x)
+                        // Don't create a variable, just register the alias
+                        let init_expr = init.unwrap(); // Safe because we checked is_some above
+                        let target_path = self.extract_reference_target(init_expr, ctx).unwrap();
+                        let alias_path = VariablePath::from_name(var_name);
+                        ctx.register_alias(alias_path, target_path);
+                    } else {
+                        // Regular variable declaration
+                        let var_type = var_def.var_type.as_ref().ok_or_else(|| {
+                            SolverError::ContextError("Variable type not resolved".to_string())
+                        })?;
+                        ctx.declare_variable(var_name, var_type)?;
 
-                        // Add equality constraint
-                        let constraint = match (z3_var, z3_value) {
-                            (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
-                            (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
-                            (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
-                            (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
-                            (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
-                            _ => {
-                                return Err(SolverError::UnsupportedExpression(
-                                    "Type mismatch in initialization".to_string(),
-                                ));
-                            }
-                        };
+                        // If there's an initializer, add constraint
+                        if let Some(init_expr) = init {
+                            let z3_value = init_expr.solve(ctx)?;
+                            let path = VariablePath::from_name(var_name);
+                            let z3_var = self.get_variable_z3(ctx, &path)?;
 
-                        ctx.z3_solver.assert(&constraint);
+                            // Add equality constraint
+                            let constraint = match (z3_var, z3_value) {
+                                (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                                (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                                (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                                (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
+                                (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
+                                _ => {
+                                    return Err(SolverError::UnsupportedExpression(
+                                        "Type mismatch in initialization".to_string(),
+                                    ));
+                                }
+                            };
+
+                            ctx.z3_solver.assert(&constraint);
+                        }
                     }
 
                     var_name.to_string()
@@ -1173,6 +1211,35 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
             _ => Err(SolverError::UnsupportedExpression(
                 "Cannot build variable path from this expression".to_string(),
             )),
+        }
+    }
+
+    /// Extract the target path from a reference expression
+    ///
+    /// If the expression is a `Ref` wrapping a variable path (possibly through Paren),
+    /// returns the path to the referenced variable. Otherwise returns None.
+    ///
+    /// Examples:
+    /// - `&x` -> Some(path to x)
+    /// - `&p.x` -> Some(path to p.x)
+    /// - `&arr[0]` -> Some(path to arr[0])
+    /// - `&(x)` -> Some(path to x)
+    /// - `x + 1` -> None (not a reference)
+    fn extract_reference_target(
+        &self,
+        expr: &ResolvedExpr<'src, 'arena>,
+        ctx: &SolverContext<'src, 'arena>,
+    ) -> Option<VariablePath<'src>> {
+        match &expr.kind {
+            ResolvedExprKind::Ref { inner } => {
+                // This is a reference - try to build a path from the inner expression
+                self.build_var_path(inner, ctx).ok()
+            }
+            ResolvedExprKind::Paren { inner } => {
+                // Unwrap parentheses and recurse
+                self.extract_reference_target(inner, ctx)
+            }
+            _ => None,
         }
     }
 }

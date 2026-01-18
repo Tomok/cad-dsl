@@ -1,0 +1,14 @@
+// Test reference to struct field
+// r should be an alias to p.x
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+let p: Point;
+let r = &p.x;
+
+// Constraints on both the alias and the original field
+*r == 10;
+p.y == 20;

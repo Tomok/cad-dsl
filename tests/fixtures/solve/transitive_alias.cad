@@ -1,0 +1,9 @@
+// Test transitive reference alias
+// r1 -> x, r2 -> r1, so r2 should ultimately point to x
+
+let x: i32;
+let r1 = &x;
+let r2 = &r1;
+
+// Constraint through double-dereferenced alias
+**r2 == 10;

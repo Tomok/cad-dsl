@@ -1106,3 +1106,47 @@ if x > 10 {
 
     let _ = std::fs::remove_file("/tmp/if_statement_deeply_nested.cad");
 }
+
+// ============================================================================
+// Reference Type Alias Tests
+// ============================================================================
+//
+// Tests for reference type alias tracking, where references create aliases
+// rather than separate variables, enabling proper constraint propagation.
+
+#[test]
+fn test_simple_alias() {
+    // Test that a simple reference (let r = &x) creates an alias
+    // Constraints on *r should affect x directly
+    let (success, stdout, stderr) = solve_fixture("simple_alias.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "10");
+}
+
+#[test]
+fn test_multi_alias() {
+    // Test that multiple aliases to the same variable share constraints
+    // Both r1 and r2 should be aliases to x
+    let (success, stdout, stderr) = solve_fixture("multi_alias.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "5");
+}
+
+#[test]
+fn test_transitive_alias() {
+    // Test that transitive aliases work correctly
+    // r1 -> x, r2 -> r1, so **r2 should affect x
+    let (success, stdout, stderr) = solve_fixture("transitive_alias.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "10");
+}
+
+#[test]
+fn test_struct_field_alias() {
+    // Test that references to struct fields create proper aliases
+    // r should be an alias to p.x
+    let (success, stdout, stderr) = solve_fixture("struct_field_alias.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "p.x", "10");
+    verify_solution(&stdout, "p.y", "20");
+}
