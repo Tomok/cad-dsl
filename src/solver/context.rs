@@ -171,6 +171,13 @@ pub struct SolverContext<'src, 'arena> {
     /// Root variable tree (maps root variable names to their trees)
     variables: HashMap<&'src str, VariableNode<'src>>,
 
+    /// Alias tracking for reference types
+    ///
+    /// Maps reference variable paths to their target paths.
+    /// When we have `let r = &x`, we record `alias_map[r] = x`.
+    /// When looking up `r`, we follow the alias chain to get `x`'s Z3 variable.
+    alias_map: HashMap<VariablePath<'src>, VariablePath<'src>>,
+
     /// Current scope depth (incremented on scope entry)
     scope_level: usize,
 
@@ -205,6 +212,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             z3_solver,
             arena,
             variables: HashMap::new(),
+            alias_map: HashMap::new(),
             scope_level: 0,
             with_stack: Vec::new(),
             function_return_exprs: HashMap::new(),
@@ -454,24 +462,66 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     }
 
     // ========================================================================
+    // Alias Management
+    // ========================================================================
+
+    /// Register an alias mapping for reference types
+    ///
+    /// When we have `let r = &x`, we call `register_alias(r_path, x_path)`.
+    /// This means that `r` is an alias to `x`, and they should share the same Z3 variable.
+    pub fn register_alias(&mut self, alias: VariablePath<'src>, target: VariablePath<'src>) {
+        self.alias_map.insert(alias, target);
+    }
+
+    /// Resolve an alias to its ultimate target path
+    ///
+    /// Follows the alias chain until we find a path that is not an alias.
+    /// This handles transitive aliases (r1 -> r2 -> x).
+    ///
+    /// Returns the resolved path, or the original path if it's not an alias.
+    pub fn resolve_alias(&self, path: &VariablePath<'src>) -> VariablePath<'src> {
+        let mut current = path.clone();
+        let mut visited = std::collections::HashSet::new();
+
+        // Follow the alias chain
+        while let Some(target) = self.alias_map.get(&current) {
+            // Detect cycles in alias chain
+            if !visited.insert(current.clone()) {
+                // Cycle detected - return the original path
+                // This shouldn't happen in a well-formed program
+                return path.clone();
+            }
+            current = target.clone();
+        }
+
+        current
+    }
+
+    // ========================================================================
     // Variable Lookup
     // ========================================================================
 
     /// Lookup variable by path
+    ///
+    /// Automatically resolves aliases. If the path is an alias to another path,
+    /// returns the variable at the target path.
     pub fn get_variable(&self, path: &VariablePath<'src>) -> Option<&VariableNode<'src>> {
         if path.is_empty() {
             return None;
         }
 
+        // Resolve aliases first
+        let resolved_path = self.resolve_alias(path);
+
         // Extract root name
-        let root_name = match path.components().first()? {
+        let root_name = match resolved_path.components().first()? {
             PathComponent::Field(name) => name,
             _ => return None, // Root must be a field name
         };
 
         // Navigate from root
         let root = self.variables.get(root_name)?;
-        root.get_at_path(&path.components()[1..])
+        root.get_at_path(&resolved_path.components()[1..])
     }
 
     // ========================================================================

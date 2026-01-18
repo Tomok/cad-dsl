@@ -1,0 +1,10 @@
+// Test multiple aliases to the same variable
+// Both r1 and r2 should be aliases to x
+
+let x: i32;
+let r1 = &x;
+let r2 = &x;
+
+// Constraints through both aliases should affect the same variable
+*r1 == 5;
+*r2 == 5;

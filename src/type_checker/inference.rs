@@ -200,6 +200,25 @@ pub fn infer_expr_type<'src, 'arena>(
             })
         }
 
+        ResolvedExprKind::Deref { inner } => {
+            let inner_ty = inner.ty;
+
+            // Dereference requires a reference type
+            match inner_ty {
+                ResolvedType::Reference {
+                    inner: deref_ty, ..
+                } => Some(**deref_ty),
+                _ => {
+                    ctx.add_error(TypeCheckError::TypeMismatch {
+                        expected: "reference type (&T)".to_string(),
+                        found: type_name(inner_ty),
+                        span: inner.span,
+                    });
+                    None
+                }
+            }
+        }
+
         // ====================================================================
         // Function Calls
         // ====================================================================

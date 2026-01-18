@@ -247,6 +247,12 @@ pub enum ResolvedExprKind<'src, 'arena> {
         inner: &'arena ResolvedExpr<'src, 'arena>,
     },
 
+    /// Unary dereference: `*expr`
+    /// Used for dereferencing reference types
+    Deref {
+        inner: &'arena ResolvedExpr<'src, 'arena>,
+    },
+
     // ========================================================================
     // Literals
     // ========================================================================
