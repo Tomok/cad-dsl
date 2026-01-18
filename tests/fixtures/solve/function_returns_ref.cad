@@ -1,0 +1,13 @@
+// Test function returning a reference
+// let r = get_ref() should make r an alias to x when get_ref() returns &x
+
+let x: i32;
+
+fn get_ref() -> &i32 {
+    return &x;
+}
+
+let r = get_ref();
+
+// Constraint through alias
+*r == 42;

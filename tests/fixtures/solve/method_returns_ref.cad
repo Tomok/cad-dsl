@@ -1,0 +1,18 @@
+// Test method returning a reference
+// let r = p.get_x() should make r an alias to p.x when get_x() returns &self.x
+
+struct Point {
+    x: i32,
+    y: i32,
+
+    fn get_x() -> &i32 {
+        return &self.x;
+    }
+}
+
+let p: Point;
+let r = p.get_x();
+
+// Constraint through alias
+*r == 100;
+p.y == 200;
