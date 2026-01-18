@@ -41,7 +41,7 @@
 use super::context::AnalyzerContext;
 use super::errors::SemanticError;
 use crate::ast::{Expr, Stmt, StructLitField as AstStructLitField};
-use crate::hir::context::WithContext;
+use crate::hir::context::{TransformMethod, WithContext};
 use crate::hir::definitions::{ScopeLevel, VarDefinition};
 use crate::hir::expr::{
     ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind, ResolvedStructLitField,
@@ -674,17 +674,17 @@ fn resolve_with_statement<'src, 'arena>(
                 ))
             } else {
                 // Create a transform context
-                ctx.arena.alloc(WithContext::new_transform(
-                    resolved_context,
-                    vec![], // No transforms for now
-                ))
+                // Collect all __transform__ methods from the struct
+                let transforms = collect_transform_methods(ctx, definition);
+                ctx.arena
+                    .alloc(WithContext::new_transform(resolved_context, transforms))
             }
         }
         _ => {
             // For non-struct types, create a transform context
             ctx.arena.alloc(WithContext::new_transform(
                 resolved_context,
-                vec![], // No transforms for now
+                vec![], // No transforms for non-struct types
             ))
         }
     };
@@ -1528,6 +1528,52 @@ fn extract_name<'src>(source: &'src str, name: &str) -> &'src str {
         // Fallback: Use a static string if not found
         Box::leak(name.to_string().into_boxed_str())
     }
+}
+
+/// Collect all __transform__ methods from a struct definition
+///
+/// This function searches for all methods named `__transform__` in the given
+/// struct definition and creates TransformMethod objects for each one.
+///
+/// # Parameters
+///
+/// - `ctx`: The analyzer context
+/// - `definition`: The struct definition to search for transform methods
+///
+/// # Returns
+///
+/// A vector of TransformMethod objects, one for each __transform__ method found
+fn collect_transform_methods<'src, 'arena>(
+    ctx: &mut AnalyzerContext<'src, 'arena>,
+    definition: &'arena crate::hir::definitions::StructDefinition<'src, 'arena>,
+) -> Vec<TransformMethod<'src, 'arena>> {
+    let mut transforms = Vec::new();
+
+    // Iterate through all methods in the struct
+    for method in &definition.methods {
+        // Check if this is a __transform__ method
+        if method.name == "__transform__" {
+            // Extract the input type from the first parameter
+            // __transform__ methods should have exactly one parameter (besides self)
+            if method.params.is_empty() {
+                // Skip: __transform__ requires at least one parameter
+                continue;
+            }
+
+            // The first parameter is the input type
+            let input_param = &method.params[0];
+            let input_type = ctx.arena.alloc(input_param.param_type);
+
+            // The return type is the output type
+            let output_type = ctx.arena.alloc(method.return_type);
+
+            // Create the TransformMethod
+            let transform = TransformMethod::new(method, input_type, output_type);
+            transforms.push(transform);
+        }
+    }
+
+    transforms
 }
 
 // ============================================================================
@@ -2929,7 +2975,7 @@ mod tests {
 
         let resolved_context = resolve_expression(&mut ctx, &context_expr).unwrap();
 
-        use crate::hir::context::WithContext;
+        use crate::hir::context::{TransformMethod, WithContext};
         let with_ctx = ctx
             .arena
             .alloc(WithContext::new_transform(resolved_context, vec![]));
@@ -3045,7 +3091,7 @@ mod tests {
 
         let resolved_context = resolve_expression(&mut ctx, &context_expr).unwrap();
 
-        use crate::hir::context::WithContext;
+        use crate::hir::context::{TransformMethod, WithContext};
         let with_ctx = ctx
             .arena
             .alloc(WithContext::new_transform(resolved_context, vec![]));
@@ -3438,5 +3484,69 @@ mod tests {
 
         let resolved = resolved.unwrap();
         assert_matches!(resolved, ResolvedType::UserDefined { .. });
+    }
+
+    #[test]
+    fn test_collect_transform_methods() {
+        let arena = Bump::new();
+        let source = "Translate";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        use crate::hir::definitions::{FunctionDefinition, FunctionParam, StructDefinition};
+        use crate::hir::types::ResolvedType;
+
+        // Create a __transform__ method
+        let param = FunctionParam::new(
+            "p",
+            make_span(1, 1),
+            ResolvedType::I32 {
+                span: make_span(1, 1),
+            },
+            make_span(1, 1),
+        );
+
+        let transform_method = arena.alloc(FunctionDefinition::new(
+            "__transform__",
+            make_span(1, 1),
+            vec![param],
+            ResolvedType::I32 {
+                span: make_span(1, 1),
+            }, // return type
+            vec![], // body (empty for test)
+            None,   // parent_struct (will be set later)
+            make_span(1, 1),
+        ));
+
+        // Create a regular method (should be ignored)
+        let regular_method = arena.alloc(FunctionDefinition::new(
+            "regular_method",
+            make_span(1, 1),
+            vec![],
+            ResolvedType::I32 {
+                span: make_span(1, 1),
+            },
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+
+        // Create a struct with both methods
+        let struct_def = arena.alloc(StructDefinition::new(
+            "Translate",
+            make_span(1, 1),
+            vec![],                                 // fields
+            vec![transform_method, regular_method], // methods
+            None,                                   // container_field
+            make_span(1, 1),
+        ));
+
+        // Collect transform methods
+        let transforms = collect_transform_methods(&mut ctx, struct_def);
+
+        // Verify we found exactly one transform method
+        assert_eq!(transforms.len(), 1);
+        assert_eq!(transforms[0].function.name, "__transform__");
+        assert_matches!(transforms[0].input_type, ResolvedType::I32 { .. });
+        assert_matches!(transforms[0].output_type, ResolvedType::I32 { .. });
     }
 }
