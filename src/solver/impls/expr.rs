@@ -315,6 +315,18 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 }
             }
 
+            // Reference operations
+            // In the constraint solver, references are transparent - we simply solve
+            // the inner expression. The reference semantics are handled at the type
+            // system level, but for Z3 constraint generation we just pass through.
+            ResolvedExprKind::Ref { inner } => inner.solve(ctx),
+
+            // Dereference operations
+            // In the constraint solver, dereference is also transparent - we simply
+            // solve the inner expression. The reference/dereference semantics are
+            // handled at the type system level.
+            ResolvedExprKind::Deref { inner } => inner.solve(ctx),
+
             // Logical operations
             ResolvedExprKind::And { lhs, rhs } => {
                 let lhs_z3 = lhs.solve(ctx)?;
@@ -754,6 +766,11 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
             ResolvedExprKind::Ref { inner } => {
                 let sub_inner = self.substitute_parameters(inner, param_map, ctx)?;
                 ResolvedExprKind::Ref { inner: sub_inner }
+            }
+
+            ResolvedExprKind::Deref { inner } => {
+                let sub_inner = self.substitute_parameters(inner, param_map, ctx)?;
+                ResolvedExprKind::Deref { inner: sub_inner }
             }
 
             ResolvedExprKind::Paren { inner } => {

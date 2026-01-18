@@ -206,6 +206,14 @@ pub enum Expr<'src> {
         span: Span,
     },
 
+    // Unary dereference - in CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs
+    // Higher precedence than power (binds tighter)
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs)]
+    Deref {
+        inner: Box<PowLhs<'src>>,
+        span: Span,
+    },
+
     // Variable reference - in all levels
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
     Var { name: &'src str, span: Span },
@@ -322,6 +330,7 @@ impl<'src> HasSpan for Expr<'src> {
             Expr::Pow { span, .. } => *span,
             Expr::Neg { span, .. } => *span,
             Expr::Ref { span, .. } => *span,
+            Expr::Deref { span, .. } => *span,
             Expr::Var { span, .. } => *span,
             Expr::IntLit { span, .. } => *span,
             Expr::FloatLit { span, .. } => *span,
@@ -360,6 +369,7 @@ impl<'src> HasSpan for CmpLhs<'src> {
             CmpLhs::Pow { span, .. } => *span,
             CmpLhs::Neg { span, .. } => *span,
             CmpLhs::Ref { span, .. } => *span,
+            CmpLhs::Deref { span, .. } => *span,
             CmpLhs::Var { span, .. } => *span,
             CmpLhs::IntLit { span, .. } => *span,
             CmpLhs::FloatLit { span, .. } => *span,
@@ -390,6 +400,7 @@ impl<'src> HasSpan for CmpRhs<'src> {
             CmpRhs::Pow { span, .. } => *span,
             CmpRhs::Neg { span, .. } => *span,
             CmpRhs::Ref { span, .. } => *span,
+            CmpRhs::Deref { span, .. } => *span,
             CmpRhs::Var { span, .. } => *span,
             CmpRhs::IntLit { span, .. } => *span,
             CmpRhs::FloatLit { span, .. } => *span,
@@ -420,6 +431,7 @@ impl<'src> HasSpan for AddLhs<'src> {
             AddLhs::Pow { span, .. } => *span,
             AddLhs::Neg { span, .. } => *span,
             AddLhs::Ref { span, .. } => *span,
+            AddLhs::Deref { span, .. } => *span,
             AddLhs::Var { span, .. } => *span,
             AddLhs::IntLit { span, .. } => *span,
             AddLhs::FloatLit { span, .. } => *span,
@@ -448,6 +460,7 @@ impl<'src> HasSpan for AddRhs<'src> {
             AddRhs::Pow { span, .. } => *span,
             AddRhs::Neg { span, .. } => *span,
             AddRhs::Ref { span, .. } => *span,
+            AddRhs::Deref { span, .. } => *span,
             AddRhs::Var { span, .. } => *span,
             AddRhs::IntLit { span, .. } => *span,
             AddRhs::FloatLit { span, .. } => *span,
@@ -476,6 +489,7 @@ impl<'src> HasSpan for MulLhs<'src> {
             MulLhs::Pow { span, .. } => *span,
             MulLhs::Neg { span, .. } => *span,
             MulLhs::Ref { span, .. } => *span,
+            MulLhs::Deref { span, .. } => *span,
             MulLhs::Var { span, .. } => *span,
             MulLhs::IntLit { span, .. } => *span,
             MulLhs::FloatLit { span, .. } => *span,
@@ -501,6 +515,7 @@ impl<'src> HasSpan for MulRhs<'src> {
             MulRhs::Pow { span, .. } => *span,
             MulRhs::Neg { span, .. } => *span,
             MulRhs::Ref { span, .. } => *span,
+            MulRhs::Deref { span, .. } => *span,
             MulRhs::Var { span, .. } => *span,
             MulRhs::IntLit { span, .. } => *span,
             MulRhs::FloatLit { span, .. } => *span,
@@ -525,6 +540,7 @@ impl<'src> HasSpan for PowLhs<'src> {
             PowLhs::Paren { span, .. } => *span,
             PowLhs::Neg { span, .. } => *span,
             PowLhs::Ref { span, .. } => *span,
+            PowLhs::Deref { span, .. } => *span,
             PowLhs::Var { span, .. } => *span,
             PowLhs::IntLit { span, .. } => *span,
             PowLhs::FloatLit { span, .. } => *span,
@@ -550,6 +566,7 @@ impl<'src> HasSpan for PowRhs<'src> {
             PowRhs::Pow { span, .. } => *span,
             PowRhs::Neg { span, .. } => *span,
             PowRhs::Ref { span, .. } => *span,
+            PowRhs::Deref { span, .. } => *span,
             PowRhs::Var { span, .. } => *span,
             PowRhs::IntLit { span, .. } => *span,
             PowRhs::FloatLit { span, .. } => *span,

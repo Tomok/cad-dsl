@@ -55,7 +55,7 @@ pub fn pow_lhs_parser<'src, E>(
 where
     E: Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone + 'src,
 {
-    // Recursive parser for unary operators (allows stacking like --x or &-x)
+    // Recursive parser for unary operators (allows stacking like --x, &-x, or *&x)
     recursive(|unary_rec| {
         choice((
             // Unary negation: -<expr>
@@ -71,11 +71,22 @@ where
                 }),
             // Unary reference: &<expr>
             select! { Token::Ampersand(t) => t.position }
-                .then(unary_rec)
+                .then(unary_rec.clone())
                 .map(|(op_pos, inner): (_, PowLhs<'src>)| {
                     let inner_span = inner.span();
                     let span = combine_span_from_pos(op_pos, inner_span);
                     PowLhs::Ref {
+                        inner: Box::new(inner),
+                        span,
+                    }
+                }),
+            // Unary dereference: *<expr>
+            select! { Token::Multiply(t) => t.position }
+                .then(unary_rec)
+                .map(|(op_pos, inner): (_, PowLhs<'src>)| {
+                    let inner_span = inner.span();
+                    let span = combine_span_from_pos(op_pos, inner_span);
+                    PowLhs::Deref {
                         inner: Box::new(inner),
                         span,
                     }
@@ -164,6 +175,7 @@ where
                 PowRhs::Paren { inner, span } => MulRhs::Paren { inner, span },
                 PowRhs::Neg { inner, span } => MulRhs::Neg { inner, span },
                 PowRhs::Ref { inner, span } => MulRhs::Ref { inner, span },
+                PowRhs::Deref { inner, span } => MulRhs::Deref { inner, span },
                 PowRhs::Var { name, span } => MulRhs::Var { name, span },
                 PowRhs::IntLit { value, span } => MulRhs::IntLit { value, span },
                 PowRhs::FloatLit { value, span } => MulRhs::FloatLit { value, span },
@@ -251,6 +263,7 @@ where
                 PowRhs::Paren { inner, span } => MulLhs::Paren { inner, span },
                 PowRhs::Neg { inner, span } => MulLhs::Neg { inner, span },
                 PowRhs::Ref { inner, span } => MulLhs::Ref { inner, span },
+                PowRhs::Deref { inner, span } => MulLhs::Deref { inner, span },
                 PowRhs::Var { name, span } => MulLhs::Var { name, span },
                 PowRhs::IntLit { value, span } => MulLhs::IntLit { value, span },
                 PowRhs::FloatLit { value, span } => MulLhs::FloatLit { value, span },

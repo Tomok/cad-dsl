@@ -46,13 +46,14 @@ fn test_error_missing_operator() {
 
 #[test]
 fn test_error_missing_left_operand() {
-    // "* 2" should fail - missing left operand
+    // "* 2" now parses successfully as Deref(2) since * is also a dereference operator
+    // This test has been updated to reflect the new behavior with reference types
     let result = parse_with_timeout(
         "* 2",
         |input| expr().parse(input).into_result(),
         Duration::from_secs(2),
     );
-    assert!(result.is_err(), "Should fail with missing left operand");
+    assert!(result.is_ok(), "* 2 should parse as Deref(2)");
 }
 
 #[test]

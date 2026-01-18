@@ -1269,6 +1269,31 @@ pub fn resolve_expression<'src, 'arena>(
             };
             (kind, ref_ty)
         }
+        Expr::Deref { inner, span } => {
+            let inner_expr: Expr = (*inner.clone()).into();
+            let resolved_inner = resolve_expression(ctx, &inner_expr)?;
+            let inner_ty = resolved_inner.ty;
+
+            // Dereference requires the inner expression to be a reference type
+            match inner_ty {
+                ResolvedType::Reference {
+                    inner: deref_ty, ..
+                } => {
+                    let kind = ResolvedExprKind::Deref {
+                        inner: resolved_inner,
+                    };
+                    (kind, *deref_ty)
+                }
+                _ => {
+                    ctx.add_error(SemanticError::TypeMismatch {
+                        expected: "reference type (&T)".to_string(),
+                        found: format!("{:?}", inner_ty),
+                        span: *span,
+                    });
+                    return None;
+                }
+            }
+        }
 
         // Literals
         Expr::IntLit { value, span } => {
