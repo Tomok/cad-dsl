@@ -1179,3 +1179,23 @@ fn test_function_param_ref() {
     verify_solution(&stdout, "x", "50");
     verify_solution(&stdout, "y", "60");
 }
+
+#[test]
+fn test_struct_ref_fields() {
+    // Test struct with reference-typed fields
+    // Reference fields should create proper aliases to the referenced variables
+    let (success, stdout, stderr) = solve_fixture("struct_ref_fields.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "100");
+    verify_solution(&stdout, "y", "200");
+}
+
+#[test]
+fn test_struct_ref_fields_nested() {
+    // Test struct with reference fields pointing to struct fields
+    // Reference fields should create aliases to nested struct fields
+    let (success, stdout, stderr) = solve_fixture("struct_ref_fields_nested.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "p.x", "50");
+    verify_solution(&stdout, "p.y", "75");
+}

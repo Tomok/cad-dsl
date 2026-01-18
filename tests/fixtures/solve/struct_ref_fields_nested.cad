@@ -1,0 +1,22 @@
+// Test struct with reference fields to struct fields
+// This tests that reference fields can point to nested struct fields
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct PointRef {
+    x_ref: &i32,
+    y_ref: &i32,
+}
+
+let p: Point;
+let refs: PointRef = PointRef {
+    x_ref: &p.x,
+    y_ref: &p.y,
+};
+
+// Constraints through the references
+*refs.x_ref == 50;
+*refs.y_ref == 75;
