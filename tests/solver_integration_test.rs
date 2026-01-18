@@ -1150,3 +1150,32 @@ fn test_struct_field_alias() {
     verify_solution(&stdout, "p.x", "10");
     verify_solution(&stdout, "p.y", "20");
 }
+
+#[test]
+fn test_function_returns_ref() {
+    // Test type-based alias tracking for functions returning references
+    // let r = get_ref() should create an alias to x when get_ref() returns &x
+    let (success, stdout, stderr) = solve_fixture("function_returns_ref.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "42");
+}
+
+#[test]
+fn test_method_returns_ref() {
+    // Test type-based alias tracking for methods returning references
+    // let r = p.get_x() should create an alias to p.x when get_x() returns &self.x
+    let (success, stdout, stderr) = solve_fixture("method_returns_ref.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "p.x", "100");
+    verify_solution(&stdout, "p.y", "200");
+}
+
+#[test]
+fn test_function_param_ref() {
+    // Test function that returns a reference to its parameter
+    // let r = identity(&x) should create an alias to x
+    let (success, stdout, stderr) = solve_fixture("function_param_ref.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "50");
+    verify_solution(&stdout, "y", "60");
+}

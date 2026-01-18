@@ -609,7 +609,7 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
     ///
     /// This recursively walks the expression tree and replaces variable references
     /// to parameters with the corresponding argument expressions.
-    fn substitute_parameters(
+    pub(crate) fn substitute_parameters(
         &self,
         expr: &'arena ResolvedExpr<'src, 'arena>,
         param_map: &std::collections::HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>>,

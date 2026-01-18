@@ -1,0 +1,15 @@
+// Test function returning a reference to its parameter
+// let r = identity(&x) should make r an alias to x
+
+let x: i32;
+let y: i32;
+
+fn identity(val: &i32) -> &i32 {
+    return val;
+}
+
+let r = identity(&x);
+
+// Constraints
+*r == 50;
+y == x + 10;

@@ -4,6 +4,7 @@
 //! processing HIR statements and adding constraints to the Z3 solver.
 
 use crate::hir::expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind};
+use crate::hir::types::ResolvedType;
 use crate::solver::context::{SolverContext, WithContextInfo};
 use crate::solver::impls::expr::Z3Expr;
 use crate::solver::{Solvable, SolverError, VariablePath};
@@ -38,20 +39,18 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                                 .with_field(container_field.name)
                                 .with_field(var_name);
 
-                            // Check if this is a reference alias (let .r = &x)
-                            let is_alias = if let Some(init_expr) = init {
-                                self.extract_reference_target(init_expr, ctx).is_some()
+                            // Check if this is a reference alias (let .r = &x or let .r = get_ref())
+                            // This now supports type-based alias tracking for function/method returns
+                            let target_path = if let Some(init_expr) = init {
+                                self.extract_reference_target_with_inlining(init_expr, ctx)
                             } else {
-                                false
+                                None
                             };
 
-                            if is_alias {
-                                // This is an alias declaration (let .r = &x)
+                            if let Some(target) = target_path {
+                                // This is an alias declaration
                                 // Don't create a variable, just register the alias
-                                let init_expr = init.unwrap(); // Safe because we checked is_some above
-                                let target_path =
-                                    self.extract_reference_target(init_expr, ctx).unwrap();
-                                ctx.register_alias(full_path.clone(), target_path);
+                                ctx.register_alias(full_path.clone(), target);
                             } else {
                                 // Regular variable declaration
                                 let var_type = var_def.var_type.as_ref().ok_or_else(|| {
@@ -103,20 +102,19 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                         .map(|(n, _)| *n)
                         .ok_or_else(|| SolverError::ContextError("Empty name path".to_string()))?;
 
-                    // Check if this is a reference alias (let r = &x)
-                    let is_alias = if let Some(init_expr) = init {
-                        self.extract_reference_target(init_expr, ctx).is_some()
+                    // Check if this is a reference alias (let r = &x or let r = get_ref())
+                    // This now supports type-based alias tracking for function/method returns
+                    let target_path = if let Some(init_expr) = init {
+                        self.extract_reference_target_with_inlining(init_expr, ctx)
                     } else {
-                        false
+                        None
                     };
 
-                    if is_alias {
-                        // This is an alias declaration (let r = &x)
+                    if let Some(target) = target_path {
+                        // This is an alias declaration
                         // Don't create a variable, just register the alias
-                        let init_expr = init.unwrap(); // Safe because we checked is_some above
-                        let target_path = self.extract_reference_target(init_expr, ctx).unwrap();
                         let alias_path = VariablePath::from_name(var_name);
-                        ctx.register_alias(alias_path, target_path);
+                        ctx.register_alias(alias_path, target);
                     } else {
                         // Regular variable declaration
                         let var_type = var_def.var_type.as_ref().ok_or_else(|| {
@@ -1214,32 +1212,135 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         }
     }
 
-    /// Extract the target path from a reference expression
+    /// Check if a type is a reference type
+    fn is_reference_type(ty: &ResolvedType<'src, 'arena>) -> bool {
+        matches!(ty, ResolvedType::Reference { .. })
+    }
+
+    /// Extract the target path from a reference expression or reference-returning function
     ///
-    /// If the expression is a `Ref` wrapping a variable path (possibly through Paren),
-    /// returns the path to the referenced variable. Otherwise returns None.
+    /// This method supports type-based alias tracking by checking function return types.
+    /// It handles:
+    /// - Explicit references: `&x`, `&p.x`, `&arr[0]`
+    /// - Functions returning references: `get_ref()` where `fn get_ref() -> &Type`
+    /// - Methods returning references: `obj.get_ref()` where method returns `&Type`
     ///
-    /// Examples:
-    /// - `&x` -> Some(path to x)
-    /// - `&p.x` -> Some(path to p.x)
-    /// - `&arr[0]` -> Some(path to arr[0])
-    /// - `&(x)` -> Some(path to x)
-    /// - `x + 1` -> None (not a reference)
-    fn extract_reference_target(
+    /// When a function/method returns a reference, this method inlines it and recursively
+    /// extracts the target from the return expression.
+    fn extract_reference_target_with_inlining(
         &self,
         expr: &ResolvedExpr<'src, 'arena>,
-        ctx: &SolverContext<'src, 'arena>,
+        ctx: &mut SolverContext<'src, 'arena>,
     ) -> Option<VariablePath<'src>> {
         match &expr.kind {
-            ResolvedExprKind::Ref { inner } => {
-                // This is a reference - try to build a path from the inner expression
-                self.build_var_path(inner, ctx).ok()
-            }
+            // Explicit reference expression (&x)
+            ResolvedExprKind::Ref { inner } => self.build_var_path(inner, ctx).ok(),
+
+            // Parentheses - unwrap and recurse
             ResolvedExprKind::Paren { inner } => {
-                // Unwrap parentheses and recurse
-                self.extract_reference_target(inner, ctx)
+                self.extract_reference_target_with_inlining(inner, ctx)
             }
+
+            // Function call - check if it returns a reference type
+            ResolvedExprKind::FunctionCall {
+                name,
+                function,
+                args,
+            } => {
+                // Check if function returns a reference type
+                if Self::is_reference_type(&function.return_type) {
+                    // Inline the function and extract the target from the return expression
+                    self.inline_and_extract_reference(name, function, args, None, ctx)
+                } else {
+                    None
+                }
+            }
+
+            // Method call - check if it returns a reference type
+            ResolvedExprKind::MethodCall {
+                receiver,
+                method_name,
+                method,
+                args,
+            } => {
+                // Check if method returns a reference type
+                if Self::is_reference_type(&method.return_type) {
+                    // Inline the method and extract the target from the return expression
+                    self.inline_and_extract_reference(
+                        method_name,
+                        method,
+                        args,
+                        Some(*receiver),
+                        ctx,
+                    )
+                } else {
+                    None
+                }
+            }
+
             _ => None,
         }
     }
+
+    /// Inline a function/method and extract the reference target from its return expression
+    ///
+    /// This performs parameter substitution and then recursively extracts the reference
+    /// target from the inlined return expression.
+    fn inline_and_extract_reference(
+        &self,
+        function_name: &'src str,
+        function: &'arena crate::hir::definitions::FunctionDefinition<'src, 'arena>,
+        args: &[&'arena ResolvedExpr<'src, 'arena>],
+        receiver: Option<&'arena ResolvedExpr<'src, 'arena>>,
+        ctx: &mut SolverContext<'src, 'arena>,
+    ) -> Option<VariablePath<'src>> {
+        use std::collections::HashMap;
+
+        // Get the qualified name (for methods: StructName::method_name)
+        let qualified_name = if let Some(parent) = function.parent_struct {
+            format!("{}::{}", parent.name, function_name)
+        } else {
+            function_name.to_string()
+        };
+
+        // Get the return expression
+        let return_expr = ctx.get_function_return(&qualified_name)?;
+
+        // Create parameter substitution map
+        let mut param_map: HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>> = HashMap::new();
+
+        // If this is a method, map "self" to the receiver
+        if let Some(recv) = receiver {
+            param_map.insert("self", recv);
+        }
+
+        // Map parameters to arguments
+        for (param, arg) in function.params.iter().zip(args.iter()) {
+            param_map.insert(param.name, *arg);
+        }
+
+        // Substitute parameters in the return expression
+        // We need to use the ResolvedExpr's substitute_parameters method
+        // Since it's on a different type, we'll need to access it through the expr module
+        let inlined_expr = self
+            .substitute_params_in_expr(return_expr, &param_map, ctx)
+            .ok()?;
+
+        // Recursively extract the reference target from the inlined expression
+        self.extract_reference_target_with_inlining(inlined_expr, ctx)
+    }
+
+    /// Substitute parameters in an expression (wrapper around expr module's implementation)
+    fn substitute_params_in_expr(
+        &self,
+        expr: &'arena ResolvedExpr<'src, 'arena>,
+        param_map: &std::collections::HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>>,
+        ctx: &SolverContext<'src, 'arena>,
+    ) -> Result<&'arena ResolvedExpr<'src, 'arena>, SolverError> {
+        // Delegate to the expression's substitute_parameters method
+        // Note: self here is a ResolvedStmt, but we need to call the method on a ResolvedExpr
+        // We use the expr itself as the receiver
+        expr.substitute_parameters(expr, param_map, ctx)
+    }
+
 }
