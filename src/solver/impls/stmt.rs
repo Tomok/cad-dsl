@@ -1342,5 +1342,4 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         // We use the expr itself as the receiver
         expr.substitute_parameters(expr, param_map, ctx)
     }
-
 }
