@@ -845,6 +845,82 @@ with transform {
     assert!(stdout.contains("x = 0"));
 }
 
+#[test]
+#[ignore] // TODO: Remove once transform application is implemented
+fn test_transform_application_basic() {
+    // Test that transform methods are automatically applied to variable declarations
+    // in transform contexts, creating shadow variables and linking them via constraints.
+    let test_code = r#"
+struct Point2D {
+    x: f64,
+    y: f64,
+}
+
+struct Point3D {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+struct Sketch2D {
+    container entities,
+    origin: Point3D,
+
+    fn __transform__(p3d: &Point3D) -> Point2D {
+        return Point2D {
+            x: p3d.x - self.origin.x,
+            y: p3d.y - self.origin.y,
+        };
+    }
+}
+
+let sketch: Sketch2D;
+sketch.origin.x == 0.0;
+sketch.origin.y == 0.0;
+sketch.origin.z == 0.0;
+
+with sketch {
+    let .p: Point2D;
+    .p.x == 10.0;
+    .p.y == 20.0;
+}
+"#;
+
+    std::fs::write("/tmp/transform_basic.cad", test_code).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--", "solve", "/tmp/transform_basic.cad"])
+        .output()
+        .expect("Failed to execute command");
+
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+    assert!(
+        output.status.success(),
+        "Transform application should work. stderr: {}, stdout: {}",
+        stderr,
+        stdout
+    );
+
+    // The transform should create a shadow Point3D variable
+    // The constraints should be:
+    //   sketch.entities.p.x == shadow.x - sketch.origin.x
+    //   sketch.entities.p.y == shadow.y - sketch.origin.y
+    //   sketch.entities.p.x == 10.0
+    //   sketch.entities.p.y == 20.0
+    //   sketch.origin.x == 0.0, sketch.origin.y == 0.0
+    // This should solve to: shadow.x = 10.0, shadow.y = 20.0
+
+    // Check that the declared variable got the right values
+    assert!(stdout.contains("sketch.entities.p.x = 10"));
+    assert!(stdout.contains("sketch.entities.p.y = 20"));
+
+    // Shadow variables should also be in the output (with generated names)
+    // We don't know the exact name, but it should contain "shadow"
+    assert!(stdout.contains("shadow"));
+}
+
 // ============================================================================
 // If-Statement Tests
 // ============================================================================
