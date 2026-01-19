@@ -1,0 +1,19 @@
+// Test struct with reference-typed fields
+// This tests that reference fields in structs create proper aliases
+
+struct LineRef {
+    start: &i32,
+    end: &i32,
+}
+
+let x: i32;
+let y: i32;
+
+let line: LineRef = LineRef {
+    start: &x,
+    end: &y,
+};
+
+// Constraints through dereferenced reference fields
+*line.start == 100;
+*line.end == 200;

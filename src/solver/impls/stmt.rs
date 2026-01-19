@@ -62,28 +62,37 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
 
                                 // If there's an initializer, add constraint
                                 if let Some(init_expr) = init {
-                                    let z3_value = init_expr.solve(ctx)?;
-                                    let z3_var = self.get_variable_z3(ctx, &full_path)?;
+                                    // Special handling for struct literals
+                                    if let ResolvedExprKind::StructLit { fields, .. } =
+                                        &init_expr.kind
+                                    {
+                                        // Handle struct literal with potential reference fields
+                                        self.process_struct_literal_init(ctx, &full_path, fields)?;
+                                    } else {
+                                        // Regular primitive initialization
+                                        let z3_value = init_expr.solve(ctx)?;
+                                        let z3_var = self.get_variable_z3(ctx, &full_path)?;
 
-                                    // Add equality constraint
-                                    let constraint = match (z3_var, z3_value) {
-                                        (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
-                                        (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
-                                        (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
-                                        (Z3Expr::Int(var), Z3Expr::Real(val)) => {
-                                            var.to_real().eq(&val)
-                                        }
-                                        (Z3Expr::Real(var), Z3Expr::Int(val)) => {
-                                            var.eq(val.to_real())
-                                        }
-                                        _ => {
-                                            return Err(SolverError::UnsupportedExpression(
-                                                "Type mismatch in initialization".to_string(),
-                                            ));
-                                        }
-                                    };
+                                        // Add equality constraint
+                                        let constraint = match (z3_var, z3_value) {
+                                            (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                                            (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                                            (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                                            (Z3Expr::Int(var), Z3Expr::Real(val)) => {
+                                                var.to_real().eq(&val)
+                                            }
+                                            (Z3Expr::Real(var), Z3Expr::Int(val)) => {
+                                                var.eq(val.to_real())
+                                            }
+                                            _ => {
+                                                return Err(SolverError::UnsupportedExpression(
+                                                    "Type mismatch in initialization".to_string(),
+                                                ));
+                                            }
+                                        };
 
-                                    ctx.z3_solver.assert(&constraint);
+                                        ctx.z3_solver.assert(&constraint);
+                                    }
                                 }
                             }
 
@@ -124,25 +133,33 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
 
                         // If there's an initializer, add constraint
                         if let Some(init_expr) = init {
-                            let z3_value = init_expr.solve(ctx)?;
-                            let path = VariablePath::from_name(var_name);
-                            let z3_var = self.get_variable_z3(ctx, &path)?;
+                            // Special handling for struct literals
+                            if let ResolvedExprKind::StructLit { fields, .. } = &init_expr.kind {
+                                // Handle struct literal with potential reference fields
+                                let base_path = VariablePath::from_name(var_name);
+                                self.process_struct_literal_init(ctx, &base_path, fields)?;
+                            } else {
+                                // Regular primitive initialization
+                                let z3_value = init_expr.solve(ctx)?;
+                                let path = VariablePath::from_name(var_name);
+                                let z3_var = self.get_variable_z3(ctx, &path)?;
 
-                            // Add equality constraint
-                            let constraint = match (z3_var, z3_value) {
-                                (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
-                                (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
-                                (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
-                                (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
-                                (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
-                                _ => {
-                                    return Err(SolverError::UnsupportedExpression(
-                                        "Type mismatch in initialization".to_string(),
-                                    ));
-                                }
-                            };
+                                // Add equality constraint
+                                let constraint = match (z3_var, z3_value) {
+                                    (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                                    (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                                    (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                                    (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
+                                    (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
+                                    _ => {
+                                        return Err(SolverError::UnsupportedExpression(
+                                            "Type mismatch in initialization".to_string(),
+                                        ));
+                                    }
+                                };
 
-                            ctx.z3_solver.assert(&constraint);
+                                ctx.z3_solver.assert(&constraint);
+                            }
                         }
                     }
 
@@ -1341,5 +1358,79 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         // Note: self here is a ResolvedStmt, but we need to call the method on a ResolvedExpr
         // We use the expr itself as the receiver
         expr.substitute_parameters(expr, param_map, ctx)
+    }
+
+    /// Process a struct literal initialization, handling reference fields
+    ///
+    /// This method processes each field in a struct literal:
+    /// - For reference-typed fields with reference values: creates an alias
+    /// - For other fields: creates normal constraints
+    fn process_struct_literal_init(
+        &self,
+        ctx: &mut SolverContext<'src, 'arena>,
+        base_path: &VariablePath<'src>,
+        fields: &[crate::hir::expr::ResolvedStructLitField<'src, 'arena>],
+    ) -> Result<(), SolverError> {
+        use crate::hir::expr::ResolvedStructLitField;
+
+        for field in fields {
+            match field {
+                ResolvedStructLitField::Field {
+                    name,
+                    value,
+                    field_def,
+                    ..
+                } => {
+                    let field_path = base_path.with_field(name);
+
+                    // Check if this is a reference-typed field
+                    if field_def.field_type.is_reference() {
+                        // This is a reference field - try to extract the target
+                        if let Some(target_path) =
+                            self.extract_reference_target_with_inlining(value, ctx)
+                        {
+                            // Create an alias
+                            ctx.register_alias(field_path, target_path);
+                        } else {
+                            // Reference field without a clear target - this shouldn't happen
+                            // in well-typed code, but handle it gracefully
+                            return Err(SolverError::ContextError(format!(
+                                "Reference field '{}' must be initialized with a reference expression",
+                                name
+                            )));
+                        }
+                    } else {
+                        // Regular (non-reference) field - solve and add constraint
+                        let z3_value = value.solve(ctx)?;
+                        let z3_var = self.get_variable_z3(ctx, &field_path)?;
+
+                        // Add equality constraint
+                        let constraint = match (z3_var, z3_value) {
+                            (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                            (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                            (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                            (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
+                            (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
+                            _ => {
+                                return Err(SolverError::UnsupportedExpression(format!(
+                                    "Type mismatch in field '{}' initialization",
+                                    name
+                                )));
+                            }
+                        };
+
+                        ctx.z3_solver.assert(&constraint);
+                    }
+                }
+                ResolvedStructLitField::ComputedProperty { .. } => {
+                    // Computed properties are not supported in initialization
+                    return Err(SolverError::UnsupportedExpression(
+                        "Computed properties in struct literals are not supported".to_string(),
+                    ));
+                }
+            }
+        }
+
+        Ok(())
     }
 }
