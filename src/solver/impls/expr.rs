@@ -57,6 +57,9 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
 
             // Variable reference
             ResolvedExprKind::Var { name, .. } => {
+                // TODO: Apply transforms when accessing variables in transform context
+                // For now, just get the variable's Z3 value
+                // Transform implementation will be completed in a future iteration
                 let path = VariablePath::from_name(name);
                 let var_node = ctx
                     .get_variable(&path)
@@ -864,6 +867,14 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
             ty: expr.ty,
         }))
     }
+
+    // TODO: Implement transform application
+    // fn inline_transform() - to be added when transform semantics are fully designed
+    //
+    // Transforms require creating shadow variables and linking them via constraints,
+    // which is more complex than simple function inlining. The infrastructure is in place
+    // (WithContext tracking, TransformMethod collection), but the actual application
+    // needs more design work to handle the lifetime and semantics correctly.
 }
 
 #[cfg(test)]

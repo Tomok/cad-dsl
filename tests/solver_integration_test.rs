@@ -798,7 +798,9 @@ fn test_with_statement_constraints() {
 
 #[test]
 fn test_transform_with_statement_recognized() {
-    // Test that transform contexts are recognized (but not yet fully implemented)
+    // Test that transform contexts are recognized and can be entered
+    // Note: Transform application (automatic transformation of variable accesses)
+    // is not yet fully implemented, but the context tracking infrastructure works.
     let test_code = r#"
 struct Translate {
     offset_x: i32,
@@ -826,14 +828,21 @@ with transform {
         .output()
         .expect("Failed to execute command");
 
-    // This should fail with the todo!() message
-    assert!(!output.status.success(), "Expected command to fail");
+    // The infrastructure is in place, so this should succeed
+    // (even though transforms aren't applied yet)
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
     assert!(
-        stderr.contains("Transform with-statements are recognized"),
-        "Expected error message about transform with-statements, got: {}",
-        stderr
+        output.status.success(),
+        "Command should succeed with transform infrastructure in place. stderr: {}, stdout: {}",
+        stderr,
+        stdout
     );
+
+    // Should have basic output
+    assert!(stdout.contains("offset_x = 10"));
+    assert!(stdout.contains("x = 0"));
 }
 
 // ============================================================================
