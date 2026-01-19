@@ -212,6 +212,10 @@ pub struct SolverContext<'src, 'arena> {
     /// Number of variables with determined values in previous iteration
     /// (used to detect progress)
     previous_solved_count: usize,
+
+    /// Counter for generating unique shadow variable names
+    /// Used when applying transforms to create shadow variables
+    shadow_counter: usize,
 }
 
 impl<'src, 'arena> SolverContext<'src, 'arena> {
@@ -230,6 +234,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             iteration: 0,
             current_solution: None,
             previous_solved_count: 0,
+            shadow_counter: 0,
         }
     }
 
@@ -320,6 +325,16 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         if self.scope_level > 0 {
             self.scope_level -= 1;
         }
+    }
+
+    /// Generate a unique ID for shadow variables
+    ///
+    /// Shadow variables are created during transform application to link
+    /// the declared variable to its transformed counterpart.
+    pub fn next_shadow_id(&mut self) -> usize {
+        let id = self.shadow_counter;
+        self.shadow_counter += 1;
+        id
     }
 
     // ========================================================================
