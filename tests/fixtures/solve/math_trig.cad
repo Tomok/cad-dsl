@@ -1,0 +1,6 @@
+// Test sqrt with different values
+let x: f64;
+let y: f64;
+
+x == 25.0;
+y == sqrt(x);

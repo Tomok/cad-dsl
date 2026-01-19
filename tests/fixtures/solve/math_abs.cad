@@ -1,0 +1,6 @@
+// Test abs function
+let x: i32;
+let y: i32;
+
+x == -10;
+y == abs(x);

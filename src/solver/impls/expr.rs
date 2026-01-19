@@ -362,7 +362,12 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 function,
                 args,
             } => {
-                // Inline the function immediately by substituting parameters with arguments
+                // Check if this is a built-in math function first
+                if let Some(result) = self.try_builtin_math_function(name, args, ctx)? {
+                    return Ok(result);
+                }
+
+                // Otherwise, inline the function immediately by substituting parameters with arguments
                 // We do NOT check if arguments are known - Z3 can handle symbolic variables
                 self.inline_function(name, function, args, ctx)
             }
@@ -520,6 +525,67 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
                 "Cannot evaluate expression to constant: {:?}",
                 expr.kind
             ))),
+        }
+    }
+
+    /// Try to evaluate a built-in math function
+    ///
+    /// Returns `Ok(Some(result))` if this is a built-in function and it was evaluated,
+    /// `Ok(None)` if this is not a built-in function,
+    /// or `Err` if evaluation failed.
+    fn try_builtin_math_function(
+        &self,
+        name: &'src str,
+        args: &[&'arena ResolvedExpr<'src, 'arena>],
+        ctx: &mut SolverContext<'src, 'arena>,
+    ) -> Result<Option<Z3Expr>, SolverError> {
+        // Single-argument math functions
+        if args.len() == 1 {
+            let arg = args[0].solve(ctx)?;
+
+            match name {
+                "sqrt" => {
+                    // sqrt: always returns Real
+                    // Implemented as x^0.5 using Z3's power function
+                    match arg {
+                        Z3Expr::Int(i) => {
+                            let base = i.to_real();
+                            let exponent = z3::ast::Real::from_rational(1, 2);
+                            Ok(Some(Z3Expr::Real(base.power(&exponent))))
+                        }
+                        Z3Expr::Real(r) => {
+                            let exponent = z3::ast::Real::from_rational(1, 2);
+                            Ok(Some(Z3Expr::Real(r.power(&exponent))))
+                        }
+                        _ => Err(SolverError::UnsupportedExpression(
+                            "sqrt requires numeric argument".to_string(),
+                        )),
+                    }
+                }
+                "abs" => {
+                    // abs: preserves type (Int -> Int, Real -> Real)
+                    // Implemented using if-then-else: if x >= 0 then x else -x
+                    match arg {
+                        Z3Expr::Int(i) => {
+                            let zero = z3::ast::Int::from_i64(0);
+                            let neg_i = -i.clone();
+                            Ok(Some(Z3Expr::Int(i.ge(&zero).ite(&i, &neg_i))))
+                        }
+                        Z3Expr::Real(r) => {
+                            let zero = z3::ast::Real::from_rational(0, 1);
+                            let neg_r = -r.clone();
+                            Ok(Some(Z3Expr::Real(r.ge(&zero).ite(&r, &neg_r))))
+                        }
+                        _ => Err(SolverError::UnsupportedExpression(
+                            "abs requires numeric argument".to_string(),
+                        )),
+                    }
+                }
+                _ => Ok(None), // Not a built-in function
+            }
+        } else {
+            // Not a single-argument function, so not a built-in math function we support
+            Ok(None)
         }
     }
 
