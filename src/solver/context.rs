@@ -139,15 +139,25 @@ pub enum WithContextInfo<'src, 'arena> {
 
     /// Transform with-statement: coordinate transformations
     ///
-    /// Variables get shadow variables linked by transform constraints.
-    /// Not yet implemented - planned feature for coordinate system transformations.
-    #[allow(dead_code)] // Reserved for future transform implementation
+    /// When variables are accessed in this context, they are automatically
+    /// transformed using the appropriate __transform__ method.
+    ///
+    /// Note: Transform semantics are partially implemented. The context tracking
+    /// infrastructure is in place, but the actual application of transforms to
+    /// variable accesses is not yet complete.
+    #[allow(dead_code)] // Infrastructure for future transform implementation
     Transform {
-        /// Path to the source variable
+        /// Path to the transform context variable
         source_path: VariablePath<'src>,
 
-        /// Scope level of the source (for shadow variables)
+        /// Scope level of the source
         source_scope: usize,
+
+        /// Available transform methods for automatic type transformations
+        transforms: Vec<crate::hir::TransformMethod<'src, 'arena>>,
+
+        /// The context expression (for binding "self" in transform methods)
+        context_expr: &'arena crate::hir::expr::ResolvedExpr<'src, 'arena>,
     },
 }
 
@@ -246,6 +256,30 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         self.with_stack.last()
     }
 
+    /// Find a matching transform method for the given type in the current context
+    ///
+    /// Returns the transform method if a matching one is found, or None if:
+    /// - We're not in a transform context
+    /// - No transform matches the given input type
+    ///
+    /// Note: This method is part of the transform infrastructure. It will be used
+    /// when transform application is fully implemented.
+    #[allow(dead_code)] // Infrastructure for future transform implementation
+    pub fn find_transform_for_type(
+        &self,
+        input_type: &'arena crate::hir::types::ResolvedType<'src, 'arena>,
+    ) -> Option<&crate::hir::TransformMethod<'src, 'arena>> {
+        if let Some(WithContextInfo::Transform { transforms, .. }) = self.current_with_context() {
+            // Find a transform whose input type matches the given type
+            transforms.iter().find(|t| {
+                // Type equality check - we need to match the input type
+                t.input_type == input_type
+            })
+        } else {
+            None
+        }
+    }
+
     /// Push a with-statement context onto the stack
     pub fn push_with_context(
         &mut self,
@@ -271,20 +305,11 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                 let info = WithContextInfo::Transform {
                     source_path: VariablePath::from_name(definition.name),
                     source_scope: definition.scope_level,
+                    transforms: with_context.transforms.clone(),
+                    context_expr: with_context.context_expr,
                 };
                 self.with_stack.push(info);
                 self.scope_level += 1;
-
-                // TODO: Implement transform application
-                // When variables are accessed or assigned in this context,
-                // we need to apply the transform methods from with_context.transforms
-                todo!(
-                    "Transform with-statements are recognized but not yet fully implemented. \
-                     The __transform__ methods have been collected from the struct, but automatic \
-                     application of transforms to variable accesses is not yet supported. \
-                     Transform context: {:?}",
-                    definition.name
-                );
             }
         }
     }
