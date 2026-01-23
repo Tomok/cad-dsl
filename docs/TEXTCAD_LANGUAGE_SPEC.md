@@ -427,16 +427,23 @@ distance(&sketch.entities.p1, &sketch.entities.p2) = 20mm;
 
 ## Transform Pattern
 
-### Transform Methods
+### Overview
 
-Structs can define `__transform__` methods that specify how to transform entities of specific types. These methods are automatically invoked when accessing entities within `with` statements.
+Structs can define transform methods that specify how to convert entities from one type to another. There are two kinds of transform methods:
+
+- `__transform__`: For external variables (regular fields and standalone variables)
+- `__transform_container__`: For container variables (dot-prefix variables in `with` blocks)
+
+### Standard Transform Methods (`__transform__`)
+
+The `__transform__` method applies to external variables - variables that exist outside the container or are regular struct fields:
 
 ```rust
 struct Translate {
     offset_x: Length,
     offset_y: Length,
-    
-    // Transform Point entities
+
+    // Transform Point entities for external access
     fn __transform__(p: &Point) -> Point {
         let new_p: Point = point();
         new_p.x = p.x + self.offset_x;
@@ -446,22 +453,97 @@ struct Translate {
 }
 ```
 
+### Container Transform Methods (`__transform_container__`)
+
+The `__transform_container__` method applies specifically to container variables (variables declared with dot-prefix inside `with` blocks):
+
+```rust
+struct Sketch2D {
+    container entities,
+    origin: Point3D,
+    u_axis: Vector3D,
+    v_axis: Vector3D,
+
+    // Transform for container variables (dot-prefix)
+    fn __transform_container__(p3d: &Point3D) -> Point {
+        let local: Vector3D = p3d - self.origin;
+        let u: Length = dot(&local, &self.u_axis);
+        let v: Length = dot(&local, &self.v_axis);
+        point(u, v)
+    }
+
+    // Transform for external variables (regular fields)
+    fn __transform__(p3d: &Point3D) -> Point3D {
+        // No transformation for external access
+        p3d
+    }
+}
+```
+
+### Transform Priority Rules
+
+When a struct defines both `__transform__` and `__transform_container__`:
+
+1. **Container variables** (declared with dot-prefix like `.p`, `.line`) use `__transform_container__`
+2. **External variables** (regular fields, standalone variables) use `__transform__`
+
+When only `__transform__` is defined:
+- It applies to both container and external variables (backwards compatibility)
+
+When only `__transform_container__` is defined:
+- It applies only to container variables
+- External variables are not transformed
+
+### Use Case Example
+
+```rust
+struct Sketch2D {
+    container entities,
+    origin: Point3D,
+    reference_point: Point,  // Regular field
+
+    // For container variables: 3D → 2D projection
+    fn __transform_container__(p3d: &Point3D) -> Point {
+        point(p3d.x - self.origin.x, p3d.y - self.origin.y)
+    }
+
+    // For external variables: no transformation needed
+    fn __transform__(p: &Point) -> Point {
+        p
+    }
+}
+
+let sketch: Sketch2D;
+sketch.origin.x = 100mm;
+sketch.origin.y = 200mm;
+
+with sketch {
+    // Container variable: uses __transform_container__
+    // Declares a 2D Point, backed by a 3D Point3D
+    let .p: Point;
+    .p.x = 10mm;  // Sets 3D shadow to (110mm, 210mm, 0mm)
+}
+
+// External variable: uses __transform__
+sketch.reference_point.x = 50mm;  // Direct access, no transformation
+```
+
 ### Multiple Transform Methods
 
-A struct can define multiple `__transform__` methods for different types:
+A struct can define multiple transform methods for different types, whether standard or container-specific:
 
 ```rust
 struct Scale {
     factor: f64,
     center: Point,
-    
+
     fn __transform__(p: &Point) -> Point {
         let new_p: Point = point();
         new_p.x = self.center.x + (p.x - self.center.x) * self.factor;
         new_p.y = self.center.y + (p.y - self.center.y) * self.factor;
         new_p
     }
-    
+
     fn __transform__(len: &Length) -> Length {
         len * self.factor
     }
