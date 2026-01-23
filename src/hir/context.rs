@@ -112,6 +112,26 @@ pub struct WithContext<'src, 'arena> {
 ///
 /// - `'src`: The lifetime of the source code string
 /// - `'arena`: The lifetime of the arena allocator used for HIR nodes
+///   Kind of transform method.
+///
+/// Transforms can be either standard (for external variables) or
+/// container-specific (for dot-prefix variables in with blocks).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransformMethodKind {
+    /// Standard transform (__transform__) for external variables.
+    ///
+    /// This transform applies to:
+    /// - Regular struct fields accessed from outside
+    /// - Standalone variables in transform contexts
+    Standard,
+
+    /// Container-specific transform (__transform_container__) for dot-prefix variables.
+    ///
+    /// This transform applies specifically to variables declared with
+    /// dot-prefix syntax inside with blocks (e.g., `.p`, `.line`).
+    Container,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransformMethod<'src, 'arena> {
     /// The function definition for this transform method.
@@ -131,6 +151,12 @@ pub struct TransformMethod<'src, 'arena> {
     /// The transform function returns values of this type.
     /// In a transform chain, this must match the input type of the next transform.
     pub output_type: &'arena ResolvedType<'src, 'arena>,
+
+    /// The kind of transform method.
+    ///
+    /// Determines whether this transform applies to container variables
+    /// (dot-prefix in with blocks) or external variables (regular fields).
+    pub kind: TransformMethodKind,
 }
 
 impl<'src, 'arena> WithContext<'src, 'arena> {
@@ -187,15 +213,18 @@ impl<'src, 'arena> TransformMethod<'src, 'arena> {
     /// - `function`: The transform function definition
     /// - `input_type`: The type accepted by this transform
     /// - `output_type`: The type produced by this transform
+    /// - `kind`: The kind of transform (Standard or Container)
     pub fn new(
         function: &'arena FunctionDefinition<'src, 'arena>,
         input_type: &'arena ResolvedType<'src, 'arena>,
         output_type: &'arena ResolvedType<'src, 'arena>,
+        kind: TransformMethodKind,
     ) -> Self {
         Self {
             function,
             input_type,
             output_type,
+            kind,
         }
     }
 }

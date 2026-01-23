@@ -1553,10 +1553,10 @@ fn extract_name<'src>(source: &'src str, name: &str) -> &'src str {
     }
 }
 
-/// Collect all __transform__ methods from a struct definition
+/// Collect all transform methods from a struct definition
 ///
-/// This function searches for all methods named `__transform__` in the given
-/// struct definition and creates TransformMethod objects for each one.
+/// This function searches for methods named `__transform__` or `__transform_container__`
+/// in the given struct definition and creates TransformMethod objects for each one.
 ///
 /// # Parameters
 ///
@@ -1565,35 +1565,41 @@ fn extract_name<'src>(source: &'src str, name: &str) -> &'src str {
 ///
 /// # Returns
 ///
-/// A vector of TransformMethod objects, one for each __transform__ method found
+/// A vector of TransformMethod objects, one for each transform method found
 fn collect_transform_methods<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
     definition: &'arena crate::hir::definitions::StructDefinition<'src, 'arena>,
 ) -> Vec<TransformMethod<'src, 'arena>> {
+    use crate::hir::TransformMethodKind;
+
     let mut transforms = Vec::new();
 
     // Iterate through all methods in the struct
     for method in &definition.methods {
-        // Check if this is a __transform__ method
-        if method.name == "__transform__" {
-            // Extract the input type from the first parameter
-            // __transform__ methods should have exactly one parameter (besides self)
-            if method.params.is_empty() {
-                // Skip: __transform__ requires at least one parameter
-                continue;
-            }
+        // Determine the kind of transform method
+        let kind = match method.name {
+            "__transform__" => TransformMethodKind::Standard,
+            "__transform_container__" => TransformMethodKind::Container,
+            _ => continue, // Not a transform method
+        };
 
-            // The first parameter is the input type
-            let input_param = &method.params[0];
-            let input_type = ctx.arena.alloc(input_param.param_type);
-
-            // The return type is the output type
-            let output_type = ctx.arena.alloc(method.return_type);
-
-            // Create the TransformMethod
-            let transform = TransformMethod::new(method, input_type, output_type);
-            transforms.push(transform);
+        // Extract the input type from the first parameter
+        // Transform methods should have exactly one parameter (besides self)
+        if method.params.is_empty() {
+            // Skip: transform methods require at least one parameter
+            continue;
         }
+
+        // The first parameter is the input type
+        let input_param = &method.params[0];
+        let input_type = ctx.arena.alloc(input_param.param_type);
+
+        // The return type is the output type
+        let output_type = ctx.arena.alloc(method.return_type);
+
+        // Create the TransformMethod with the appropriate kind
+        let transform = TransformMethod::new(method, input_type, output_type, kind);
+        transforms.push(transform);
     }
 
     transforms
