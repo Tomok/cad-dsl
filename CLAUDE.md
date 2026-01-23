@@ -278,6 +278,7 @@ The project has comprehensive test suites for each component. All major componen
 
 ### ❌ Not Yet Implemented
 
+- **Rune Blocks**: Imperative code blocks for complex calculations (see `docs/RUNE_BLOCKS_IMPLEMENTATION.md`)
 - **Standard Library**: `point()`, `distance()`, math functions
 - **Reference Types**: Full entity vs. reference semantics
 - **Functional Operations**: `map`, `reduce`
@@ -295,20 +296,31 @@ The project has comprehensive test suites for each component. All major componen
 
 ### Recommended Priority Order
 
-1. **Standard Library** (High Priority - Game Changer)
+1. **Rune Blocks** (High Priority - In Progress)
+   - Imperative code blocks for complex calculations
+   - Enables algorithms difficult to express as constraints (iterative methods, accumulation, complex conditionals)
+   - Syntax: `let result = rune(x, y) { /* Rune code */ }`
+   - Parameter assignments: `rune(x=p.x, y, z=100) { ... }`
+   - Executes after constraint solving for parameters
+   - Results can constrain other variables (one-way data flow)
+   - **Status**: Planning complete, implementation not started
+   - **Plan**: See `docs/RUNE_BLOCKS_IMPLEMENTATION.md` for detailed implementation plan
+   - **Timeline**: 12-16 days estimated
+
+2. **Standard Library** (High Priority - Game Changer)
    - Basic constructors: `point(x, y)` for Point creation
    - Geometric functions: `distance(p1, p2)`, `midpoint(p1, p2)`
    - Math functions: `sqrt()`, `sin()`, `cos()`, `tan()`, `abs()`
    - Makes language practically usable for CAD workflows
    - Builds on existing function call infrastructure
 
-2. **Reference Types** (Medium Priority)
+3. **Reference Types** (Medium Priority)
    - Entity vs. reference distinction
    - Reference type validation
    - Important for correct semantics
    - Requires type system enhancements
 
-3. **Field Assignment Syntax** (Low Priority)
+4. **Field Assignment Syntax** (Low Priority)
    - Direct field assignment: `p.x = 5` instead of constraint syntax `p.x == 5`
    - Currently workaround exists (use constraints)
    - Nice-to-have for ergonomics but not critical
@@ -609,5 +621,9 @@ Key dependencies:
 - `logos` - Lexical analysis
 - `subenum` - Type-safe enum subsets
 - `z3` - Constraint solver integration
+
+Planned dependencies (for Rune blocks implementation):
+- `rune` - Embedded scripting language for imperative code blocks (not yet added)
+- `rune-alloc` - Memory allocation support for Rune (not yet added)
 
 Z3 constraint solver is provided as both a system dependency (via Nix) and a Rust crate dependency for constraint solving implementation.

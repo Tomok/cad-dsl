@@ -15,11 +15,12 @@
 11. [Arrays](#arrays)
 12. [Functions](#functions)
 13. [Control Flow](#control-flow)
-14. [Functional Operations](#functional-operations)
-15. [Units](#units)
-16. [Comments](#comments)
-17. [Standard Library](#standard-library)
-18. [Complete Examples](#complete-examples)
+14. [Rune Blocks](#rune-blocks)
+15. [Functional Operations](#functional-operations)
+16. [Units](#units)
+17. [Comments](#comments)
+18. [Standard Library](#standard-library)
+19. [Complete Examples](#complete-examples)
 
 ---
 
@@ -884,6 +885,303 @@ let sum: Length = [0..5]
 
 ---
 
+## Rune Blocks
+
+### Overview
+
+Rune blocks enable imperative computations within the declarative constraint-based language. While TextCAD excels at expressing geometric relationships through constraints, some calculations are more naturally expressed as imperative code with sequential steps, loops with accumulation, or complex conditional logic.
+
+Rune blocks use the Rune scripting language (a Rust-like syntax) to perform computations that would be difficult or impossible to express as pure constraints.
+
+### Motivation
+
+Rune blocks are useful for:
+
+- **Complex calculations**: Algorithms that are difficult to express as constraints (e.g., iterative algorithms, accumulation)
+- **Mathematical functions**: Trigonometric calculations, numerical methods, series computations
+- **Conditional logic**: Imperative if/else branches with side effects (not constraint-based conditionals)
+- **External computations**: Calling external libraries or performing operations outside the constraint domain
+
+### Basic Syntax
+
+A rune block is declared using the `rune` keyword followed by a parameter list and a block of Rune code:
+
+```rust
+let result = rune(param1, param2) {
+    // Rune code (Rust-like imperative syntax)
+    let x = param1 * 2;
+    let y = param2 + 10;
+    x + y
+};
+```
+
+### Parameter Syntax
+
+Rune blocks support two forms of parameters:
+
+**Direct parameter**: The variable is passed directly with the same name:
+```rust
+let x: f64 = 5.0;
+let y = rune(x) {
+    x * x  // x is available with the same name
+};
+```
+
+**Parameter with assignment**: Allows renaming or passing expressions:
+```rust
+struct Point { x: f64, y: f64 }
+let p: Point;
+p.x == 10.0;
+p.y == 20.0;
+
+// Rename fields for clarity
+let distance = rune(px=p.x, py=p.y) {
+    (px * px + py * py).sqrt()
+};
+
+// Pass constants
+let scaled = rune(x=p.x, factor=2.0) {
+    x * factor
+};
+```
+
+Parameter assignments can be:
+- Variable names: `x` (direct pass-through)
+- Field accesses: `x=p.x` (extract struct field)
+- Expressions: `x=p.x * 2.0` (computed value)
+- Constants: `x=100` (literal value)
+
+### Execution Model
+
+Rune blocks execute **after constraint solving** for their parameters, similar to for-loop execution:
+
+```
+1. Constraint solver determines values for all parameters
+2. Once all parameters are known, rune block executes
+3. Rune block returns a value
+4. Returned value can be used in further constraints
+```
+
+**Important constraint direction**:
+```rust
+let x: f64;
+x > 0.0;  // x must be determinable from constraints
+
+let y = rune(x) { x * x };  // y is computed after x is known
+
+let z: f64;
+z == y + 10.0;  // y can constrain other variables ✅
+
+// INVALID: y cannot backward-constrain x
+y < 100.0;  // Error! x must be fully determined before rune executes
+```
+
+The parameter variables must be fully constrained **before** the rune block can execute. The rune block's result can then constrain other variables, but cannot influence its own parameters.
+
+### Type Inference
+
+Rune blocks use implicit type inference. The return type is inferred from the rune code:
+
+```rust
+let x: i32 = 42;
+let y = rune(x) {
+    x * 2  // Returns i32
+};
+
+let a: f64 = 3.14;
+let b = rune(a) {
+    a.sin()  // Returns f64
+};
+```
+
+### Rune Language Features
+
+Rune blocks can use standard Rune language features:
+
+**Variables and mutations**:
+```rust
+let result = rune(n) {
+    let mut sum = 0;
+    for i in 0..n {
+        sum += i;
+    }
+    sum
+};
+```
+
+**Control flow**:
+```rust
+let value = rune(x) {
+    if x > 10 {
+        x * 2
+    } else {
+        x + 5
+    }
+};
+```
+
+**Standard library functions**:
+```rust
+let angle_deg: f64;
+angle_deg > 0.0;
+angle_deg < 90.0;
+
+let radius = rune(angle_deg) {
+    use std::f64::consts::PI;
+    let rad = angle_deg * PI / 180.0;
+    50.0 * rad.sin()
+};
+```
+
+**Returning struct values**:
+```rust
+struct Point { x: f64, y: f64 }
+
+let angle: f64;
+angle == 45.0;
+
+let p: Point = rune(angle) {
+    use std::f64::consts::PI;
+    let rad = angle * PI / 180.0;
+    let r = 50.0;
+    Point {
+        x: r * rad.cos(),
+        y: r * rad.sin(),
+    }
+};
+```
+
+### Nested Braces
+
+Rune code can contain nested braces for blocks, structs, and control flow:
+
+```rust
+let result = rune(x) {
+    let y = {
+        let temp = x + 5;
+        temp * 2
+    };
+
+    if y > 20 {
+        Point { x: y, y: 0.0 }
+    } else {
+        Point { x: 0.0, y: y }
+    }
+};
+```
+
+The parser correctly handles nested braces by counting brace depth.
+
+### Examples
+
+**Fibonacci number**:
+```rust
+let n: i32 = 10;
+
+let fib = rune(n) {
+    let mut a = 0;
+    let mut b = 1;
+    for i in 0..n {
+        let temp = a + b;
+        a = b;
+        b = temp;
+    }
+    b
+};
+```
+
+**Polar to Cartesian conversion**:
+```rust
+struct Point { x: f64, y: f64 }
+
+let radius: f64;
+let angle_deg: f64;
+radius == 50.0;
+angle_deg == 45.0;
+
+let cartesian: Point = rune(r=radius, a=angle_deg) {
+    use std::f64::consts::PI;
+    let angle_rad = a * PI / 180.0;
+    Point {
+        x: r * angle_rad.cos(),
+        y: r * angle_rad.sin(),
+    }
+};
+```
+
+**Complex geometric calculation**:
+```rust
+struct Point { x: f64, y: f64 }
+
+let p1: Point;
+let p2: Point;
+let p3: Point;
+p1.x == 0.0;
+p1.y == 0.0;
+p2.x == 10.0;
+p2.y == 0.0;
+p3.x == 5.0;
+p3.y == 8.66;
+
+// Calculate triangle area using Heron's formula
+let area = rune(ax=p1.x, ay=p1.y, bx=p2.x, by=p2.y, cx=p3.x, cy=p3.y) {
+    let a = ((bx - cx).powi(2) + (by - cy).powi(2)).sqrt();
+    let b = ((ax - cx).powi(2) + (ay - cy).powi(2)).sqrt();
+    let c = ((ax - bx).powi(2) + (ay - by).powi(2)).sqrt();
+    let s = (a + b + c) / 2.0;
+    (s * (s - a) * (s - b) * (s - c)).sqrt()
+};
+```
+
+**Iterative numerical method**:
+```rust
+let initial_guess: f64;
+initial_guess == 2.0;
+
+// Newton's method for square root of 10
+let sqrt_10 = rune(x0=initial_guess) {
+    let target = 10.0;
+    let mut x = x0;
+    for i in 0..10 {
+        x = (x + target / x) / 2.0;
+    }
+    x
+};
+```
+
+### Limitations
+
+Current implementation restrictions:
+
+- **One-way data flow**: Rune results cannot backward-constrain their parameters
+- **No entity creation**: Rune blocks cannot create geometric entities (only compute values)
+- **Execution timing**: Rune blocks execute after constraint solving, not during
+- **Type compatibility**: Parameter and return types must be compatible with CAD-DSL type system
+
+### Integration with Constraint Solving
+
+Rune blocks complement the constraint-based approach:
+
+**Constraints** → Determine parameter values → **Rune blocks** → Compute results → **More constraints** → Use results
+
+```rust
+// Step 1: Constraints determine x
+let x: f64;
+x > 0.0;
+x < 10.0;
+
+// Step 2: Rune computes y from x
+let y = rune(x) {
+    x * x + 2.0 * x + 1.0
+};
+
+// Step 3: Use y in further constraints
+let z: f64;
+z == y / 2.0;
+```
+
+---
+
 ## Functional Operations
 
 ### Map
@@ -1473,7 +1771,7 @@ with sketch_plane {
 
 The following keywords are reserved and cannot be used as identifiers:
 
-`struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`
+`struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`, `rune`
 
 ---
 
@@ -1484,7 +1782,7 @@ The following keywords are reserved and cannot be used as identifiers:
 These are built into the language itself:
 
 - **Types**: `Point`, `Length`, `Angle`, `Area`, `bool`, `i32`, `f64`, `Real`, `Algebraic`
-- **Keywords**: `struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`
+- **Keywords**: `struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`, `rune`
 - **Syntax**: Struct definitions, function definitions, with statements, for loops, dot prefix notation
 - **Semantics**: Constraint-based assignment, entity vs reference distinction, container semantics, transform pattern
 
