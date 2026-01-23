@@ -273,17 +273,15 @@ The project has comprehensive test suites for each component. All major componen
   - Nested structs with qualified names
   - Recursive struct detection
   - **Container with-statements** (dot-prefix syntax for namespacing)
-
-### 🚧 Partially Implemented
-
-- **Transform With-Statements**: Parsed and in HIR, transform semantics not in solver (container contexts fully supported)
+  - **Transform with-statements**: Automatic coordinate transformations via `__transform__` methods with shadow variables
+  - **Struct literals**: Full support in variable initialization and transform return values
 
 ### ❌ Not Yet Implemented
 
 - **Standard Library**: `point()`, `distance()`, math functions
 - **Reference Types**: Full entity vs. reference semantics
-- **Transform Pattern**: `__transform__` methods (for coordinate transformations)
 - **Functional Operations**: `map`, `reduce`
+- **Field Assignment**: Direct field assignment syntax (`p.x = 5` not supported, use constraint syntax `p.x == 5`)
 
 ### 🔮 Future Features (Low Priority)
 
@@ -310,10 +308,10 @@ The project has comprehensive test suites for each component. All major componen
    - Important for correct semantics
    - Requires type system enhancements
 
-3. **Transform With-Statements** (Low Priority)
-   - Coordinate transformations via `__transform__` methods
-   - Automatic variable transformation in transform contexts
-   - Complex feature, defer until core is stable
+3. **Field Assignment Syntax** (Low Priority)
+   - Direct field assignment: `p.x = 5` instead of constraint syntax `p.x == 5`
+   - Currently workaround exists (use constraints)
+   - Nice-to-have for ergonomics but not critical
 
 ### Extension Guidelines
 
@@ -339,8 +337,10 @@ When adding new features to the constraint solver:
   - If-statements with conditional constraints (Z3 ITE), nested if-statements, assignments in branches
   - For loops with constant or variable-dependent ranges (automatic loop unrolling and deferred solving)
 - **Functions**: Function calls (inlining with parameter substitution), method calls (with receiver binding)
-- **Struct Features**: Nested structs with qualified names (e.g., `line.start.x`), struct literal type inference
-- **With-Statements**: Container contexts with dot-prefix syntax for namespacing
+- **Struct Features**: Nested structs with qualified names (e.g., `line.start.x`), struct literal initialization (e.g., `Point { x: 5, y: 10 }`)
+- **With-Statements**:
+  - Container contexts with dot-prefix syntax for namespacing
+  - Transform contexts with automatic coordinate transformations via `__transform__` methods
 
 ### Limitations
 
@@ -357,9 +357,9 @@ When adding new features to the constraint solver:
 - No standard library yet (no built-in `point()`, `distance()`, math functions)
 - No recursion support
 
-**With-Statements:**
-- Transform with-statements (coordinate transformations via `__transform__` methods) not supported
-- Only container contexts are supported
+**Struct Features:**
+- Field assignment syntax not supported: `p.x = 5` must be written as constraint `p.x == 5`
+- Struct literal initialization is fully supported: `let p: Point = Point { x: 5, y: 10 };`
 
 ### Examples
 
@@ -542,6 +542,61 @@ b = 10
 ```
 
 **How it works:** The function call `double(a)` is inlined by substituting the parameter `x` with the argument `a` in the function's return expression. This creates the constraint `b = a * 2`, which the solver resolves using the constraint `a == 5`.
+
+#### Transform With-Statement Example
+
+**Input file (transform_example.cad):**
+```
+struct Point2D {
+    x: f64,
+    y: f64,
+}
+
+struct Point3D {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+struct Sketch2D {
+    container entities,
+    origin: Point3D,
+
+    fn __transform__(p3d: &Point3D) -> Point2D {
+        return Point2D {
+            x: p3d.x - self.origin.x,
+            y: p3d.y - self.origin.y,
+        };
+    }
+}
+
+let sketch: Sketch2D;
+sketch.origin.x == 0.0;
+sketch.origin.y == 0.0;
+sketch.origin.z == 0.0;
+
+with sketch {
+    let .p: Point2D;
+    .p.x == 10.0;
+    .p.y == 20.0;
+}
+```
+
+**Command:**
+```bash
+cargo run -- solve transform_example.cad
+```
+
+**Output:**
+```
+sketch.entities.p.x = 10
+sketch.entities.p.y = 20
+sketch.origin.x = 0
+sketch.origin.y = 0
+sketch.origin.z = 0
+```
+
+**How it works:** When a variable is declared with a 2D type in a transform context, the solver automatically creates a shadow 3D variable and applies the `__transform__` method. The constraints link the declared 2D variable to the transformed shadow 3D variable. Shadow variables are internal and filtered from the output, only the final 2D coordinates are shown.
 
 ## Dependencies
 

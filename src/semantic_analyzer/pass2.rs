@@ -665,23 +665,21 @@ fn resolve_with_statement<'src, 'arena>(
     // Create a with-context based on the type of the context expression
     let with_ctx = match resolved_context.ty {
         ResolvedType::UserDefined { definition, .. } => {
+            // Collect transforms from the struct (may be empty)
+            let transforms = collect_transform_methods(ctx, definition);
+
             // Check if the struct has a container field
-            if let Some(container_field) = definition.container_field {
-                // Create a container context
-                ctx.arena.alloc(WithContext::new_container(
-                    resolved_context,
-                    container_field,
-                ))
-            } else {
-                // Create a transform context
-                // Collect all __transform__ methods from the struct
-                let transforms = collect_transform_methods(ctx, definition);
-                ctx.arena
-                    .alloc(WithContext::new_transform(resolved_context, transforms))
-            }
+            let container_field = definition.container_field;
+
+            // Create a with-context that may have both container and transform features
+            ctx.arena.alloc(WithContext {
+                context_expr: resolved_context,
+                container_field,
+                transforms,
+            })
         }
         _ => {
-            // For non-struct types, create a transform context
+            // For non-struct types, create a transform context with no transforms
             ctx.arena.alloc(WithContext::new_transform(
                 resolved_context,
                 vec![], // No transforms for non-struct types
@@ -3000,7 +2998,7 @@ mod tests {
 
         let resolved_context = resolve_expression(&mut ctx, &context_expr).unwrap();
 
-        use crate::hir::context::{TransformMethod, WithContext};
+        use crate::hir::context::WithContext;
         let with_ctx = ctx
             .arena
             .alloc(WithContext::new_transform(resolved_context, vec![]));
@@ -3116,7 +3114,7 @@ mod tests {
 
         let resolved_context = resolve_expression(&mut ctx, &context_expr).unwrap();
 
-        use crate::hir::context::{TransformMethod, WithContext};
+        use crate::hir::context::WithContext;
         let with_ctx = ctx
             .arena
             .alloc(WithContext::new_transform(resolved_context, vec![]));

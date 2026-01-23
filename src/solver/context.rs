@@ -129,12 +129,19 @@ pub enum WithContextInfo<'src, 'arena> {
     /// Container with-statement: `with container { .field }`
     ///
     /// Variables declared with dot-prefix are placed in the container field.
+    /// May also have transforms if the container struct defines __transform__ methods.
     Container {
         /// Path to the container variable
         container_path: VariablePath<'src>,
 
         /// The container field definition
         container_field: &'arena crate::hir::definitions::ContainerField<'src, 'arena>,
+
+        /// Available transform methods (may be empty if no transforms defined)
+        transforms: Vec<crate::hir::TransformMethod<'src, 'arena>>,
+
+        /// The context expression (for binding "self" in transform methods)
+        context_expr: &'arena crate::hir::expr::ResolvedExpr<'src, 'arena>,
     },
 
     /// Transform with-statement: coordinate transformations
@@ -299,12 +306,14 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                 let info = WithContextInfo::Container {
                     container_path: VariablePath::from_name(definition.name),
                     container_field,
+                    transforms: with_context.transforms.clone(),
+                    context_expr: with_context.context_expr,
                 };
                 self.with_stack.push(info);
                 self.scope_level += 1;
             }
         } else if !with_context.transforms.is_empty() {
-            // This is a transform context
+            // This is a transform-only context (no container)
             // Extract the source variable from the context expression
             if let ResolvedExprKind::Var { definition, .. } = &with_context.context_expr.kind {
                 let info = WithContextInfo::Transform {
@@ -458,6 +467,18 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                     let child_node = self.build_variable_tree(&child_path, &field.field_type)?;
                     children.insert(field.name, child_node);
                 }
+
+                // If the struct has a container field, create an empty struct node for it
+                // This allows variables to be added to the container later
+                if let Some(container_field) = definition.container_field {
+                    children.insert(
+                        container_field.name,
+                        VariableNode::Struct {
+                            children: HashMap::new(),
+                        },
+                    );
+                }
+
                 Ok(VariableNode::Struct { children })
             }
 
@@ -613,7 +634,11 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         let mut solution = Solution::new();
 
         // Walk through all variables and collect primitive values
+        // Skip shadow variables (internal transform implementation detail)
         for (root_name, root_node) in &self.variables {
+            if root_name.starts_with("__shadow_") {
+                continue;
+            }
             let root_path = VariablePath::from_name(root_name);
             self.extract_node_values(&root_path, root_node, &model, &mut solution)?;
         }
@@ -908,16 +933,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lexer::{LineColumn, Span};
     use assert_matches::assert_matches;
-
-    fn test_span() -> Span {
-        Span {
-            start: LineColumn { line: 1, column: 1 },
-            lines: 0,
-            end_column: 10,
-        }
-    }
 
     #[test]
     fn test_path_from_name() {
