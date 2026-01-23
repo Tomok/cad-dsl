@@ -1246,6 +1246,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
     /// This method supports type-based alias tracking by checking function return types.
     /// It handles:
     /// - Explicit references: `&x`, `&p.x`, `&arr[0]`
+    /// - Variables with reference types: `p` where `p: &Type`
     /// - Functions returning references: `get_ref()` where `fn get_ref() -> &Type`
     /// - Methods returning references: `obj.get_ref()` where method returns `&Type`
     ///
@@ -1259,6 +1260,13 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         match &expr.kind {
             // Explicit reference expression (&x)
             ResolvedExprKind::Ref { inner } => self.build_var_path(inner, ctx).ok(),
+
+            // Variable with reference type - the variable itself is the target
+            // This handles cases like: `fn f(p: &T) -> Container { return Container { ref: p }; }`
+            // where `p` has a reference type
+            ResolvedExprKind::Var { .. } if expr.ty.is_reference() => {
+                self.build_var_path(expr, ctx).ok()
+            }
 
             // Parentheses - unwrap and recurse
             ResolvedExprKind::Paren { inner } => {
@@ -1441,6 +1449,191 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         Ok(())
     }
 
+    /// Process a reference field in a transform result
+    ///
+    /// When a transform returns a struct literal with reference fields,
+    /// those references need special handling:
+    /// - If the reference target's type matches the field's inner type: create direct alias
+    /// - If the types differ: apply appropriate transform to create a new shadow variable
+    ///
+    /// This implements "transparent" reference transformation semantics.
+    fn process_reference_field_in_transform(
+        &self,
+        ctx: &mut SolverContext<'src, 'arena>,
+        base_path: &VariablePath<'src>,
+        field: &crate::hir::expr::ResolvedStructLitField<'src, 'arena>,
+        transforms: &[crate::hir::TransformMethod<'src, 'arena>],
+        context_expr: &'arena ResolvedExpr<'src, 'arena>,
+    ) -> Result<(), SolverError> {
+        use crate::hir::expr::ResolvedStructLitField;
+
+        // Extract field information
+        let (field_name, field_value, field_def) = match field {
+            ResolvedStructLitField::Field {
+                name,
+                value,
+                field_def,
+                ..
+            } => (name, value, field_def),
+            _ => {
+                return Err(SolverError::UnsupportedExpression(
+                    "Only regular fields supported in transform struct literals".to_string(),
+                ));
+            }
+        };
+
+        // Extract the inner type from the reference
+        let field_inner_type = field_def.field_type.as_reference().ok_or_else(|| {
+            SolverError::ContextError("Expected reference type for reference field".to_string())
+        })?;
+
+        // Extract reference target recursively
+        let mut target_path = self
+            .extract_reference_target_with_inlining(field_value, ctx)
+            .ok_or_else(|| {
+                SolverError::ContextError(format!(
+                    "Reference field '{}' must have a clear reference target",
+                    field_name
+                ))
+            })?;
+
+        // Follow alias chain for nested references
+        target_path = ctx.resolve_alias(&target_path);
+
+        // Get the target variable's type
+        // We need to infer the type from the variable node structure
+        // For shadow variables, we can look at what they point to
+        // For regular variables, we need to traverse the path to get the type
+
+        // For now, let's assume we can get the type from the variable path
+        // We'll need to determine the target type somehow...
+        // Actually, looking at the existing code, I don't see a direct way to get the type
+        // from a variable path. Let me think about this differently.
+
+        // The issue is: we have a target_path (e.g., "__shadow_0" or "sketch.origin")
+        // and we need to know its type to decide if we need to transform it.
+
+        // One approach: Check if there's a transform that takes the field_inner_type
+        // as input and outputs the same field_inner_type. If not, we might need to
+        // look for a transform.
+
+        // But actually, the simpler approach is: try to find a transform from
+        // some input type to field_inner_type. If we find one, we know we need
+        // to transform. If not, we assume types match.
+
+        // Even simpler: let's just try to solve the field_value to see if it works.
+        // If it's a simple reference to a same-typed variable, create an alias.
+        // If it requires transformation, we'll need to handle it.
+
+        // Actually, re-reading the plan and user's intent: the user wants us to
+        // transform references when they point to shadow variables of a different type.
+
+        // The challenge is determining the target's type. Let me look for clues...
+        // Looking at the shadow variable creation code, shadows are created with a type,
+        // but that type isn't stored in the variable tree.
+
+        // Wait! I have an idea. Let me check if the target is a struct by trying to
+        // access it in the variable tree and seeing what kind of node it is.
+        // Then I can look at the transforms to see if any of them have an input type
+        // that would match a struct.
+
+        // Actually, there's a simpler approach: I can try both strategies:
+        // 1. First, try to create a direct alias (assume types match)
+        // 2. If that fails or if we detect it's a shadow variable with known transform,
+        //    then apply the transform
+
+        // Let me use a heuristic: if the target variable name starts with "__shadow_",
+        // it's likely a shadow variable that might need transformation.
+        // Otherwise, create a direct alias.
+
+        let target_name = target_path.to_z3_name();
+        let is_shadow = target_name.starts_with("__shadow_");
+
+        if !is_shadow {
+            // Not a shadow variable - create direct alias
+            let field_path = base_path.with_field(field_name);
+            ctx.register_alias(field_path, target_path);
+            return Ok(());
+        }
+
+        // Shadow variable - we might need to transform it
+        // Try to find a transform that produces the field's inner type
+        // We'll try all transforms and see which ones match
+
+        // Find transforms that output the field_inner_type
+        let matching_transforms: Vec<_> = transforms
+            .iter()
+            .filter(|t| Self::types_match_semantically(t.output_type, field_inner_type))
+            .collect();
+
+        if matching_transforms.is_empty() {
+            // No matching transform - assume types match and create direct alias
+            let field_path = base_path.with_field(field_name);
+            ctx.register_alias(field_path, target_path);
+            return Ok(());
+        }
+
+        if matching_transforms.len() > 1 {
+            return Err(SolverError::ContextError(format!(
+                "Multiple transforms found for reference field '{}' with type {:?}",
+                field_name, field_inner_type
+            )));
+        }
+
+        let transform_method = matching_transforms[0];
+
+        // Create new shadow variable for the transformed reference
+        let new_shadow_path = self.create_shadow_variable(ctx, field_inner_type)?;
+
+        // Create reference expression for the original target
+        let target_ref_expr =
+            self.create_var_ref_expr(ctx, &target_path, transform_method.input_type)?;
+
+        // Apply transform to link the new shadow to the original target
+        let transform_result =
+            self.inline_transform_method(ctx, context_expr, transform_method, &[target_ref_expr])?;
+
+        // Add constraint linking new shadow to transform result
+        // Handle struct literals specially
+        use crate::hir::expr::ResolvedExprKind;
+        match &transform_result.kind {
+            ResolvedExprKind::StructLit { fields, .. } => {
+                // For struct literals, create field-wise equality constraints
+                for result_field in fields {
+                    use crate::hir::expr::ResolvedStructLitField;
+                    match result_field {
+                        ResolvedStructLitField::Field { name, value, .. } => {
+                            let field_z3 = value.solve(ctx)?;
+                            let shadow_field_path = new_shadow_path.with_field(name);
+                            self.add_struct_equality_constraint(
+                                ctx,
+                                &shadow_field_path,
+                                &field_z3,
+                            )?;
+                        }
+                        ResolvedStructLitField::ComputedProperty { .. } => {
+                            return Err(SolverError::UnsupportedExpression(
+                                "Computed properties not supported in reference field transforms"
+                                    .to_string(),
+                            ));
+                        }
+                    }
+                }
+            }
+            _ => {
+                // For non-struct, solve to Z3 and add constraint
+                let result_z3 = transform_result.solve(ctx)?;
+                self.add_struct_equality_constraint(ctx, &new_shadow_path, &result_z3)?;
+            }
+        }
+
+        // Register alias from reference field to the transformed shadow
+        let field_path = base_path.with_field(field_name);
+        ctx.register_alias(field_path, new_shadow_path);
+
+        Ok(())
+    }
+
     /// Apply transform to a variable declaration in transform context
     ///
     /// Creates a shadow variable and links it to the declared variable
@@ -1526,10 +1719,21 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         use crate::hir::expr::{ResolvedExprKind, ResolvedStructLitField};
         match &transform_result.kind {
             ResolvedExprKind::StructLit { fields, .. } => {
-                // For struct literals, create field-wise equality constraints
+                // Two-pass processing for struct literal fields:
+                // Pass 1: Process non-reference fields
                 for field in fields {
                     match field {
-                        ResolvedStructLitField::Field { name, value, .. } => {
+                        ResolvedStructLitField::Field {
+                            name,
+                            value,
+                            field_def,
+                            ..
+                        } => {
+                            // Skip reference fields - they'll be handled in pass 2
+                            if field_def.field_type.is_reference() {
+                                continue;
+                            }
+
                             // Solve the field value expression to Z3
                             let field_z3 = value.solve(ctx)?;
 
@@ -1546,6 +1750,22 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                             ));
                         }
                     }
+                }
+
+                // Pass 2: Process reference fields with transform-aware aliasing
+                for field in fields {
+                    if let ResolvedStructLitField::Field { field_def, .. } = field {
+                        // Only process reference fields
+                        if field_def.field_type.is_reference() {
+                            self.process_reference_field_in_transform(
+                                ctx,
+                                var_path,
+                                field,
+                                &transforms,
+                                context_expr,
+                            )?;
+                        }
+                    } // Computed properties already handled in pass 1
                 }
             }
             _ => {
