@@ -1558,6 +1558,55 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         Ok(())
     }
 
+    /// Select appropriate transform for a variable based on context
+    ///
+    /// # Parameters
+    /// - `transforms`: Available transform methods
+    /// - `declared_type`: The type of the variable being declared
+    /// - `is_container_variable`: True if this is a container variable (dot-prefix)
+    ///
+    /// # Returns
+    /// The matching transform method, or None if no suitable transform exists
+    #[allow(dead_code)] // Used in Step 6
+    fn select_transform_method<'t>(
+        transforms: &'t [crate::hir::TransformMethod<'src, 'arena>],
+        declared_type: &'arena ResolvedType<'src, 'arena>,
+        is_container_variable: bool,
+    ) -> Option<&'t crate::hir::TransformMethod<'src, 'arena>> {
+        use crate::hir::TransformMethodKind;
+
+        // Filter transforms by output type match
+        let matching: Vec<_> = transforms
+            .iter()
+            .filter(|t| Self::types_match_semantically(t.output_type, declared_type))
+            .collect();
+
+        if matching.is_empty() {
+            return None;
+        }
+
+        if is_container_variable {
+            // Container variables: prefer __transform_container__, fallback to __transform__
+            if let Some(t) = matching
+                .iter()
+                .find(|t| matches!(t.kind, TransformMethodKind::Container))
+            {
+                return Some(t);
+            }
+            // Fallback to standard transform
+            matching
+                .iter()
+                .find(|t| matches!(t.kind, TransformMethodKind::Standard))
+                .copied()
+        } else {
+            // External variables: only use __transform__ (standard)
+            matching
+                .iter()
+                .find(|t| matches!(t.kind, TransformMethodKind::Standard))
+                .copied()
+        }
+    }
+
     /// Create a shadow variable in the current scope
     ///
     /// Shadow variables are used to link transformed variables to their
