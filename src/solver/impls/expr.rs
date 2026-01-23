@@ -381,6 +381,56 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 self.inline_method(receiver, method_name, method, args, ctx)
             }
 
+            // Container field access (dot-prefix variables in with-statements)
+            ResolvedExprKind::ContainerFieldAccess {
+                resolved_path,
+                with_context,
+                ..
+            } => {
+                // Build the full path: container.container_field.resolved_path
+                // Extract container variable name from with_context.context_expr
+                let container_name = match &with_context.context_expr.kind {
+                    ResolvedExprKind::Var { name, .. } => name,
+                    _ => {
+                        return Err(SolverError::ContextError(
+                            "Container field access requires variable context".to_string(),
+                        ));
+                    }
+                };
+
+                // Get container field name
+                let container_field_name = with_context
+                    .container_field
+                    .ok_or_else(|| {
+                        SolverError::ContextError(
+                            "Container field access without container field".to_string(),
+                        )
+                    })?
+                    .name;
+
+                // Build the full path: container.container_field.resolved_path
+                let mut full_path = VariablePath::from_name(container_name);
+                full_path = full_path.with_field(container_field_name);
+                for field in resolved_path {
+                    full_path = full_path.with_field(field);
+                }
+
+                // Get the variable
+                let var_node = ctx
+                    .get_variable(&full_path)
+                    .ok_or_else(|| SolverError::UndefinedVariable(format!("{}", full_path)))?;
+
+                let z3_var = var_node
+                    .as_primitive()
+                    .ok_or(SolverError::NotAPrimitiveType)?;
+
+                Ok(match z3_var {
+                    Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
+                    Z3Primitive::Real(z3_real) => Z3Expr::Real(z3_real.clone()),
+                    Z3Primitive::Bool(z3_bool) => Z3Expr::Bool(z3_bool.clone()),
+                })
+            }
+
             // Unsupported expressions
             _ => Err(SolverError::UnsupportedExpression(format!(
                 "{:?}",
@@ -850,7 +900,51 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
                 return Ok(expr);
             }
 
-            // Struct literals, array literals, ranges, closures - not needed for basic function calls
+            // Struct literals - substitute in field value expressions
+            ResolvedExprKind::StructLit { name, fields } => {
+                use crate::hir::expr::ResolvedStructLitField;
+
+                let sub_fields = fields
+                    .iter()
+                    .map(|field| match field {
+                        ResolvedStructLitField::Field {
+                            name,
+                            value,
+                            field_def,
+                            span,
+                        } => {
+                            let sub_value = self.substitute_parameters(value, param_map, ctx)?;
+                            Ok(ResolvedStructLitField::Field {
+                                name,
+                                value: sub_value,
+                                field_def,
+                                span: *span,
+                            })
+                        }
+                        ResolvedStructLitField::ComputedProperty {
+                            name,
+                            value,
+                            method_def,
+                            span,
+                        } => {
+                            let sub_value = self.substitute_parameters(value, param_map, ctx)?;
+                            Ok(ResolvedStructLitField::ComputedProperty {
+                                name,
+                                value: sub_value,
+                                method_def,
+                                span: *span,
+                            })
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                ResolvedExprKind::StructLit {
+                    name,
+                    fields: sub_fields,
+                }
+            }
+
+            // Array literals, ranges, closures - not needed for basic function calls
             _ => {
                 return Err(SolverError::UnsupportedExpression(format!(
                     "Parameter substitution not supported for this expression type: {:?}",

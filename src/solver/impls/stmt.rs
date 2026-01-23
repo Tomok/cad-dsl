@@ -29,6 +29,7 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                         Some(WithContextInfo::Container {
                             container_path,
                             container_field,
+                            ..
                         }) => {
                             // Construct path: container.field.varname
                             let var_name = name_path.first().map(|(n, _)| *n).ok_or_else(|| {
@@ -1454,27 +1455,44 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         declared_type: &'arena ResolvedType<'src, 'arena>,
     ) -> Result<(), SolverError> {
         // 1. Get transform context info
-        let (transforms, context_expr) = match ctx.current_with_context() {
+        let (transforms, context_expr, is_pure_transform) = match ctx.current_with_context() {
             Some(WithContextInfo::Transform {
                 transforms,
                 context_expr,
                 ..
-            }) => (transforms.clone(), *context_expr),
+            }) => (transforms.clone(), *context_expr, true),
+            Some(WithContextInfo::Container {
+                transforms,
+                context_expr,
+                ..
+            }) => (transforms.clone(), *context_expr, false),
             _ => return Ok(()), // Not in transform context, nothing to do
         };
 
+        // If there are no transforms, return early
+        if transforms.is_empty() {
+            return Ok(());
+        }
+
         // 2. Find matching transform method (output type == declared type)
+        // Use semantic type comparison (ignoring spans) instead of direct ==
         let matching_transforms: Vec<_> = transforms
             .iter()
-            .filter(|t| t.output_type == declared_type)
+            .filter(|t| Self::types_match_semantically(t.output_type, declared_type))
             .collect();
 
         if matching_transforms.is_empty() {
-            // No matching transform - this is an error
-            return Err(SolverError::ContextError(format!(
-                "No transform found for type {:?} in transform context",
-                declared_type
-            )));
+            // No matching transform found
+            if is_pure_transform {
+                // For pure transform contexts, this is an error
+                return Err(SolverError::ContextError(format!(
+                    "No transform found for type {:?} in transform context",
+                    declared_type
+                )));
+            } else {
+                // For container contexts, no transform is okay - just use the variable as-is
+                return Ok(());
+            }
         }
 
         if matching_transforms.len() > 1 {
@@ -1504,7 +1522,38 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
             self.inline_transform_method(ctx, context_expr, transform_method, &[shadow_ref_expr])?;
 
         // 7. Add constraint: var_path == transform_result
-        self.add_struct_equality_constraint(ctx, var_path, &transform_result)?;
+        // Handle struct literals specially by creating field-wise constraints
+        use crate::hir::expr::{ResolvedExprKind, ResolvedStructLitField};
+        match &transform_result.kind {
+            ResolvedExprKind::StructLit { fields, .. } => {
+                // For struct literals, create field-wise equality constraints
+                for field in fields {
+                    match field {
+                        ResolvedStructLitField::Field { name, value, .. } => {
+                            // Solve the field value expression to Z3
+                            let field_z3 = value.solve(ctx)?;
+
+                            // Create path to the struct field
+                            let field_path = var_path.with_field(name);
+
+                            // Add equality constraint for this field
+                            self.add_struct_equality_constraint(ctx, &field_path, &field_z3)?;
+                        }
+                        ResolvedStructLitField::ComputedProperty { .. } => {
+                            return Err(SolverError::UnsupportedExpression(
+                                "Computed properties in transform results not supported"
+                                    .to_string(),
+                            ));
+                        }
+                    }
+                }
+            }
+            _ => {
+                // For non-struct expressions, solve to Z3 and add constraint
+                let result_z3 = transform_result.solve(ctx)?;
+                self.add_struct_equality_constraint(ctx, var_path, &result_z3)?;
+            }
+        }
 
         Ok(())
     }
@@ -1585,13 +1634,14 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
     /// Inline a transform method call
     ///
     /// Similar to inline_method in expr.rs, but used specifically for transforms.
+    /// Returns the inlined expression (not yet converted to Z3).
     fn inline_transform_method(
         &self,
         ctx: &mut SolverContext<'src, 'arena>,
         receiver_expr: &'arena ResolvedExpr<'src, 'arena>,
         transform: &crate::hir::TransformMethod<'src, 'arena>,
         args: &[&'arena ResolvedExpr<'src, 'arena>],
-    ) -> Result<Z3Expr, SolverError> {
+    ) -> Result<&'arena ResolvedExpr<'src, 'arena>, SolverError> {
         // Get the method from the transform
         let method = transform.function;
 
@@ -1626,8 +1676,8 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         // Note: substitute_parameters is a method on ResolvedExpr, so we call it on return_expr
         let inlined_expr = return_expr.substitute_parameters(return_expr, &param_map, ctx)?;
 
-        // Solve the inlined expression
-        inlined_expr.solve(ctx)
+        // Return the inlined expression (caller will handle conversion to Z3)
+        Ok(inlined_expr)
     }
 
     /// Add a constraint that a variable equals a Z3 expression
@@ -1673,5 +1723,53 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         Err(SolverError::UnsupportedExpression(
             "Transform result must be a primitive or solved struct literal".to_string(),
         ))
+    }
+
+    /// Compare two types semantically (ignoring span information)
+    ///
+    /// This is used for matching transform output types with declared types,
+    /// where the same logical type may have been parsed at different source locations.
+    fn types_match_semantically(
+        type1: &ResolvedType<'src, 'arena>,
+        type2: &ResolvedType<'src, 'arena>,
+    ) -> bool {
+        match (type1, type2) {
+            (ResolvedType::I32 { .. }, ResolvedType::I32 { .. }) => true,
+            (ResolvedType::F64 { .. }, ResolvedType::F64 { .. }) => true,
+            (ResolvedType::Bool { .. }, ResolvedType::Bool { .. }) => true,
+            (
+                ResolvedType::UserDefined {
+                    name: name1,
+                    definition: def1,
+                    ..
+                },
+                ResolvedType::UserDefined {
+                    name: name2,
+                    definition: def2,
+                    ..
+                },
+            ) => {
+                // Compare by struct name and definition pointer
+                // If they point to the same definition, they're the same type
+                name1 == name2 && std::ptr::eq(*def1 as *const _, *def2 as *const _)
+            }
+            (
+                ResolvedType::Reference { inner: inner1, .. },
+                ResolvedType::Reference { inner: inner2, .. },
+            ) => Self::types_match_semantically(inner1, inner2),
+            (
+                ResolvedType::Array {
+                    element_type: elem1,
+                    size: size1,
+                    ..
+                },
+                ResolvedType::Array {
+                    element_type: elem2,
+                    size: size2,
+                    ..
+                },
+            ) => size1 == size2 && Self::types_match_semantically(elem1, elem2),
+            _ => false,
+        }
     }
 }
