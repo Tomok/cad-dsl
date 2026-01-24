@@ -82,6 +82,28 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 field_name,
                 ..
             } => {
+                // Special case: field access on a struct literal (e.g., from inlined function)
+                // Instead of treating it as a variable path, extract the field value and solve it
+                if let ResolvedExprKind::StructLit { fields, .. } = &receiver.kind {
+                    use crate::hir::expr::ResolvedStructLitField;
+
+                    // Find the field in the struct literal
+                    for field in fields {
+                        if let ResolvedStructLitField::Field { name, value, .. } = field
+                            && name == field_name
+                        {
+                            // Recursively solve the field value
+                            return value.solve(ctx);
+                        }
+                    }
+
+                    return Err(SolverError::UnsupportedExpression(format!(
+                        "Field '{}' not found in struct literal",
+                        field_name
+                    )));
+                }
+
+                // Normal case: field access on a variable
                 // Recursively build the path
                 let base_path = self.build_variable_path(receiver, ctx)?;
                 let full_path = base_path.with_field(field_name);
@@ -215,18 +237,160 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
 
             // Binary operations - Comparisons
             ResolvedExprKind::Eq { lhs, rhs } => {
-                let lhs_z3 = lhs.solve(ctx)?;
-                let rhs_z3 = rhs.solve(ctx)?;
+                // First, check if RHS is a function call that might return a struct
+                // If so, inline it (parameter substitution only) to get the actual struct literal
+                let rhs_resolved = if let ResolvedExprKind::FunctionCall {
+                    name,
+                    function,
+                    args,
+                } = &rhs.kind
+                {
+                    use std::collections::HashMap;
 
-                match (lhs_z3, rhs_z3) {
-                    (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.eq(&r))),
-                    (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.eq(&r))),
-                    (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real().eq(&r))),
-                    (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.eq(r.to_real()))),
-                    (Z3Expr::Bool(l), Z3Expr::Bool(r)) => Ok(Z3Expr::Bool(l.eq(&r))),
-                    _ => Err(SolverError::UnsupportedExpression(
-                        "Invalid types for equality comparison".to_string(),
-                    )),
+                    // Get the return expression from the context
+                    let return_expr = ctx.get_function_return(name).ok_or_else(|| {
+                        SolverError::UnsupportedExpression(format!(
+                            "Function '{}' has no return expression registered",
+                            name
+                        ))
+                    })?;
+
+                    // Create parameter substitution map
+                    let mut param_map: HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>> =
+                        HashMap::new();
+                    for (param, arg) in function.params.iter().zip(args.iter()) {
+                        param_map.insert(param.name, *arg);
+                    }
+
+                    // Substitute parameters in the return expression (but don't solve yet)
+                    self.substitute_parameters(return_expr, &param_map, ctx)?
+                } else {
+                    rhs
+                };
+
+                // Apply transforms to the RHS if we're in a transform context
+                // This handles cases like: cubes[1] == new_cube() inside a transform with-block
+                let rhs_transformed = if let ResolvedExprKind::StructLit { .. } = &rhs_resolved.kind
+                {
+                    self.apply_transforms_to_struct_literal(ctx, rhs_resolved)?
+                } else {
+                    rhs_resolved
+                };
+
+                // Special handling for struct equality: if RHS is a struct literal,
+                // we need to create field-wise equality constraints instead of
+                // trying to solve the struct as a primitive
+                if let ResolvedExprKind::StructLit { fields, .. } = &rhs_transformed.kind {
+                    use crate::hir::expr::ResolvedStructLitField;
+
+                    // Build the LHS path (must be a variable path)
+                    let lhs_path = self.build_variable_path(lhs, ctx)?;
+
+                    // Create a boolean constraint combining all field equalities
+                    let mut field_constraints: Vec<z3::ast::Bool> = Vec::new();
+
+                    for field in fields {
+                        match field {
+                            ResolvedStructLitField::Field { name, value, .. } => {
+                                let field_path = lhs_path.with_field(name);
+
+                                // Check if this field value is itself a struct literal (nested struct)
+                                if let ResolvedExprKind::StructLit {
+                                    fields: nested_fields,
+                                    ..
+                                } = &value.kind
+                                {
+                                    // Recursively handle nested struct literal
+                                    for nested_field in nested_fields {
+                                        if let ResolvedStructLitField::Field {
+                                            name: nested_name,
+                                            value: nested_value,
+                                            ..
+                                        } = nested_field
+                                        {
+                                            let nested_path = field_path.with_field(nested_name);
+                                            let nested_z3_value = nested_value.solve(ctx)?;
+                                            let nested_z3_var =
+                                                self.get_variable_z3(ctx, &nested_path)?;
+
+                                            let nested_eq = match (nested_z3_var, nested_z3_value) {
+                                                (Z3Expr::Int(v), Z3Expr::Int(val)) => v.eq(&val),
+                                                (Z3Expr::Real(v), Z3Expr::Real(val)) => v.eq(&val),
+                                                (Z3Expr::Int(v), Z3Expr::Real(val)) => {
+                                                    v.to_real().eq(&val)
+                                                }
+                                                (Z3Expr::Real(v), Z3Expr::Int(val)) => {
+                                                    v.eq(val.to_real())
+                                                }
+                                                (Z3Expr::Bool(v), Z3Expr::Bool(val)) => v.eq(&val),
+                                                _ => {
+                                                    return Err(SolverError::UnsupportedExpression(
+                                                        format!(
+                                                            "Type mismatch in nested struct field equality for field '{}.{}'",
+                                                            name, nested_name
+                                                        ),
+                                                    ));
+                                                }
+                                            };
+                                            field_constraints.push(nested_eq);
+                                        }
+                                    }
+                                } else {
+                                    // Regular primitive field
+                                    let field_z3_value = value.solve(ctx)?;
+                                    let field_z3_var = self.get_variable_z3(ctx, &field_path)?;
+
+                                    let field_eq = match (field_z3_var, field_z3_value) {
+                                        (Z3Expr::Int(v), Z3Expr::Int(val)) => v.eq(&val),
+                                        (Z3Expr::Real(v), Z3Expr::Real(val)) => v.eq(&val),
+                                        (Z3Expr::Int(v), Z3Expr::Real(val)) => v.to_real().eq(&val),
+                                        (Z3Expr::Real(v), Z3Expr::Int(val)) => v.eq(val.to_real()),
+                                        (Z3Expr::Bool(v), Z3Expr::Bool(val)) => v.eq(&val),
+                                        _ => {
+                                            return Err(SolverError::UnsupportedExpression(
+                                                format!(
+                                                    "Type mismatch in struct field equality for field '{}'",
+                                                    name
+                                                ),
+                                            ));
+                                        }
+                                    };
+                                    field_constraints.push(field_eq);
+                                }
+                            }
+                            ResolvedStructLitField::ComputedProperty { .. } => {
+                                return Err(SolverError::UnsupportedExpression(
+                                    "Computed properties in struct equality not supported"
+                                        .to_string(),
+                                ));
+                            }
+                        }
+                    }
+
+                    // Combine all field constraints with AND
+                    if field_constraints.is_empty() {
+                        // Empty struct - always true
+                        Ok(Z3Expr::Bool(z3::ast::Bool::from_bool(true)))
+                    } else {
+                        let combined =
+                            z3::ast::Bool::and(&field_constraints.iter().collect::<Vec<_>>());
+                        Ok(Z3Expr::Bool(combined))
+                    }
+                } else {
+                    // Normal primitive equality
+                    let lhs_z3 = lhs.solve(ctx)?;
+                    let rhs_z3 = rhs_resolved.solve(ctx)?;
+
+                    match (lhs_z3, rhs_z3) {
+                        (Z3Expr::Int(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.eq(&r))),
+                        (Z3Expr::Real(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.eq(&r))),
+                        (Z3Expr::Int(l), Z3Expr::Real(r)) => Ok(Z3Expr::Bool(l.to_real().eq(&r))),
+                        (Z3Expr::Real(l), Z3Expr::Int(r)) => Ok(Z3Expr::Bool(l.eq(r.to_real()))),
+                        (Z3Expr::Bool(l), Z3Expr::Bool(r)) => Ok(Z3Expr::Bool(l.eq(&r))),
+                        _ => Err(SolverError::UnsupportedExpression(
+                            "Invalid types for equality comparison".to_string(),
+                        )),
+                    }
                 }
             }
 
@@ -467,9 +631,10 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
                 Ok(inner_path.with_index(index_val as usize))
             }
 
-            _ => Err(SolverError::UnsupportedExpression(
-                "Cannot build variable path from this expression".to_string(),
-            )),
+            _ => Err(SolverError::UnsupportedExpression(format!(
+                "Cannot build variable path from this expression: {:?}",
+                base.kind
+            ))),
         }
     }
 
@@ -962,13 +1127,325 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
         }))
     }
 
-    // TODO: Implement transform application
-    // fn inline_transform() - to be added when transform semantics are fully designed
-    //
-    // Transforms require creating shadow variables and linking them via constraints,
-    // which is more complex than simple function inlining. The infrastructure is in place
-    // (WithContext tracking, TransformMethod collection), but the actual application
-    // needs more design work to handle the lifetime and semantics correctly.
+    /// Get Z3 variable from a variable path
+    ///
+    /// Helper method to retrieve the Z3 expression for a variable at the given path.
+    fn get_variable_z3(
+        &self,
+        ctx: &SolverContext<'src, 'arena>,
+        path: &VariablePath<'src>,
+    ) -> Result<Z3Expr, SolverError> {
+        let var_node = ctx
+            .get_variable(path)
+            .ok_or_else(|| SolverError::UndefinedVariable(path.to_z3_name()))?;
+
+        let z3_var = var_node
+            .as_primitive()
+            .ok_or(SolverError::NotAPrimitiveType)?;
+
+        Ok(match z3_var {
+            crate::solver::context::Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
+            crate::solver::context::Z3Primitive::Real(z3_real) => Z3Expr::Real(z3_real.clone()),
+            crate::solver::context::Z3Primitive::Bool(z3_bool) => Z3Expr::Bool(z3_bool.clone()),
+        })
+    }
+
+    /// Apply transforms to a struct literal expression
+    ///
+    /// Recursively applies the active transform stack to all fields in a struct literal
+    /// that match transform input types. This is used when assigning struct values
+    /// inside transform with-blocks.
+    ///
+    /// # Parameters
+    /// - `ctx`: The solver context (contains transform stack)
+    /// - `struct_lit_expr`: The struct literal expression to transform
+    ///
+    /// # Returns
+    /// The transformed struct literal expression, or the original if no transforms apply
+    fn apply_transforms_to_struct_literal(
+        &self,
+        ctx: &mut SolverContext<'src, 'arena>,
+        struct_lit_expr: &'arena ResolvedExpr<'src, 'arena>,
+    ) -> Result<&'arena ResolvedExpr<'src, 'arena>, SolverError> {
+        use crate::hir::expr::ResolvedStructLitField;
+        use crate::solver::context::WithContextInfo;
+
+        // Get the current transform context
+        let (transforms, context_expr) = match ctx.current_with_context() {
+            Some(WithContextInfo::Transform {
+                transforms,
+                context_expr,
+                ..
+            }) => (transforms.clone(), *context_expr),
+            Some(WithContextInfo::Container {
+                transforms,
+                context_expr,
+                ..
+            }) => {
+                if transforms.is_empty() {
+                    return Ok(struct_lit_expr); // No transforms to apply
+                }
+                (transforms.clone(), *context_expr)
+            }
+            None => return Ok(struct_lit_expr), // Not in transform context
+        };
+
+        if transforms.is_empty() {
+            return Ok(struct_lit_expr);
+        }
+
+        // Only process struct literals
+        let ResolvedExprKind::StructLit { name, fields } = &struct_lit_expr.kind else {
+            return Ok(struct_lit_expr);
+        };
+
+        // First, check if there are transforms that apply to this struct type itself
+        // (e.g., __transform__(p: &Point3D) -> Point3D)
+        let struct_type = struct_lit_expr.ty;
+
+        // Apply ALL matching transforms in sequence (for nested with-blocks)
+        // The transforms are ordered from outermost to innermost in the stack,
+        // but we want to apply them from innermost to outermost (reverse order).
+        let matching_transforms: Vec<_> = transforms
+            .iter()
+            .filter(|t| {
+                use crate::hir::TransformMethodKind;
+                // Only use standard transforms for struct literal field transforms
+                matches!(t.kind, TransformMethodKind::Standard)
+                    && self.types_match_semantically(t.output_type, struct_type)
+            })
+            .collect();
+
+        if !matching_transforms.is_empty() {
+            // Apply transforms in sequence
+            // NOTE: The transforms list is ordered [outermost, ..., innermost]
+            // We want to apply innermost first, so iterate in reverse
+            let mut result = struct_lit_expr;
+            for transform_method in matching_transforms.iter().rev() {
+                result =
+                    self.inline_transform_method(ctx, context_expr, transform_method, &[result])?;
+            }
+            return Ok(result);
+        }
+
+        // TODO: Nested transform contexts are not fully supported yet.
+        // The transform stack from the SolverContext only contains the transforms
+        // from the current with-block, not the accumulated transforms from outer blocks.
+        // This needs to be fixed in the WithContext management to properly accumulate
+        // transforms as we enter nested with-blocks.
+        // Current behavior: Only applies the innermost transform
+        // Expected behavior: Apply all transforms in the stack (outermost to innermost)
+
+        // Transform each field recursively (for nested structs)
+        let transformed_fields: Vec<ResolvedStructLitField<'src, 'arena>> = fields
+            .iter()
+            .map(|field| match field {
+                ResolvedStructLitField::Field {
+                    name: field_name,
+                    value,
+                    field_def,
+                    span: field_span,
+                } => {
+                    // Get the type of this field
+                    let field_type = &field_def.field_type;
+
+                    // Check if there's a transform for this field type
+                    match self.select_transform_method(&transforms, field_type)? {
+                        Some(transform_method) => {
+                            // Apply the transform to this field value
+                            let transformed_value =
+                                if let ResolvedExprKind::StructLit { .. } = &value.kind {
+                                    // Recursively transform nested struct literals
+                                    self.apply_transforms_to_struct_literal(ctx, value)?
+                                } else {
+                                    value
+                                };
+
+                            // Inline the transform: context.__transform__(field_value)
+                            let inlined = self.inline_transform_method(
+                                ctx,
+                                context_expr,
+                                transform_method,
+                                &[transformed_value],
+                            )?;
+
+                            Ok(ResolvedStructLitField::Field {
+                                name: field_name,
+                                value: inlined,
+                                field_def,
+                                span: *field_span,
+                            })
+                        }
+                        None => {
+                            // No transform for this field type, keep as is
+                            // But still recursively check nested struct literals
+                            if let ResolvedExprKind::StructLit { .. } = &value.kind {
+                                let transformed_value =
+                                    self.apply_transforms_to_struct_literal(ctx, value)?;
+                                Ok(ResolvedStructLitField::Field {
+                                    name: field_name,
+                                    value: transformed_value,
+                                    field_def,
+                                    span: *field_span,
+                                })
+                            } else {
+                                Ok(field.clone())
+                            }
+                        }
+                    }
+                }
+                ResolvedStructLitField::ComputedProperty { .. } => {
+                    Err(SolverError::UnsupportedExpression(
+                        "Computed properties in struct literals not supported".to_string(),
+                    ))
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Create a new struct literal with transformed fields
+        let transformed_lit = ctx.arena.alloc(ResolvedExpr {
+            kind: ResolvedExprKind::StructLit {
+                name,
+                fields: transformed_fields,
+            },
+            ty: struct_lit_expr.ty,
+            span: struct_lit_expr.span,
+        });
+
+        Ok(transformed_lit)
+    }
+
+    /// Select appropriate transform for a given type
+    ///
+    /// Returns the matching transform method, or None if no transform matches
+    fn select_transform_method<'t>(
+        &self,
+        transforms: &'t [crate::hir::TransformMethod<'src, 'arena>],
+        target_type: &'arena crate::hir::types::ResolvedType<'src, 'arena>,
+    ) -> Result<Option<&'t crate::hir::TransformMethod<'src, 'arena>>, SolverError> {
+        use crate::hir::TransformMethodKind;
+
+        // Filter transforms by output type match
+        let matching: Vec<_> = transforms
+            .iter()
+            .filter(|t| self.types_match_semantically(t.output_type, target_type))
+            .collect();
+
+        if matching.is_empty() {
+            return Ok(None);
+        }
+
+        // For struct literal field transforms, we only use standard transforms
+        let standard_methods: Vec<_> = matching
+            .iter()
+            .filter(|t| matches!(t.kind, TransformMethodKind::Standard))
+            .copied()
+            .collect();
+
+        if standard_methods.len() > 1 {
+            return Err(SolverError::ContextError(format!(
+                "Multiple __transform__ methods found for type {:?}. \
+                 Transform methods must have unique output types.",
+                target_type
+            )));
+        }
+
+        Ok(standard_methods.first().copied())
+    }
+
+    /// Inline a transform method call
+    ///
+    /// Similar to function inlining, but specifically for __transform__ methods
+    fn inline_transform_method(
+        &self,
+        ctx: &mut SolverContext<'src, 'arena>,
+        receiver_expr: &'arena ResolvedExpr<'src, 'arena>,
+        transform: &crate::hir::TransformMethod<'src, 'arena>,
+        args: &[&'arena ResolvedExpr<'src, 'arena>],
+    ) -> Result<&'arena ResolvedExpr<'src, 'arena>, SolverError> {
+        use std::collections::HashMap;
+
+        // Get the method from the transform
+        let method = transform.function;
+
+        // Get the qualified name (for methods: StructName::__transform__)
+        let qualified_name = if let Some(parent) = method.parent_struct {
+            format!("{}::{}", parent.name, "__transform__")
+        } else {
+            "__transform__".to_string()
+        };
+
+        // Get the return expression
+        let return_expr = ctx.get_function_return(&qualified_name).ok_or_else(|| {
+            SolverError::UnsupportedExpression(format!(
+                "Transform method '{}' has no return expression registered",
+                qualified_name
+            ))
+        })?;
+
+        // Create parameter substitution map
+        let mut param_map: HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>> = HashMap::new();
+
+        // Bind "self" to the receiver expression
+        param_map.insert("self", receiver_expr);
+
+        // Bind parameters to arguments
+        for (param, arg) in method.params.iter().zip(args.iter()) {
+            param_map.insert(param.name, *arg);
+        }
+
+        // Substitute parameters in the return expression
+        let inlined_expr = self.substitute_parameters(return_expr, &param_map, ctx)?;
+
+        Ok(inlined_expr)
+    }
+
+    /// Compare two types semantically (ignoring span information)
+    fn types_match_semantically(
+        &self,
+        type1: &crate::hir::types::ResolvedType<'src, 'arena>,
+        type2: &crate::hir::types::ResolvedType<'src, 'arena>,
+    ) -> bool {
+        use crate::hir::types::ResolvedType;
+
+        match (type1, type2) {
+            (ResolvedType::I32 { .. }, ResolvedType::I32 { .. }) => true,
+            (ResolvedType::F64 { .. }, ResolvedType::F64 { .. }) => true,
+            (ResolvedType::Bool { .. }, ResolvedType::Bool { .. }) => true,
+            (
+                ResolvedType::UserDefined {
+                    name: name1,
+                    definition: def1,
+                    ..
+                },
+                ResolvedType::UserDefined {
+                    name: name2,
+                    definition: def2,
+                    ..
+                },
+            ) => {
+                // Compare by struct name and definition pointer
+                name1 == name2 && std::ptr::eq(*def1 as *const _, *def2 as *const _)
+            }
+            (
+                ResolvedType::Reference { inner: inner1, .. },
+                ResolvedType::Reference { inner: inner2, .. },
+            ) => self.types_match_semantically(inner1, inner2),
+            (
+                ResolvedType::Array {
+                    element_type: elem1,
+                    size: size1,
+                    ..
+                },
+                ResolvedType::Array {
+                    element_type: elem2,
+                    size: size2,
+                    ..
+                },
+            ) => size1 == size2 && self.types_match_semantically(elem1, elem2),
+            _ => false,
+        }
+    }
 }
 
 #[cfg(test)]
