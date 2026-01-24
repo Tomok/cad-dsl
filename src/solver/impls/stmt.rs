@@ -1454,57 +1454,51 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         var_path: &VariablePath<'src>,
         declared_type: &'arena ResolvedType<'src, 'arena>,
     ) -> Result<(), SolverError> {
-        // 1. Get transform context info
-        let (transforms, context_expr, is_pure_transform) = match ctx.current_with_context() {
-            Some(WithContextInfo::Transform {
-                transforms,
-                context_expr,
-                ..
-            }) => (transforms.clone(), *context_expr, true),
-            Some(WithContextInfo::Container {
-                transforms,
-                context_expr,
-                ..
-            }) => (transforms.clone(), *context_expr, false),
-            _ => return Ok(()), // Not in transform context, nothing to do
-        };
+        // 1. Get transform context info and determine variable type
+        let (transforms, context_expr, is_pure_transform, is_container_variable) =
+            match ctx.current_with_context() {
+                Some(WithContextInfo::Transform {
+                    transforms,
+                    context_expr,
+                    ..
+                }) => (transforms.clone(), *context_expr, true, false),
+                Some(WithContextInfo::Container {
+                    transforms,
+                    context_expr,
+                    container_path,
+                    container_field,
+                    ..
+                }) => {
+                    // Check if this is a container variable by comparing paths
+                    let container_prefix = container_path.with_field(container_field.name);
+                    let is_container_var = var_path.starts_with(&container_prefix);
+                    (transforms.clone(), *context_expr, false, is_container_var)
+                }
+                _ => return Ok(()), // Not in transform context
+            };
 
-        // If there are no transforms, return early
         if transforms.is_empty() {
             return Ok(());
         }
 
-        // 2. Find matching transform method (output type == declared type)
-        // Use semantic type comparison (ignoring spans) instead of direct ==
-        let matching_transforms: Vec<_> = transforms
-            .iter()
-            .filter(|t| Self::types_match_semantically(t.output_type, declared_type))
-            .collect();
-
-        if matching_transforms.is_empty() {
-            // No matching transform found
-            if is_pure_transform {
-                // For pure transform contexts, this is an error
-                return Err(SolverError::ContextError(format!(
-                    "No transform found for type {:?} in transform context",
-                    declared_type
-                )));
-            } else {
-                // For container contexts, no transform is okay - just use the variable as-is
-                return Ok(());
+        // 2. Select appropriate transform based on variable type
+        let transform_method = match Self::select_transform_method(
+            &transforms,
+            declared_type,
+            is_container_variable,
+        ) {
+            Some(t) => t,
+            None => {
+                if is_pure_transform || is_container_variable {
+                    return Err(SolverError::ContextError(format!(
+                        "No matching transform for type {:?}",
+                        declared_type
+                    )));
+                } else {
+                    return Ok(());
+                }
             }
-        }
-
-        if matching_transforms.len() > 1 {
-            // Multiple matching transforms - this is an error
-            return Err(SolverError::ContextError(format!(
-                "Multiple transforms found for type {:?} in transform context. \
-                 Transform methods must have unique output types.",
-                declared_type
-            )));
-        }
-
-        let transform_method = matching_transforms[0];
+        };
 
         // 3. Get input type from transform method's first parameter
         let input_type = &transform_method.input_type;
@@ -1567,7 +1561,6 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
     ///
     /// # Returns
     /// The matching transform method, or None if no suitable transform exists
-    #[allow(dead_code)] // Used in Step 6
     fn select_transform_method<'t>(
         transforms: &'t [crate::hir::TransformMethod<'src, 'arena>],
         declared_type: &'arena ResolvedType<'src, 'arena>,
