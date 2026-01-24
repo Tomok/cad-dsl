@@ -1494,23 +1494,21 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         }
 
         // 2. Select appropriate transform based on variable type
-        let transform_method = match Self::select_transform_method(
-            &transforms,
-            declared_type,
-            is_container_variable,
-        ) {
-            Some(t) => t,
-            None => {
-                if is_pure_transform || is_container_variable {
-                    return Err(SolverError::ContextError(format!(
-                        "No matching transform for type {:?}",
-                        declared_type
-                    )));
-                } else {
-                    return Ok(());
+        let transform_method =
+            match Self::select_transform_method(&transforms, declared_type, is_container_variable)?
+            {
+                Some(t) => t,
+                None => {
+                    if is_pure_transform || is_container_variable {
+                        return Err(SolverError::ContextError(format!(
+                            "No matching transform for type {:?}",
+                            declared_type
+                        )));
+                    } else {
+                        return Ok(());
+                    }
                 }
-            }
-        };
+            };
 
         // 3. Get input type from transform method's first parameter
         let input_type = &transform_method.input_type;
@@ -1572,12 +1570,12 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
     /// - `is_container_variable`: True if this is a container variable (dot-prefix)
     ///
     /// # Returns
-    /// The matching transform method, or None if no suitable transform exists
+    /// The matching transform method, or error if none found or ambiguous
     fn select_transform_method<'t>(
         transforms: &'t [crate::hir::TransformMethod<'src, 'arena>],
         declared_type: &'arena ResolvedType<'src, 'arena>,
         is_container_variable: bool,
-    ) -> Option<&'t crate::hir::TransformMethod<'src, 'arena>> {
+    ) -> Result<Option<&'t crate::hir::TransformMethod<'src, 'arena>>, SolverError> {
         use crate::hir::TransformMethodKind;
 
         // Filter transforms by output type match
@@ -1587,28 +1585,62 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
             .collect();
 
         if matching.is_empty() {
-            return None;
+            return Ok(None);
         }
 
         if is_container_variable {
             // Container variables: prefer __transform_container__, fallback to __transform__
-            if let Some(t) = matching
+            let container_methods: Vec<_> = matching
                 .iter()
-                .find(|t| matches!(t.kind, TransformMethodKind::Container))
-            {
-                return Some(t);
-            }
-            // Fallback to standard transform
-            matching
-                .iter()
-                .find(|t| matches!(t.kind, TransformMethodKind::Standard))
+                .filter(|t| matches!(t.kind, TransformMethodKind::Container))
                 .copied()
+                .collect();
+
+            if container_methods.len() > 1 {
+                return Err(SolverError::ContextError(format!(
+                    "Multiple __transform_container__ methods found for type {:?}. \
+                     Transform methods must have unique output types.",
+                    declared_type
+                )));
+            }
+
+            if let Some(&t) = container_methods.first() {
+                return Ok(Some(t));
+            }
+
+            // Fallback to standard transform
+            let standard_methods: Vec<_> = matching
+                .iter()
+                .filter(|t| matches!(t.kind, TransformMethodKind::Standard))
+                .copied()
+                .collect();
+
+            if standard_methods.len() > 1 {
+                return Err(SolverError::ContextError(format!(
+                    "Multiple __transform__ methods found for type {:?}. \
+                     Transform methods must have unique output types.",
+                    declared_type
+                )));
+            }
+
+            Ok(standard_methods.first().copied())
         } else {
             // External variables: only use __transform__ (standard)
-            matching
+            let standard_methods: Vec<_> = matching
                 .iter()
-                .find(|t| matches!(t.kind, TransformMethodKind::Standard))
+                .filter(|t| matches!(t.kind, TransformMethodKind::Standard))
                 .copied()
+                .collect();
+
+            if standard_methods.len() > 1 {
+                return Err(SolverError::ContextError(format!(
+                    "Multiple __transform__ methods found for type {:?}. \
+                     Transform methods must have unique output types.",
+                    declared_type
+                )));
+            }
+
+            Ok(standard_methods.first().copied())
         }
     }
 
