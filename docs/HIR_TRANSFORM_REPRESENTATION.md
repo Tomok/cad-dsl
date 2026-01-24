@@ -6,7 +6,7 @@ This document describes a planned architectural improvement to move transform-re
 
 **Status**: Planning (Not Yet Implemented)
 
-**Estimated Effort**: 5-7 days
+**Estimated Effort**: 6-8 days
 
 **Priority**: High (Architectural improvement)
 
@@ -164,23 +164,41 @@ pub enum VarDefinitionKind<'src, 'arena> {
 
     /// Defined through coordinate transform: `with sketch { let .p: Point2D; }`
     /// The variable's value is computed by transforming a shadow variable
+    /// Supports nested transforms via transform_chain
     Transformed {
         /// The internal shadow variable (e.g., `__shadow_0: Point3D`)
         /// This variable is not declared by the user but created automatically
-        /// to represent the pre-transform coordinate space
+        /// to represent the pre-transform coordinate space (outermost)
         shadow_var: &'arena VarDefinition<'src, 'arena>,
 
-        /// The transform constraint expression
-        /// Represents: self_var == transform_method(context, &shadow_var)
-        /// Example: `.p == sketch.__transform__(&__shadow_0)`
+        /// The complete transform chain from outermost to innermost
+        /// For single transform: vec has one element
+        /// For nested transforms: `with outer { with inner { ... } }`
+        /// Chain is [outer_transform, inner_transform] applied in order
+        transform_chain: Vec<TransformStep<'src, 'arena>>,
+
+        /// The final transform expression after composing all transforms
+        /// Represents: self_var == innermost_transform(...(outermost_transform(&shadow_var)))
+        /// Example: `.p == inner.__transform__(outer.__transform__(&__shadow_0))`
         transform_expr: &'arena ResolvedExpr<'src, 'arena>,
-
-        /// The transform method being applied
-        transform_method: &'arena FunctionDefinition<'src, 'arena>,
-
-        /// The with-context that provides the transform
-        with_context: &'arena WithContext<'src, 'arena>,
     },
+}
+
+/// A single step in a transform chain
+#[derive(Debug, Clone, PartialEq)]
+pub struct TransformStep<'src, 'arena> {
+    /// The transform method being applied in this step
+    pub transform_method: &'arena FunctionDefinition<'src, 'arena>,
+
+    /// The with-context that provides this transform
+    pub with_context: &'arena WithContext<'src, 'arena>,
+
+    /// Input type for this transform step
+    pub input_type: &'arena ResolvedType<'src, 'arena>,
+
+    /// Output type for this transform step
+    pub output_type: &'arena ResolvedType<'src, 'arena>,
+}
 }
 ```
 
@@ -311,25 +329,84 @@ impl<'src, 'arena> AnalyzerContext<'src, 'arena> {
 }
 ```
 
-#### 2.2 Add Transform Detection Logic
+#### 2.2 Add ScopeStack Method for Transform Chains
+
+First, add a method to `ScopeStack` to get all active with-contexts:
 
 ```rust
-/// Check if a variable type requires transform in current with-context
+// In src/hir/scope.rs
+
+impl<'src, 'arena> ScopeStack<'src, 'arena> {
+    /// Returns all active with-contexts from outermost to innermost
+    ///
+    /// This is needed for nested transform chains. When transforms are nested,
+    /// they should be applied in order from outermost to innermost.
+    ///
+    /// # Example
+    ///
+    /// ```cad
+    /// with outer {          // Context 1
+    ///     with inner {      // Context 2
+    ///         let .p: T;    // Needs both transforms: outer then inner
+    ///     }
+    /// }
+    /// ```
+    pub fn all_with_contexts(&self) -> Vec<&'arena WithContext<'src, 'arena>> {
+        self.scopes
+            .iter()
+            .filter_map(|scope| scope.with_context)
+            .collect()
+    }
+}
+```
+
+Then add transform chain detection logic in semantic analyzer:
+
+```rust
+// In src/semantic_analyzer/pass2.rs
+
+/// Check if a variable type requires transform in current with-context(s)
+/// Returns the complete transform chain if transforms are needed
 fn should_apply_transform<'src, 'arena>(
     ctx: &AnalyzerContext<'src, 'arena>,
     var_type: &ResolvedType<'src, 'arena>,
-) -> Option<&'arena TransformMethod<'src, 'arena>> {
-    let with_ctx = ctx.scope_stack.current_with_context()?;
+) -> Option<Vec<TransformStep<'src, 'arena>>> {
+    let with_contexts = ctx.scope_stack.all_with_contexts();
+    if with_contexts.is_empty() {
+        return None;
+    }
 
-    // Find transform method with matching output type
-    with_ctx.transforms.iter()
-        .find(|tm| types_match(tm.output_type, var_type))
+    // Build transform chain from outermost to innermost
+    let mut transform_chain = Vec::new();
+    let mut current_type = var_type;
+
+    // Work backwards from innermost to outermost to find matching transforms
+    for with_ctx in with_contexts.iter().rev() {
+        // Find transform that outputs current_type
+        if let Some(transform) = with_ctx.transforms.iter()
+            .find(|tm| types_match(tm.output_type, current_type))
+        {
+            transform_chain.insert(0, TransformStep {
+                transform_method: transform.function,
+                with_context: with_ctx,
+                input_type: transform.input_type,
+                output_type: transform.output_type,
+            });
+            current_type = transform.input_type;
+        }
+    }
+
+    if transform_chain.is_empty() {
+        None
+    } else {
+        Some(transform_chain)
+    }
 }
 ```
 
 #### 2.3 Modify Variable Declaration Logic
 
-Extend `resolve_let_statement()` to detect and apply transforms:
+Extend `resolve_let_statement()` to detect and apply transform chains:
 
 ```rust
 fn resolve_let_statement<'src, 'arena>(
@@ -342,13 +419,13 @@ fn resolve_let_statement<'src, 'arena>(
     // Resolve type
     let var_type = resolve_type(ctx, ty)?;
 
-    // Check if this variable should be transformed
-    if let Some(transform_method) = should_apply_transform(ctx, &var_type) {
+    // Check if this variable should be transformed (returns chain)
+    if let Some(transform_chain) = should_apply_transform(ctx, &var_type) {
         return resolve_transformed_variable(
             ctx,
             name_path,
             var_type,
-            transform_method,
+            transform_chain,  // Now a Vec, not a single transform
             span
         );
     }
@@ -365,21 +442,22 @@ fn resolve_transformed_variable<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
     name_path: &[(&'src str, Span)],
     output_type: &'arena ResolvedType<'src, 'arena>,
-    transform_method: &'arena TransformMethod<'src, 'arena>,
+    transform_chain: Vec<TransformStep<'src, 'arena>>,  // Changed: now a chain
     span: Span,
 ) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
-    let with_ctx = ctx.scope_stack.current_with_context()
-        .expect("Transform without with-context");
-
     // 1. Generate shadow variable name
     let shadow_name = ctx.generate_shadow_name();
     let shadow_name_arena = ctx.arena.alloc_str(&shadow_name);
 
-    // 2. Create shadow variable with input type
+    // 2. Create shadow variable with input type (of first/outermost transform)
+    let shadow_input_type = transform_chain.first()
+        .expect("Transform chain should not be empty")
+        .input_type;
+
     let shadow_var_def = ctx.arena.alloc(VarDefinition {
         name: shadow_name_arena,
         name_span: span,
-        var_type: Some(transform_method.input_type),
+        var_type: Some(shadow_input_type),
         definition_kind: VarDefinitionKind::Uninitialized,
         scope_level: ctx.scope_stack.current_level(),
         span,
@@ -388,11 +466,10 @@ fn resolve_transformed_variable<'src, 'arena>(
     // 3. Register shadow variable in scope
     ctx.scope_stack.add_variable(shadow_name_arena, shadow_var_def);
 
-    // 4. Build transform expression: var == context.__transform__(&shadow)
-    let transform_expr = build_transform_expression(
+    // 4. Build chained transform expression: var == inner(outer(&shadow))
+    let transform_expr = build_chained_transform_expression(
         ctx,
-        with_ctx,
-        transform_method,
+        &transform_chain,
         shadow_var_def,
         span,
     )?;
@@ -405,9 +482,8 @@ fn resolve_transformed_variable<'src, 'arena>(
         var_type: Some(output_type),
         definition_kind: VarDefinitionKind::Transformed {
             shadow_var: shadow_var_def,
+            transform_chain: transform_chain.clone(),  // Store the complete chain
             transform_expr,
-            transform_method: transform_method.function,
-            with_context: with_ctx,
         },
         scope_level: ctx.scope_stack.current_level(),
         span,
@@ -431,18 +507,17 @@ fn resolve_transformed_variable<'src, 'arena>(
 }
 ```
 
-#### 2.5 Build Transform Expression
+#### 2.5 Build Chained Transform Expression
 
 ```rust
-fn build_transform_expression<'src, 'arena>(
+fn build_chained_transform_expression<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
-    with_ctx: &'arena WithContext<'src, 'arena>,
-    transform_method: &'arena TransformMethod<'src, 'arena>,
+    transform_chain: &[TransformStep<'src, 'arena>],
     shadow_var: &'arena VarDefinition<'src, 'arena>,
     span: Span,
 ) -> Option<&'arena ResolvedExpr<'src, 'arena>> {
-    // Build reference to shadow variable: &shadow
-    let shadow_ref = ctx.arena.alloc(ResolvedExpr {
+    // Start with reference to shadow variable: &shadow
+    let mut current_expr = ctx.arena.alloc(ResolvedExpr {
         span,
         kind: ResolvedExprKind::UnaryOp {
             op: UnaryOperator::Ref,
@@ -460,22 +535,50 @@ fn build_transform_expression<'src, 'arena>(
         }),
     });
 
-    // Build method call: context.__transform__(&shadow)
-    let method_call = ctx.arena.alloc(ResolvedExpr {
-        span,
-        kind: ResolvedExprKind::MethodCall {
-            receiver: with_ctx.context_expr,
-            method: transform_method.function.name,
-            method_def: transform_method.function,
-            args: vec![shadow_ref],
-        },
-        ty: transform_method.output_type,
-    });
+    // Apply each transform in order (outermost to innermost)
+    for step in transform_chain {
+        // Build method call: context.__transform__(current_expr)
+        current_expr = ctx.arena.alloc(ResolvedExpr {
+            span,
+            kind: ResolvedExprKind::MethodCall {
+                receiver: step.with_context.context_expr,
+                method: step.transform_method.name,
+                method_def: step.transform_method,
+                args: vec![current_expr],
+            },
+            ty: step.output_type,
+        });
+    }
 
-    // Return the method call expression
-    // (The equality constraint is implicit in the definition)
-    Some(method_call)
+    // Return the fully chained expression
+    // For single transform: context.__transform__(&shadow)
+    // For nested: inner.__transform__(outer.__transform__(&shadow))
+    Some(current_expr)
 }
+```
+
+**Example with nested transforms:**
+
+```cad
+struct Outer {
+    fn __transform__(p: &Point3D) -> Point2D { ... }
+}
+
+struct Inner {
+    fn __transform__(p: &Point2D) -> Point1D { ... }
+}
+
+with outer {
+    with inner {
+        let .p: Point1D;  // Transform chain: outer then inner
+    }
+}
+```
+
+**Generated HIR expression:**
+```rust
+inner.__transform__(outer.__transform__(&__shadow_0))
+// Where __shadow_0 has type Point3D
 ```
 
 **Testing**:
@@ -592,9 +695,11 @@ if root_name.starts_with("__shadow_") {
 
 #### 5.2 Integration Tests
 - Simple transform: `with sketch { let .p: Point2D; }`
-- Nested transforms (if supported)
-- Multiple transform contexts
+- Nested transforms: `with outer { with inner { let .p: T; } }`
+- Transform chains with 3+ levels of nesting
+- Multiple independent transform contexts
 - Container + transform combination
+- Transform type compatibility (input type of inner matches output type of outer)
 
 #### 5.3 End-to-End Tests
 - Full examples from `examples/` directory
@@ -705,6 +810,49 @@ s.origin.y = 0
 s.origin.z = 0
 ```
 
+#### Nested Transform
+
+```cad
+struct Point3D { x: f64, y: f64, z: f64 }
+struct Point2D { x: f64, y: f64 }
+struct Point1D { value: f64 }
+
+struct Outer {
+    container entities,
+    fn __transform__(p: &Point3D) -> Point2D {
+        return Point2D { x: p.x, y: p.y };  // Project to 2D
+    }
+}
+
+struct Inner {
+    container entities,
+    fn __transform__(p: &Point2D) -> Point1D {
+        return Point1D { value: p.x + p.y };  // Sum coordinates
+    }
+}
+
+let outer: Outer;
+with outer {
+    let inner: Inner;
+    with inner {
+        let .p: Point1D;
+        .p.value == 30.0;
+    }
+}
+```
+
+**Expected HIR**:
+- Variable `outer.entities.inner.entities.p` with `VarDefinitionKind::Transformed`
+- Shadow variable `__shadow_0` with type `Point3D` (outermost input type)
+- Transform chain: `[outer.__transform__, inner.__transform__]`
+- Transform expression: `inner.__transform__(outer.__transform__(&__shadow_0))`
+
+**Expected Solution**:
+```
+outer.entities.inner.entities.p.value = 30
+```
+(Solver finds `__shadow_0` such that `__shadow_0.x + __shadow_0.y = 30`)
+
 #### Error Cases
 
 **Invalid Transform Type**:
@@ -795,30 +943,7 @@ struct Sketch {
 
 ## Future Extensions
 
-### 1. Multiple Transform Chaining
-
-Once transforms are in HIR, we can support chained transforms:
-
-```cad
-with sketch {
-    with rotated_view {
-        let .p: Point2D;  // Point3D → Rotated3D → Point2D
-    }
-}
-```
-
-**HIR representation**:
-```rust
-VarDefinitionKind::Transformed {
-    shadow_var: __shadow_0,  // Point3D
-    transform_expr: rotated_view.__transform__(
-        sketch.__transform__(&__shadow_0)
-    ),
-    ...
-}
-```
-
-### 2. Conditional Transforms
+### 1. Conditional Transforms
 
 Transforms that depend on runtime conditions:
 
@@ -842,7 +967,7 @@ VarDefinitionKind::ConditionallyTransformed {
 }
 ```
 
-### 3. Transform Optimization
+### 2. Transform Optimization
 
 With transforms in HIR, we can optimize:
 
@@ -859,7 +984,7 @@ let origin = Point3D { x: 0, y: 0, z: 0 };
 // Optimized: single combined transform matrix
 ```
 
-### 4. Inverse Transforms
+### 3. Inverse Transforms
 
 Allow specifying inverse transforms for bi-directional constraints:
 
@@ -878,7 +1003,7 @@ with sketch {
 }
 ```
 
-### 5. Transform Verification
+### 4. Transform Verification
 
 Add verification that transforms are actually transformations (invertible, etc.):
 
@@ -1095,11 +1220,11 @@ Error: No transform available for type 'SomeOtherType'
 | Phase | Status | Estimated Days | Actual Days | Notes |
 |-------|--------|----------------|-------------|-------|
 | Phase 1: HIR Data Structures | Not Started | 1-2 | - | |
-| Phase 2: Shadow Variable Generation | Not Started | 2 | - | |
+| Phase 2: Shadow Variable Generation | Not Started | 2-2.5 | - | Includes nested transform support |
 | Phase 3: Simplify Solver | Not Started | 2 | - | |
 | Phase 4: Documentation | Not Started | 0.5 | - | |
 | Phase 5: Testing | Not Started | 1 | - | |
-| **Total** | **Not Started** | **6.5-7.5** | **-** | |
+| **Total** | **Not Started** | **6.5-8** | **-** | |
 
 ---
 
