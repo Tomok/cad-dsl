@@ -312,7 +312,7 @@ pub use expr::{
 };
 
 #[allow(unused_imports)]
-pub use context::{TransformMethod, WithContext};
+pub use context::{TransformMethod, TransformMethodKind, WithContext};
 
 #[allow(unused_imports)]
 pub use scope::{Scope, ScopeStack};

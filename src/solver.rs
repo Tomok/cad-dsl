@@ -104,6 +104,11 @@ impl<'src> VariablePath<'src> {
         &self.components
     }
 
+    /// Check if this path starts with the given prefix
+    pub fn starts_with(&self, prefix: &VariablePath<'src>) -> bool {
+        self.components().starts_with(prefix.components())
+    }
+
     /// Check if path is empty
     pub fn is_empty(&self) -> bool {
         self.components.is_empty()

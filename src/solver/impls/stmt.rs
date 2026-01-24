@@ -138,34 +138,46 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                         })?;
                         ctx.declare_variable(var_name, var_type)?;
 
-                        // If there's an initializer, add constraint
-                        if let Some(init_expr) = init {
-                            // Special handling for struct literals
-                            if let ResolvedExprKind::StructLit { fields, .. } = &init_expr.kind {
-                                // Handle struct literal with potential reference fields
-                                let base_path = VariablePath::from_name(var_name);
-                                self.process_struct_literal_init(ctx, &base_path, fields)?;
-                            } else {
-                                // Regular primitive initialization
-                                let z3_value = init_expr.solve(ctx)?;
-                                let path = VariablePath::from_name(var_name);
-                                let z3_var = self.get_variable_z3(ctx, &path)?;
+                        // Handle initialization or apply transforms
+                        match init {
+                            None => {
+                                // Apply transform for variables without initializers
+                                let var_path = VariablePath::from_name(var_name);
+                                self.apply_transform_to_variable(ctx, &var_path, var_type)?;
+                            }
+                            Some(init_expr) => {
+                                // Special handling for struct literals
+                                if let ResolvedExprKind::StructLit { fields, .. } = &init_expr.kind
+                                {
+                                    // Handle struct literal with potential reference fields
+                                    let base_path = VariablePath::from_name(var_name);
+                                    self.process_struct_literal_init(ctx, &base_path, fields)?;
+                                } else {
+                                    // Regular primitive initialization
+                                    let z3_value = init_expr.solve(ctx)?;
+                                    let path = VariablePath::from_name(var_name);
+                                    let z3_var = self.get_variable_z3(ctx, &path)?;
 
-                                // Add equality constraint
-                                let constraint = match (z3_var, z3_value) {
-                                    (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
-                                    (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
-                                    (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
-                                    (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
-                                    (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
-                                    _ => {
-                                        return Err(SolverError::UnsupportedExpression(
-                                            "Type mismatch in initialization".to_string(),
-                                        ));
-                                    }
-                                };
+                                    // Add equality constraint
+                                    let constraint = match (z3_var, z3_value) {
+                                        (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                                        (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                                        (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                                        (Z3Expr::Int(var), Z3Expr::Real(val)) => {
+                                            var.to_real().eq(&val)
+                                        }
+                                        (Z3Expr::Real(var), Z3Expr::Int(val)) => {
+                                            var.eq(val.to_real())
+                                        }
+                                        _ => {
+                                            return Err(SolverError::UnsupportedExpression(
+                                                "Type mismatch in initialization".to_string(),
+                                            ));
+                                        }
+                                    };
 
-                                ctx.z3_solver.assert(&constraint);
+                                    ctx.z3_solver.assert(&constraint);
+                                }
                             }
                         }
                     }
@@ -1454,57 +1466,49 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         var_path: &VariablePath<'src>,
         declared_type: &'arena ResolvedType<'src, 'arena>,
     ) -> Result<(), SolverError> {
-        // 1. Get transform context info
-        let (transforms, context_expr, is_pure_transform) = match ctx.current_with_context() {
-            Some(WithContextInfo::Transform {
-                transforms,
-                context_expr,
-                ..
-            }) => (transforms.clone(), *context_expr, true),
-            Some(WithContextInfo::Container {
-                transforms,
-                context_expr,
-                ..
-            }) => (transforms.clone(), *context_expr, false),
-            _ => return Ok(()), // Not in transform context, nothing to do
-        };
+        // 1. Get transform context info and determine variable type
+        let (transforms, context_expr, is_pure_transform, is_container_variable) =
+            match ctx.current_with_context() {
+                Some(WithContextInfo::Transform {
+                    transforms,
+                    context_expr,
+                    ..
+                }) => (transforms.clone(), *context_expr, true, false),
+                Some(WithContextInfo::Container {
+                    transforms,
+                    context_expr,
+                    container_path,
+                    container_field,
+                    ..
+                }) => {
+                    // Check if this is a container variable by comparing paths
+                    let container_prefix = container_path.with_field(container_field.name);
+                    let is_container_var = var_path.starts_with(&container_prefix);
+                    (transforms.clone(), *context_expr, false, is_container_var)
+                }
+                _ => return Ok(()), // Not in transform context
+            };
 
-        // If there are no transforms, return early
         if transforms.is_empty() {
             return Ok(());
         }
 
-        // 2. Find matching transform method (output type == declared type)
-        // Use semantic type comparison (ignoring spans) instead of direct ==
-        let matching_transforms: Vec<_> = transforms
-            .iter()
-            .filter(|t| Self::types_match_semantically(t.output_type, declared_type))
-            .collect();
-
-        if matching_transforms.is_empty() {
-            // No matching transform found
-            if is_pure_transform {
-                // For pure transform contexts, this is an error
-                return Err(SolverError::ContextError(format!(
-                    "No transform found for type {:?} in transform context",
-                    declared_type
-                )));
-            } else {
-                // For container contexts, no transform is okay - just use the variable as-is
-                return Ok(());
-            }
-        }
-
-        if matching_transforms.len() > 1 {
-            // Multiple matching transforms - this is an error
-            return Err(SolverError::ContextError(format!(
-                "Multiple transforms found for type {:?} in transform context. \
-                 Transform methods must have unique output types.",
-                declared_type
-            )));
-        }
-
-        let transform_method = matching_transforms[0];
+        // 2. Select appropriate transform based on variable type
+        let transform_method =
+            match Self::select_transform_method(&transforms, declared_type, is_container_variable)?
+            {
+                Some(t) => t,
+                None => {
+                    if is_pure_transform || is_container_variable {
+                        return Err(SolverError::ContextError(format!(
+                            "No matching transform for type {:?}",
+                            declared_type
+                        )));
+                    } else {
+                        return Ok(());
+                    }
+                }
+            };
 
         // 3. Get input type from transform method's first parameter
         let input_type = &transform_method.input_type;
@@ -1556,6 +1560,88 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         }
 
         Ok(())
+    }
+
+    /// Select appropriate transform for a variable based on context
+    ///
+    /// # Parameters
+    /// - `transforms`: Available transform methods
+    /// - `declared_type`: The type of the variable being declared
+    /// - `is_container_variable`: True if this is a container variable (dot-prefix)
+    ///
+    /// # Returns
+    /// The matching transform method, or error if none found or ambiguous
+    fn select_transform_method<'t>(
+        transforms: &'t [crate::hir::TransformMethod<'src, 'arena>],
+        declared_type: &'arena ResolvedType<'src, 'arena>,
+        is_container_variable: bool,
+    ) -> Result<Option<&'t crate::hir::TransformMethod<'src, 'arena>>, SolverError> {
+        use crate::hir::TransformMethodKind;
+
+        // Filter transforms by output type match
+        let matching: Vec<_> = transforms
+            .iter()
+            .filter(|t| Self::types_match_semantically(t.output_type, declared_type))
+            .collect();
+
+        if matching.is_empty() {
+            return Ok(None);
+        }
+
+        if is_container_variable {
+            // Container variables: prefer __transform_container__, fallback to __transform__
+            let container_methods: Vec<_> = matching
+                .iter()
+                .filter(|t| matches!(t.kind, TransformMethodKind::Container))
+                .copied()
+                .collect();
+
+            if container_methods.len() > 1 {
+                return Err(SolverError::ContextError(format!(
+                    "Multiple __transform_container__ methods found for type {:?}. \
+                     Transform methods must have unique output types.",
+                    declared_type
+                )));
+            }
+
+            if let Some(&t) = container_methods.first() {
+                return Ok(Some(t));
+            }
+
+            // Fallback to standard transform
+            let standard_methods: Vec<_> = matching
+                .iter()
+                .filter(|t| matches!(t.kind, TransformMethodKind::Standard))
+                .copied()
+                .collect();
+
+            if standard_methods.len() > 1 {
+                return Err(SolverError::ContextError(format!(
+                    "Multiple __transform__ methods found for type {:?}. \
+                     Transform methods must have unique output types.",
+                    declared_type
+                )));
+            }
+
+            Ok(standard_methods.first().copied())
+        } else {
+            // External variables: only use __transform__ (standard)
+            let standard_methods: Vec<_> = matching
+                .iter()
+                .filter(|t| matches!(t.kind, TransformMethodKind::Standard))
+                .copied()
+                .collect();
+
+            if standard_methods.len() > 1 {
+                return Err(SolverError::ContextError(format!(
+                    "Multiple __transform__ methods found for type {:?}. \
+                     Transform methods must have unique output types.",
+                    declared_type
+                )));
+            }
+
+            Ok(standard_methods.first().copied())
+        }
     }
 
     /// Create a shadow variable in the current scope
