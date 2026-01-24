@@ -171,8 +171,15 @@ pub fn resolve_statement<'src, 'arena>(
             }
             let struct_def = struct_def.unwrap();
 
+            // Set the current struct context before resolving methods
+            let struct_name_src = extract_name(ctx.source, name);
+            ctx.current_struct = Some(struct_name_src);
+
             // Resolve method bodies
             let resolved_methods = resolve_statements(ctx, methods);
+
+            // Clear the current struct context
+            ctx.current_struct = None;
 
             // Create the HIR statement
             Some(ctx.arena.alloc(ResolvedStmt::new(
@@ -575,7 +582,18 @@ fn resolve_function_body<'src, 'arena>(
     span: Span,
 ) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
     // Look up the function definition from Pass 1
-    let func_def = ctx.lookup_function(name);
+    // Try simple name first (for top-level functions)
+    let mut func_def = ctx.lookup_function(name);
+
+    // If not found and we're resolving a struct's methods, try the qualified name
+    if func_def.is_none()
+        && let Some(current_struct) = ctx.current_struct
+    {
+        // We're resolving a method - use the qualified name
+        let qualified_name = format!("{}::{}", current_struct, name);
+        func_def = ctx.method_definitions.get(&qualified_name).copied();
+    }
+
     if func_def.is_none() {
         ctx.add_error(SemanticError::UndefinedFunction {
             name: name.to_string(),

@@ -316,8 +316,10 @@ fn collect_struct_def<'src, 'arena>(
 
             resolved_methods.push(method_def);
 
-            // Also register the method as a function so it can be found during inlining
-            let _ = ctx.function_definitions.insert(method_name_src, method_def);
+            // Register the method with a qualified name (StructName::method_name) to prevent
+            // collisions between methods with the same name in different structs
+            let qualified_name = format!("{}::{}", name, method_name_src);
+            ctx.method_definitions.insert(qualified_name, method_def);
         }
     }
 
