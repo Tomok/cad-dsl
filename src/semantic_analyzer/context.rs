@@ -80,6 +80,19 @@ pub struct AnalyzerContext<'src, 'arena> {
     /// resolution and type checking.
     pub function_definitions: HashMap<&'src str, &'arena FunctionDefinition<'src, 'arena>>,
 
+    /// Method symbol table
+    ///
+    /// Maps qualified method names (StructName::method_name) to their definitions.
+    /// This prevents method name collisions between different structs.
+    pub method_definitions: HashMap<String, &'arena FunctionDefinition<'src, 'arena>>,
+
+    /// Current struct being resolved
+    ///
+    /// When resolving struct methods in Pass 2, this tracks which struct we're
+    /// currently processing. This allows method body resolution to find the
+    /// correct method definition using the qualified name.
+    pub current_struct: Option<&'src str>,
+
     /// Collected semantic errors
     ///
     /// All errors encountered during semantic analysis are collected here.
@@ -112,6 +125,8 @@ impl<'src, 'arena> AnalyzerContext<'src, 'arena> {
             scope_stack: ScopeStack::new(),
             struct_definitions: HashMap::new(),
             function_definitions: HashMap::new(),
+            method_definitions: HashMap::new(),
+            current_struct: None,
             errors: Vec::new(),
         }
     }
