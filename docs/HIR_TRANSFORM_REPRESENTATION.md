@@ -280,6 +280,75 @@ This is a **complete, type-checked HIR expression** that can be:
 - Optimized (e.g., constant folding)
 - Translated to different backends (Z3, C++, etc.)
 
+### Transform Kind Selection
+
+CAD-DSL supports two kinds of transform methods to handle different use cases:
+
+#### Standard Transform (`__transform__`)
+
+Used for:
+- External variables referenced from outside a with-block
+- Regular struct field access
+- Coordinates passed into the transform context from external code
+
+#### Container Transform (`__transform_container__`)
+
+Used for:
+- Variables declared with dot-prefix syntax (`.varname`) inside with-blocks
+- Entities that exist within the container's namespace
+- Allows different transformation semantics for "internal" vs. "external" coordinates
+
+#### Selection Logic
+
+When a variable is declared in a transform context:
+
+1. **Determine variable kind**:
+   - If `name_path` starts with `.` → Container variable
+   - Otherwise → External variable
+
+2. **Select transform**:
+   - **Container variable**:
+     - First, look for `__transform_container__` with matching output type
+     - If not found, fall back to `__transform__` with matching output type
+   - **External variable**:
+     - Only use `__transform__` with matching output type
+     - Never use `__transform_container__` for external variables
+
+3. **Error if ambiguous**:
+   - Multiple transforms of **same kind** with **same output type** → Error
+   - Multiple transforms of **different kinds** with same output type → OK
+
+#### Example: Different Behavior for Internal vs. External
+
+```cad
+struct Sketch {
+    container entities,
+    scale: f64,
+
+    // External coordinates are scaled
+    fn __transform__(p: &Point3D) -> Point2D {
+        return Point2D { x: p.x * self.scale, y: p.y * self.scale };
+    }
+
+    // Internal entities are not scaled (already in sketch space)
+    fn __transform_container__(p: &Point3D) -> Point2D {
+        return Point2D { x: p.x, y: p.y };  // No scaling
+    }
+}
+
+let s: Sketch;
+s.scale == 2.0;
+
+with s {
+    let .internal: Point2D;  // Uses __transform_container__ (no scaling)
+    internal.x == 10.0;      // Internal coordinate
+
+    // External reference would use __transform__ (with scaling)
+}
+```
+
+This allows sketch-internal entities to use local coordinates while external references are automatically scaled.
+
 ---
 
 ## Implementation Steps
@@ -303,14 +372,82 @@ This is a **complete, type-checked HIR expression** that can be:
 - Ensure all existing tests still pass with refactored structure
 - Add unit tests for new enum variants
 
-### Phase 2: Implement Shadow Variable Generation in Semantic Analyzer (2 days)
+### Phase 2: Implement Shadow Variable Generation in Semantic Analyzer (2-2.5 days)
 
 **Files to modify**:
 - `src/semantic_analyzer/pass2.rs`
+- `src/semantic_analyzer/context.rs` (for error types)
 
 **Tasks**:
 
-#### 2.1 Add Shadow Variable Counter
+#### 2.1 Add Ambiguity Detection to Transform Collection
+
+**CRITICAL**: The existing `collect_transform_methods()` does not check for ambiguous transforms. We must add this check during semantic analysis, not wait until solving.
+
+```rust
+// In src/semantic_analyzer/pass2.rs
+
+fn collect_transform_methods<'src, 'arena>(
+    ctx: &mut AnalyzerContext<'src, 'arena>,
+    definition: &'arena StructDefinition<'src, 'arena>,
+) -> Vec<TransformMethod<'src, 'arena>> {
+    let mut transforms = Vec::new();
+
+    // Track output types by kind to detect ambiguity
+    let mut standard_outputs = Vec::new();
+    let mut container_outputs = Vec::new();
+
+    for method in &definition.methods {
+        let kind = match method.name {
+            "__transform__" => TransformMethodKind::Standard,
+            "__transform_container__" => TransformMethodKind::Container,
+            _ => continue,
+        };
+
+        if method.params.is_empty() {
+            ctx.report_error(SemanticError::InvalidTransformSignature {
+                method_name: method.name,
+                reason: "Transform methods must have at least one parameter",
+                span: method.span,
+            });
+            continue;
+        }
+
+        let input_type = ctx.arena.alloc(method.params[0].param_type);
+        let output_type = ctx.arena.alloc(method.return_type);
+
+        // Check for ambiguous output types within the same kind
+        let outputs = match kind {
+            TransformMethodKind::Standard => &mut standard_outputs,
+            TransformMethodKind::Container => &mut container_outputs,
+        };
+
+        // Check if another transform of this kind has the same output type
+        if let Some((existing_method, existing_output)) = outputs.iter()
+            .find(|(_, out_ty)| types_match(out_ty, output_type))
+        {
+            ctx.report_error(SemanticError::AmbiguousTransform {
+                method_name: method.name,
+                existing_method: *existing_method,
+                output_type: format!("{:?}", output_type),
+                kind_name: match kind {
+                    TransformMethodKind::Standard => "__transform__",
+                    TransformMethodKind::Container => "__transform_container__",
+                },
+                span: method.span,
+            });
+            continue;
+        }
+
+        outputs.push((method.name, output_type));
+        transforms.push(TransformMethod::new(method, input_type, output_type, kind));
+    }
+
+    transforms
+}
+```
+
+#### 2.2 Add Shadow Variable Counter
 
 ```rust
 pub struct AnalyzerContext<'src, 'arena> {
@@ -329,7 +466,7 @@ impl<'src, 'arena> AnalyzerContext<'src, 'arena> {
 }
 ```
 
-#### 2.2 Add ScopeStack Method for Transform Chains
+#### 2.3 Add ScopeStack Method for Transform Chains
 
 First, add a method to `ScopeStack` to get all active with-contexts:
 
@@ -365,16 +502,29 @@ Then add transform chain detection logic in semantic analyzer:
 ```rust
 // In src/semantic_analyzer/pass2.rs
 
+/// Determine if a variable is a container variable based on its name path
+/// Container variables are declared with dot-prefix syntax inside with-blocks
+fn is_container_variable(name_path: &[(&str, Span)]) -> bool {
+    name_path.first().map(|(name, _)| name.starts_with('.')).unwrap_or(false)
+}
+
 /// Check if a variable type requires transform in current with-context(s)
 /// Returns the complete transform chain if transforms are needed
+///
+/// Handles both Standard and Container transform kinds:
+/// - Container variables (dot-prefix): prefer __transform_container__, fallback to __transform__
+/// - External variables: only use __transform__
 fn should_apply_transform<'src, 'arena>(
     ctx: &AnalyzerContext<'src, 'arena>,
     var_type: &ResolvedType<'src, 'arena>,
+    name_path: &[(&str, Span)],
 ) -> Option<Vec<TransformStep<'src, 'arena>>> {
     let with_contexts = ctx.scope_stack.all_with_contexts();
     if with_contexts.is_empty() {
         return None;
     }
+
+    let is_container_var = is_container_variable(name_path);
 
     // Build transform chain from outermost to innermost
     let mut transform_chain = Vec::new();
@@ -382,10 +532,25 @@ fn should_apply_transform<'src, 'arena>(
 
     // Work backwards from innermost to outermost to find matching transforms
     for with_ctx in with_contexts.iter().rev() {
-        // Find transform that outputs current_type
-        if let Some(transform) = with_ctx.transforms.iter()
-            .find(|tm| types_match(tm.output_type, current_type))
-        {
+        // Select appropriate transform based on variable kind
+        let transform = if is_container_var {
+            // Container variables: prefer __transform_container__, fallback to __transform__
+            with_ctx.transforms.iter()
+                .filter(|tm| matches!(tm.kind, TransformMethodKind::Container))
+                .find(|tm| types_match(tm.output_type, current_type))
+                .or_else(|| {
+                    with_ctx.transforms.iter()
+                        .filter(|tm| matches!(tm.kind, TransformMethodKind::Standard))
+                        .find(|tm| types_match(tm.output_type, current_type))
+                })
+        } else {
+            // External variables: only use __transform__ (Standard)
+            with_ctx.transforms.iter()
+                .filter(|tm| matches!(tm.kind, TransformMethodKind::Standard))
+                .find(|tm| types_match(tm.output_type, current_type))
+        };
+
+        if let Some(transform) = transform {
             transform_chain.insert(0, TransformStep {
                 transform_method: transform.function,
                 with_context: with_ctx,
@@ -404,7 +569,7 @@ fn should_apply_transform<'src, 'arena>(
 }
 ```
 
-#### 2.3 Modify Variable Declaration Logic
+#### 2.5 Modify Variable Declaration Logic
 
 Extend `resolve_let_statement()` to detect and apply transform chains:
 
@@ -420,7 +585,8 @@ fn resolve_let_statement<'src, 'arena>(
     let var_type = resolve_type(ctx, ty)?;
 
     // Check if this variable should be transformed (returns chain)
-    if let Some(transform_chain) = should_apply_transform(ctx, &var_type) {
+    // Passes name_path to determine if it's a container variable
+    if let Some(transform_chain) = should_apply_transform(ctx, &var_type, name_path) {
         return resolve_transformed_variable(
             ctx,
             name_path,
@@ -435,7 +601,7 @@ fn resolve_let_statement<'src, 'arena>(
 }
 ```
 
-#### 2.4 Implement Transform Variable Creation
+#### 2.6 Implement Transform Variable Creation
 
 ```rust
 fn resolve_transformed_variable<'src, 'arena>(
@@ -507,7 +673,7 @@ fn resolve_transformed_variable<'src, 'arena>(
 }
 ```
 
-#### 2.5 Build Chained Transform Expression
+#### 2.7 Build Chained Transform Expression
 
 ```rust
 fn build_chained_transform_expression<'src, 'arena>(
@@ -853,6 +1019,39 @@ outer.entities.inner.entities.p.value = 30
 ```
 (Solver finds `__shadow_0` such that `__shadow_0.x + __shadow_0.y = 30`)
 
+#### Transform Kinds (Standard vs Container)
+
+```cad
+struct Point2D { x: f64, y: f64 }
+struct Point3D { x: f64, y: f64, z: f64 }
+
+struct Sketch {
+    container entities,
+
+    // Standard transform for external variables
+    fn __transform__(p: &Point3D) -> Point2D {
+        return Point2D { x: p.x * 2.0, y: p.y * 2.0 };
+    }
+
+    // Container transform for dot-prefix variables (preferred)
+    fn __transform_container__(p: &Point3D) -> Point2D {
+        return Point2D { x: p.x, y: p.y };  // Different behavior!
+    }
+}
+
+let s: Sketch;
+with s {
+    let .p: Point2D;  // Uses __transform_container__
+    .p.x == 5.0;
+}
+```
+
+**Expected HIR**:
+- Transform selected: `__transform_container__` (preferred for container variables)
+- If `__transform_container__` didn't exist, would fall back to `__transform__`
+
+**Key Point**: Container variables (dot-prefix) prefer `__transform_container__` over `__transform__`, allowing different transformation behavior for internal vs. external coordinates.
+
 #### Error Cases
 
 **Invalid Transform Type**:
@@ -863,14 +1062,34 @@ with sketch {
 ```
 **Expected**: Semantic analysis error (not solver error!)
 
-**Ambiguous Transform**:
+**Ambiguous Transform (Same Kind, Same Output)**:
 ```cad
 struct Sketch {
     fn __transform__(p: &Point3D) -> Point2D { ... }
-    fn __transform__(p: &OtherType) -> Point2D { ... }  // Same output type!
+    fn __transform__(p: &OtherType) -> Point2D { ... }  // ERROR: Same output type!
 }
 ```
-**Expected**: Semantic analysis error for ambiguous transform
+**Expected**: Semantic analysis error during `collect_transform_methods()`:
+```
+Error: Ambiguous __transform__ methods
+  ┌─ example.cad:4:5
+  │
+3 │     fn __transform__(p: &Point3D) -> Point2D { ... }
+  │        ------------- first definition here
+4 │     fn __transform__(p: &OtherType) -> Point2D { ... }
+  │        ^^^^^^^^^^^^^ ambiguous: multiple __transform__ methods with output type Point2D
+  │
+  = note: Transform methods of the same kind must have unique output types
+```
+
+**Ambiguous Transform (Mixed Kinds is OK)**:
+```cad
+struct Sketch {
+    fn __transform__(p: &Point3D) -> Point2D { ... }
+    fn __transform_container__(p: &OtherType) -> Point2D { ... }  // OK: Different kinds
+}
+```
+**Expected**: No error - different transform kinds can have the same output type
 
 ### Performance Testing
 
