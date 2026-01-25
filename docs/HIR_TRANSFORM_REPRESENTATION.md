@@ -61,11 +61,22 @@ with sketch {
 }
 ```
 
-**Current HIR** says: "Variable `p` has type `Point2D`"
+The dot-prefix syntax `.p` in a transform context should create **two variables** with a shadowing relationship:
 
-**What HIR should say**: "Variable `p` is defined as `sketch.__transform__(__shadow_0)` where `__shadow_0: Point3D`"
+**What HIR should represent**:
+1. **Container variable**: `sketch.entities.p: Point3D` — the real, persistent entity (accessible outside the with-block)
+2. **Temporary view**: `.p: Point2D` — defined as `sketch.__transform__(sketch.entities.p)`, only visible inside the with-block
 
-The **definition** of the variable is missing from the HIR!
+**Scoping semantics**:
+- **Outside the with-block**: Only `sketch.entities.p` exists, with type `Point3D`
+- **Inside the with-block**: The temporary view `.p` (type `Point2D`) shadows `sketch.entities.p`, making the container variable inaccessible by that name
+
+**Current problem**: HIR only stores metadata about the transform method but doesn't represent the variable definition relationship or the shadowing semantics.
+
+**What's missing**:
+- The container variable `sketch.entities.p` is not created during semantic analysis
+- The view variable's definition (as a transform of the container variable) is not stored in HIR
+- The shadowing relationship is not explicitly represented
 
 ---
 
@@ -122,7 +133,7 @@ If a variable is defined through a transform, that should be explicit in the HIR
 
 ## Detailed Design
 
-### Option 1: `VarDefinitionKind` Enum (Recommended)
+### `VarDefinitionKind` Enum - Two-Variable Design
 
 Extend `VarDefinition` to explicitly represent how a variable is defined:
 
@@ -162,14 +173,19 @@ pub enum VarDefinitionKind<'src, 'arena> {
         init: &'arena ResolvedExpr<'src, 'arena>,
     },
 
-    /// Defined through coordinate transform: `with sketch { let .p: Point2D; }`
-    /// The variable's value is computed by transforming a shadow variable
-    /// Supports nested transforms via transform_chain
-    Transformed {
-        /// The internal shadow variable (e.g., `__shadow_0: Point3D`)
-        /// This variable is not declared by the user but created automatically
-        /// to represent the pre-transform coordinate space (outermost)
-        shadow_var: &'arena VarDefinition<'src, 'arena>,
+    /// Temporary transformed view: `with sketch { let .p: Point2D; }`
+    /// Creates TWO variables:
+    /// 1. Container variable: `sketch.entities.p: Point3D` (persistent, accessible outside)
+    /// 2. View variable: `.p: Point2D` (temporary, only in with-block, shadows container)
+    ///
+    /// The view's value is the transform of the container variable.
+    /// Supports nested transforms via transform_chain.
+    TransformedView {
+        /// The persistent container variable (e.g., `sketch.entities.p: Point3D`)
+        /// This is the real entity that exists in the container's namespace.
+        /// Outside the with-block, this variable is accessible as Point3D.
+        /// Inside the with-block, it's shadowed by the view.
+        container_var: &'arena VarDefinition<'src, 'arena>,
 
         /// The complete transform chain from outermost to innermost
         /// For single transform: vec has one element
@@ -177,9 +193,9 @@ pub enum VarDefinitionKind<'src, 'arena> {
         /// Chain is [outer_transform, inner_transform] applied in order
         transform_chain: Vec<TransformStep<'src, 'arena>>,
 
-        /// The final transform expression after composing all transforms
-        /// Represents: self_var == innermost_transform(...(outermost_transform(&shadow_var)))
-        /// Example: `.p == inner.__transform__(outer.__transform__(&__shadow_0))`
+        /// The transform expression defining the view
+        /// Represents: view_var == innermost_transform(...(outermost_transform(&container_var)))
+        /// Example: `.p == inner.__transform__(outer.__transform__(&sketch.entities.p))`
         transform_expr: &'arena ResolvedExpr<'src, 'arena>,
     },
 }
@@ -204,44 +220,82 @@ pub struct TransformStep<'src, 'arena> {
 
 ### Why This Design?
 
-**Type Safety**: The three definition kinds are mutually exclusive - a variable is either uninitialized, initialized, or transformed. The type system enforces handling all cases.
+**Type Safety**: The three definition kinds are mutually exclusive - a variable is either uninitialized, initialized, or transformed view. The type system enforces handling all cases.
 
-**Semantic Clarity**: Reading the HIR immediately reveals how each variable is defined.
+**Semantic Clarity**: Reading the HIR immediately reveals:
+- Which variables are persistent container entities
+- Which variables are temporary transformed views
+- The shadowing relationships between them
+
+**True Shadowing**: The view variable actually shadows the container variable, matching standard scoping semantics.
 
 **Extensibility**: Future definition kinds can be added easily (e.g., `ConstraintDefined` for implicit definitions, `LoopInductionVariable` for loop counters).
 
-### Shadow Variable Representation
+### Container Variable Representation
 
-Shadow variables are regular `VarDefinition` instances with special naming:
+Container variables are regular `VarDefinition` instances in the container's namespace:
 
 ```rust
+// For: `with sketch { let .p: Point2D; }`
+// Creates container variable:
+
 VarDefinition {
-    name: "__shadow_0",  // Generated name
-    var_type: Some(Point3D),  // Input type of transform
-    definition_kind: VarDefinitionKind::Uninitialized,  // Shadow is free variable
+    name: "sketch.entities.p",  // Full qualified name in container
+    var_type: Some(Point3D),  // Container type (input to transform)
+    definition_kind: VarDefinitionKind::Uninitialized,  // Free variable for solver
     scope_level: with_scope_level,
     ...
 }
 ```
 
 **Key properties**:
-- Shadow variables are **free variables** (uninitialized) that the solver will assign values to
-- They represent the **pre-transform coordinate space**
-- They are **filtered from output** (users don't see `__shadow_0 = ...`)
-- Their names start with `__shadow_` prefix for easy identification
+- Container variables are **persistent entities** stored in the container's namespace
+- They are **free variables** (uninitialized) that the solver will assign values to
+- They represent the **real coordinate space** of the container (e.g., Point3D in world space)
+- They are **accessible outside the with-block** via their qualified name (`sketch.entities.p`)
+- Inside the with-block, they are **shadowed** by the view variable
+
+### View Variable Representation
+
+View variables are temporary scoped variables with TransformedView kind:
+
+```rust
+// For: `with sketch { let .p: Point2D; }`
+// Creates view variable:
+
+VarDefinition {
+    name: "p",  // Short name (without dot prefix)
+    var_type: Some(Point2D),  // View type (output of transform)
+    definition_kind: VarDefinitionKind::TransformedView {
+        container_var: &container_var_def,  // Points to sketch.entities.p
+        transform_chain: vec![...],
+        transform_expr: &transform_expr,  // p == sketch.__transform__(&sketch.entities.p)
+    },
+    scope_level: with_scope_level,
+    ...
+}
+```
+
+**Key properties**:
+- View variables are **temporary** and only exist inside the with-block
+- They are **derived variables** defined as transforms of container variables
+- They **shadow** the container variable by name inside the with-block
+- They represent the **transformed coordinate space** (e.g., Point2D in sketch's local space)
+- They are **not accessible outside the with-block**
 
 ### Transform Expression Structure
 
 The `transform_expr` field contains a fully-resolved HIR expression representing the transform call:
 
 ```rust
-// Example: .p == sketch.__transform__(&__shadow_0)
+// Example: .p == sketch.__transform__(&sketch.entities.p)
+// View variable (.p: Point2D) defined as transform of container variable (sketch.entities.p: Point3D)
 
 ResolvedExpr {
     kind: ResolvedExprKind::BinaryOp {
         op: BinaryOperator::Eq,
         left: ResolvedExpr {
-            kind: Var { name: "p", definition: &p_var_def },
+            kind: Var { name: "p", definition: &view_var_def },  // View variable
             ty: Point2D,
         },
         right: ResolvedExpr {
@@ -258,8 +312,8 @@ ResolvedExpr {
                             op: UnaryOperator::Ref,
                             operand: ResolvedExpr {
                                 kind: Var {
-                                    name: "__shadow_0",
-                                    definition: &shadow_var_def
+                                    name: "sketch.entities.p",
+                                    definition: &container_var_def  // Container variable
                                 },
                                 ty: Point3D,
                             }
@@ -279,6 +333,8 @@ This is a **complete, type-checked HIR expression** that can be:
 - Analyzed by dataflow algorithms
 - Optimized (e.g., constant folding)
 - Translated to different backends (Z3, C++, etc.)
+
+**Scoping note**: The container variable reference (`sketch.entities.p`) is the persistent entity that exists in the container's namespace. The view variable (`p`) is a temporary that only exists in the with-block scope.
 
 ### Transform Kind Selection
 
@@ -364,15 +420,15 @@ This allows sketch-internal entities to use local coordinates while external ref
 2. Replace `init: Option<HirExpr>` with `definition_kind: VarDefinitionKind` in `VarDefinition`
 3. Update all existing `VarDefinition` construction sites to use `VarDefinitionKind::Initialized` or `VarDefinitionKind::Uninitialized`
 4. Add helper methods:
-   - `VarDefinition::is_transformed() -> bool`
-   - `VarDefinition::get_shadow_var() -> Option<&VarDefinition>`
+   - `VarDefinition::is_transformed_view() -> bool`
+   - `VarDefinition::get_container_var() -> Option<&VarDefinition>`
    - `VarDefinition::get_init_expr() -> Option<&ResolvedExpr>`
 
 **Testing**:
 - Ensure all existing tests still pass with refactored structure
 - Add unit tests for new enum variants
 
-### Phase 2: Implement Shadow Variable Generation in Semantic Analyzer (2-2.5 days)
+### Phase 2: Implement Container+View Variable Generation in Semantic Analyzer (2-2.5 days)
 
 **Files to modify**:
 - `src/semantic_analyzer/pass2.rs`
@@ -447,24 +503,20 @@ fn collect_transform_methods<'src, 'arena>(
 }
 ```
 
-#### 2.2 Add Shadow Variable Counter
+#### 2.2 Container Variable Naming
+
+No counter needed! Container variables use the natural qualified name from the container namespace:
 
 ```rust
-pub struct AnalyzerContext<'src, 'arena> {
-    // ... existing fields
+// For: `with sketch { let .p: Point2D; }`
+// Container variable name: "sketch.entities.p"
+// View variable name: "p"
 
-    /// Counter for generating unique shadow variable names
-    shadow_var_counter: usize,
-}
-
-impl<'src, 'arena> AnalyzerContext<'src, 'arena> {
-    fn generate_shadow_name(&mut self) -> String {
-        let name = format!("__shadow_{}", self.shadow_var_counter);
-        self.shadow_var_counter += 1;
-        name
-    }
-}
+// The container namespace (e.g., "entities") comes from the struct's container field
+// The variable name comes from the dot-prefix declaration (.p becomes "p" in container)
 ```
+
+Container variables are named using the existing `resolve_variable_path()` logic, which already handles dot-prefix variables.
 
 #### 2.3 Add ScopeStack Method for Transform Chains
 
@@ -601,72 +653,79 @@ fn resolve_let_statement<'src, 'arena>(
 }
 ```
 
-#### 2.6 Implement Transform Variable Creation
+#### 2.6 Implement Container+View Variable Creation
 
 ```rust
 fn resolve_transformed_variable<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
     name_path: &[(&'src str, Span)],
-    output_type: &'arena ResolvedType<'src, 'arena>,
-    transform_chain: Vec<TransformStep<'src, 'arena>>,  // Changed: now a chain
+    view_type: &'arena ResolvedType<'src, 'arena>,  // The declared type (e.g., Point2D)
+    transform_chain: Vec<TransformStep<'src, 'arena>>,
     span: Span,
 ) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
-    // 1. Generate shadow variable name
-    let shadow_name = ctx.generate_shadow_name();
-    let shadow_name_arena = ctx.arena.alloc_str(&shadow_name);
-
-    // 2. Create shadow variable with input type (of first/outermost transform)
-    let shadow_input_type = transform_chain.first()
+    // STEP 1: Create container variable (the real, persistent entity)
+    // Input type of first transform is the container type (e.g., Point3D)
+    let container_type = transform_chain.first()
         .expect("Transform chain should not be empty")
         .input_type;
 
-    let shadow_var_def = ctx.arena.alloc(VarDefinition {
-        name: shadow_name_arena,
+    // Build container variable's full qualified name
+    // For `.p` in `with sketch`, this becomes "sketch.entities.p"
+    let container_path = resolve_variable_path(ctx, name_path);
+    let container_name_arena = ctx.arena.alloc_str(&container_path);
+
+    let container_var_def = ctx.arena.alloc(VarDefinition {
+        name: container_name_arena,
         name_span: span,
-        var_type: Some(shadow_input_type),
-        definition_kind: VarDefinitionKind::Uninitialized,
+        var_type: Some(container_type),
+        definition_kind: VarDefinitionKind::Uninitialized,  // Free variable for solver
         scope_level: ctx.scope_stack.current_level(),
         span,
     });
 
-    // 3. Register shadow variable in scope
-    ctx.scope_stack.add_variable(shadow_name_arena, shadow_var_def);
+    // Register container variable in scope (in container namespace)
+    ctx.scope_stack.add_variable(container_name_arena, container_var_def);
 
-    // 4. Build chained transform expression: var == inner(outer(&shadow))
+    // STEP 2: Build transform expression
+    // This defines the view as transform of container: view == transform(container)
     let transform_expr = build_chained_transform_expression(
         ctx,
         &transform_chain,
-        shadow_var_def,
+        container_var_def,
         span,
     )?;
 
-    // 5. Create main variable with Transformed kind
-    let (var_name, _) = name_path.last().unwrap();
-    let var_def = ctx.arena.alloc(VarDefinition {
-        name: var_name,
+    // STEP 3: Create view variable (temporary, shadows container in this scope)
+    // Extract short name without dot-prefix
+    let (view_name_with_dot, _) = name_path.last().unwrap();
+    let view_name = view_name_with_dot.trim_start_matches('.');
+    let view_name_arena = ctx.arena.alloc_str(view_name);
+
+    let view_var_def = ctx.arena.alloc(VarDefinition {
+        name: view_name_arena,
         name_span: span,
-        var_type: Some(output_type),
-        definition_kind: VarDefinitionKind::Transformed {
-            shadow_var: shadow_var_def,
-            transform_chain: transform_chain.clone(),  // Store the complete chain
+        var_type: Some(view_type),
+        definition_kind: VarDefinitionKind::TransformedView {
+            container_var: container_var_def,
+            transform_chain: transform_chain.clone(),
             transform_expr,
         },
         scope_level: ctx.scope_stack.current_level(),
         span,
     });
 
-    // 6. Register variable in scope
-    let full_path = resolve_variable_path(ctx, name_path);
-    ctx.scope_stack.add_variable(&full_path, var_def);
+    // Register view variable in local scope (shadows container variable by short name)
+    ctx.scope_stack.add_variable(view_name_arena, view_var_def);
 
-    // 7. Create Let statement
+    // STEP 4: Create Let statement
+    // The statement represents both variables, but primarily references the view
     Some(ctx.arena.alloc(ResolvedStmt {
         span,
         kind: ResolvedStmtKind::Let {
-            dot_prefix: name_path[0].0.starts_with('.'),
+            dot_prefix: true,  // Indicates this created container+view pair
             name_path: name_path.to_vec(),
-            var_def,
-            init: None,  // Transform variables don't have init expr
+            var_def: view_var_def,  // Primary reference is to view variable
+            init: None,
             span,
         },
     }))
@@ -679,10 +738,10 @@ fn resolve_transformed_variable<'src, 'arena>(
 fn build_chained_transform_expression<'src, 'arena>(
     ctx: &mut AnalyzerContext<'src, 'arena>,
     transform_chain: &[TransformStep<'src, 'arena>],
-    shadow_var: &'arena VarDefinition<'src, 'arena>,
+    container_var: &'arena VarDefinition<'src, 'arena>,
     span: Span,
 ) -> Option<&'arena ResolvedExpr<'src, 'arena>> {
-    // Start with reference to shadow variable: &shadow
+    // Start with reference to container variable: &container_var
     let mut current_expr = ctx.arena.alloc(ResolvedExpr {
         span,
         kind: ResolvedExprKind::UnaryOp {
@@ -690,14 +749,14 @@ fn build_chained_transform_expression<'src, 'arena>(
             operand: ctx.arena.alloc(ResolvedExpr {
                 span,
                 kind: ResolvedExprKind::Var {
-                    name: shadow_var.name,
-                    definition: shadow_var,
+                    name: container_var.name,
+                    definition: container_var,
                 },
-                ty: shadow_var.var_type.unwrap(),
+                ty: container_var.var_type.unwrap(),
             }),
         },
         ty: ctx.arena.alloc(ResolvedType::Reference {
-            inner: shadow_var.var_type.unwrap(),
+            inner: container_var.var_type.unwrap(),
         }),
     });
 
@@ -717,8 +776,8 @@ fn build_chained_transform_expression<'src, 'arena>(
     }
 
     // Return the fully chained expression
-    // For single transform: context.__transform__(&shadow)
-    // For nested: inner.__transform__(outer.__transform__(&shadow))
+    // For single transform: context.__transform__(&container_var)
+    // For nested: inner.__transform__(outer.__transform__(&container_var))
     Some(current_expr)
 }
 ```
@@ -727,10 +786,12 @@ fn build_chained_transform_expression<'src, 'arena>(
 
 ```cad
 struct Outer {
+    container entities,
     fn __transform__(p: &Point3D) -> Point2D { ... }
 }
 
 struct Inner {
+    container entities,
     fn __transform__(p: &Point2D) -> Point1D { ... }
 }
 
@@ -741,16 +802,19 @@ with outer {
 }
 ```
 
-**Generated HIR expression:**
-```rust
-inner.__transform__(outer.__transform__(&__shadow_0))
-// Where __shadow_0 has type Point3D
-```
+**Generated HIR:**
+- **Container variable**: `outer.entities.inner.entities.p: Point3D` (type Point3D - input to first transform)
+- **View variable**: `p: Point1D` (type Point1D - output of last transform)
+- **Transform expression**: `inner.__transform__(outer.__transform__(&outer.entities.inner.entities.p))`
+
+**Scoping**:
+- Outside both with-blocks: Can access `outer.entities.inner.entities.p` as Point3D
+- Inside inner with-block: Name `p` refers to Point1D view, container is shadowed
 
 **Testing**:
-- Unit tests for shadow name generation
+- Unit tests for container variable naming
 - Integration tests for transformed variable creation
-- Verify HIR contains shadow variables and transform expressions
+- Verify HIR contains both container and view variables with correct types
 
 ### Phase 3: Simplify Solver to Use HIR Transform Info (2 days)
 
@@ -780,7 +844,8 @@ fn solve_let_statement<'src, 'arena>(
 ) -> Result<(), SolverError> {
     match &var_def.definition_kind {
         VarDefinitionKind::Uninitialized => {
-            // Free variable - just register in Z3
+            // Free variable - register in Z3
+            // This includes container variables (e.g., sketch.entities.p: Point3D)
             self.register_free_variable(ctx, var_def)?;
         }
 
@@ -791,18 +856,19 @@ fn solve_let_statement<'src, 'arena>(
             self.add_equality_constraint(ctx, &var_path, &init_z3)?;
         }
 
-        VarDefinitionKind::Transformed {
-            shadow_var,
+        VarDefinitionKind::TransformedView {
+            container_var,
             transform_expr,
             ..
         } => {
-            // First, solve the shadow variable (it's free)
-            self.solve_let_statement(ctx, shadow_var, None)?;
+            // First, ensure container variable is registered (it's free)
+            self.solve_let_statement(ctx, container_var, None)?;
 
-            // Then, add constraint: var == transform_expr
-            let var_path = self.get_var_path(var_def);
+            // Then, add constraint: view == transform_expr
+            // This constrains the view based on the container variable
+            let view_path = self.get_var_path(var_def);
             let transform_z3 = transform_expr.solve(ctx)?;
-            self.add_equality_constraint(ctx, &var_path, &transform_z3)?;
+            self.add_equality_constraint(ctx, &view_path, &transform_z3)?;
         }
     }
 
@@ -822,19 +888,32 @@ Keep only if used for user-written function calls.
 
 #### 3.3 Update Solution Filtering
 
-Shadow variables should still be filtered from output:
+View variables should be filtered from output (only show container variables):
 
 ```rust
-// In solution_formatter.rs (already exists)
-if root_name.starts_with("__shadow_") {
-    continue;  // Don't show shadow variables to user
+// In solution_formatter.rs
+
+fn should_show_variable(var_def: &VarDefinition) -> bool {
+    match &var_def.definition_kind {
+        // Show uninitialized variables (includes container variables)
+        VarDefinitionKind::Uninitialized => true,
+
+        // Show initialized variables
+        VarDefinitionKind::Initialized { .. } => true,
+
+        // DON'T show view variables (temporary, derived from container)
+        // The container variable will be shown instead
+        VarDefinitionKind::TransformedView { .. } => false,
+    }
 }
 ```
 
+**Rationale**: Container variables are the real, persistent entities (e.g., `sketch.entities.p: Point3D`). View variables are temporary transformed views that only exist inside with-blocks. Users should see the container variable values in the solution.
+
 **Testing**:
 - Ensure all existing solver tests pass
-- Verify same solutions are produced
-- Check that shadow variables are hidden from output
+- Verify solutions show container variables (Point3D), not view variables (Point2D)
+- Check that view variables are hidden from output
 
 ### Phase 4: Update Documentation and Examples (0.5 days)
 
@@ -963,18 +1042,25 @@ with s {
 ```
 
 **Expected HIR**:
-- Variable `s.entities.p` with `VarDefinitionKind::Transformed`
-- Shadow variable `__shadow_0` with type `Point3D`
-- Transform expression: `s.entities.p == s.__transform__(&__shadow_0)`
+- **Container variable**: `s.entities.p` with type `Point3D`, `VarDefinitionKind::Uninitialized`
+- **View variable**: `p` with type `Point2D`, `VarDefinitionKind::TransformedView`
+- Transform expression: `p == s.__transform__(&s.entities.p)`
 
-**Expected Solution**:
+**Scoping**:
+- Outside with-block: Can access `s.entities.p` as Point3D
+- Inside with-block: Name `p` refers to Point2D view (shadows `s.entities.p` by short name)
+
+**Expected Solution** (shows container variables only):
 ```
 s.entities.p.x = 10
 s.entities.p.y = 20
+s.entities.p.z = 0
 s.origin.x = 0
 s.origin.y = 0
 s.origin.z = 0
 ```
+
+Note: The view variable `p` is not shown in output. The container variable `s.entities.p` has type Point3D, so we see x, y, and z coordinates.
 
 #### Nested Transform
 
@@ -1008,16 +1094,23 @@ with outer {
 ```
 
 **Expected HIR**:
-- Variable `outer.entities.inner.entities.p` with `VarDefinitionKind::Transformed`
-- Shadow variable `__shadow_0` with type `Point3D` (outermost input type)
+- **Container variable**: `outer.entities.inner.entities.p` with type `Point3D`, `VarDefinitionKind::Uninitialized`
+- **View variable**: `p` with type `Point1D`, `VarDefinitionKind::TransformedView`
 - Transform chain: `[outer.__transform__, inner.__transform__]`
-- Transform expression: `inner.__transform__(outer.__transform__(&__shadow_0))`
+- Transform expression: `p == inner.__transform__(outer.__transform__(&outer.entities.inner.entities.p))`
 
-**Expected Solution**:
+**Scoping**:
+- Outside both with-blocks: Can access `outer.entities.inner.entities.p` as Point3D
+- Inside inner with-block: Name `p` refers to Point1D view
+
+**Expected Solution** (shows container variables only):
 ```
-outer.entities.inner.entities.p.value = 30
+outer.entities.inner.entities.p.x = 15
+outer.entities.inner.entities.p.y = 15
+outer.entities.inner.entities.p.z = 0
 ```
-(Solver finds `__shadow_0` such that `__shadow_0.x + __shadow_0.y = 30`)
+
+Note: The solver finds Point3D values such that when transformed through both transforms, the final Point1D value is 30. Since the final transform sums x+y, one solution is x=15, y=15.
 
 #### Transform Kinds (Standard vs Container)
 
