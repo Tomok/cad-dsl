@@ -49,6 +49,102 @@ pub type HirType<'src, 'arena> = ResolvedType<'src, 'arena>;
 pub type HirStmt<'src, 'arena> = crate::ast::types::Stmt<'src>;
 
 // ============================================================================
+// Transform Step
+// ============================================================================
+
+/// A single step in a transform chain
+///
+/// Transform chains represent nested with-contexts where each level applies a
+/// transformation. For example:
+/// ```cad
+/// with outer {          // Transform step 1
+///     with inner {      // Transform step 2
+///         let .p: T;    // Variable transformed through both steps
+///     }
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct TransformStep<'src, 'arena> {
+    /// The transform method being applied in this step
+    pub transform_method: &'arena FunctionDefinition<'src, 'arena>,
+
+    /// The with-context that provides this transform
+    pub with_context: &'arena super::context::WithContext<'src, 'arena>,
+
+    /// Input type for this transform step
+    pub input_type: &'arena ResolvedType<'src, 'arena>,
+
+    /// Output type for this transform step
+    pub output_type: &'arena ResolvedType<'src, 'arena>,
+}
+
+// ============================================================================
+// Variable Definition Kind
+// ============================================================================
+
+/// How a variable is defined
+///
+/// This enum describes the three ways a variable can be defined in CAD-DSL:
+/// 1. Uninitialized - declared but not assigned, solver will find a value
+/// 2. Initialized - declared with an explicit expression
+/// 3. TransformedView - a temporary view of a container variable through a transform
+///
+/// # Transform Semantics
+///
+/// When a variable is declared with dot-prefix syntax inside a with-block,
+/// two variables are created:
+/// - **Container variable**: The real, persistent entity (e.g., `sketch.entities.p: Point3D`)
+/// - **View variable**: A temporary transformed view (e.g., `p: Point2D`)
+///
+/// The view variable shadows the container variable by name inside the with-block.
+#[derive(Debug, Clone, PartialEq)]
+pub enum VarDefinitionKind<'src, 'arena> {
+    /// Uninitialized variable: `let x: i32;`
+    ///
+    /// The solver will find a value satisfying all constraints.
+    /// This is the default for free variables in constraint systems.
+    Uninitialized,
+
+    /// Initialized with explicit expression: `let x = 5;`
+    ///
+    /// The variable's value is determined by the initialization expression.
+    Initialized {
+        /// The initialization expression
+        init: &'arena ResolvedExpr<'src, 'arena>,
+    },
+
+    /// Temporary transformed view: `with sketch { let .p: Point2D; }`
+    ///
+    /// Creates TWO variables:
+    /// 1. Container variable: `sketch.entities.p: Point3D` (persistent, accessible outside)
+    /// 2. View variable: `.p: Point2D` (temporary, only in with-block, shadows container)
+    ///
+    /// The view's value is the transform of the container variable.
+    /// Supports nested transforms via transform_chain.
+    TransformedView {
+        /// The persistent container variable (e.g., `sketch.entities.p: Point3D`)
+        ///
+        /// This is the real entity that exists in the container's namespace.
+        /// Outside the with-block, this variable is accessible as Point3D.
+        /// Inside the with-block, it's shadowed by the view.
+        container_var: &'arena VarDefinition<'src, 'arena>,
+
+        /// The complete transform chain from outermost to innermost
+        ///
+        /// For single transform: vec has one element
+        /// For nested transforms: `with outer { with inner { ... } }`
+        /// Chain is [outer_transform, inner_transform] applied in order
+        transform_chain: Vec<TransformStep<'src, 'arena>>,
+
+        /// The transform expression defining the view
+        ///
+        /// Represents: view_var == innermost_transform(...(outermost_transform(&container_var)))
+        /// Example: `.p == inner.__transform__(outer.__transform__(&sketch.entities.p))`
+        transform_expr: &'arena ResolvedExpr<'src, 'arena>,
+    },
+}
+
+// ============================================================================
 // Scope Level
 // ============================================================================
 
@@ -84,7 +180,7 @@ pub type ScopeLevel = usize;
 /// Represents a variable that has been declared with `let`. Variables can be:
 /// - Uninitialized: declared but not assigned a value
 /// - Initialized: declared with an initial value expression
-/// - Type-annotated: explicitly typed, or type can be inferred
+/// - TransformedView: a temporary view of a container variable through a transform
 ///
 /// # Examples
 ///
@@ -92,7 +188,9 @@ pub type ScopeLevel = usize;
 /// let x: i32 = 42;           // Initialized with type annotation
 /// let y: bool;               // Uninitialized with type annotation
 /// let z = 3.14;              // Initialized with inferred type
-/// let container.field = p;   // Container field (handled differently)
+/// with sketch {
+///     let .p: Point2D;       // TransformedView (creates container + view)
+/// }
 /// ```
 ///
 /// # Scope Tracking
@@ -113,9 +211,8 @@ pub struct VarDefinition<'src, 'arena> {
     /// None during initial creation, filled in during type checking
     pub var_type: Option<HirType<'src, 'arena>>,
 
-    /// Optional initialization expression
-    /// None for uninitialized variables (e.g., `let x: i32;`)
-    pub init: Option<HirExpr<'src, 'arena>>,
+    /// How this variable is defined (uninitialized, initialized, or transformed view)
+    pub definition_kind: VarDefinitionKind<'src, 'arena>,
 
     /// Scope level where this variable was defined
     /// Used for shadowing detection and variable lookup
@@ -131,7 +228,7 @@ impl<'src, 'arena> VarDefinition<'src, 'arena> {
         name: &'src str,
         name_span: Span,
         var_type: Option<HirType<'src, 'arena>>,
-        init: Option<HirExpr<'src, 'arena>>,
+        definition_kind: VarDefinitionKind<'src, 'arena>,
         scope_level: ScopeLevel,
         span: Span,
     ) -> Self {
@@ -139,7 +236,7 @@ impl<'src, 'arena> VarDefinition<'src, 'arena> {
             name,
             name_span,
             var_type,
-            init,
+            definition_kind,
             scope_level,
             span,
         }
@@ -147,12 +244,36 @@ impl<'src, 'arena> VarDefinition<'src, 'arena> {
 
     /// Check if this variable is initialized
     pub fn is_initialized(&self) -> bool {
-        self.init.is_some()
+        matches!(self.definition_kind, VarDefinitionKind::Initialized { .. })
     }
 
     /// Check if this variable has an explicit type annotation
     pub fn has_type_annotation(&self) -> bool {
         self.var_type.is_some()
+    }
+
+    /// Check if this variable is a transformed view
+    pub fn is_transformed_view(&self) -> bool {
+        matches!(
+            self.definition_kind,
+            VarDefinitionKind::TransformedView { .. }
+        )
+    }
+
+    /// Get the container variable if this is a transformed view
+    pub fn get_container_var(&self) -> Option<&'arena VarDefinition<'src, 'arena>> {
+        match &self.definition_kind {
+            VarDefinitionKind::TransformedView { container_var, .. } => Some(container_var),
+            _ => None,
+        }
+    }
+
+    /// Get the initialization expression if this variable is initialized
+    pub fn get_init_expr(&self) -> Option<&'arena ResolvedExpr<'src, 'arena>> {
+        match &self.definition_kind {
+            VarDefinitionKind::Initialized { init } => Some(init),
+            _ => None,
+        }
     }
 }
 
@@ -659,7 +780,7 @@ mod tests {
             "x",
             dummy_span(),
             Some(dummy_type()),
-            None,
+            VarDefinitionKind::Uninitialized,
             0,
             dummy_span(),
         );
@@ -668,6 +789,9 @@ mod tests {
         assert!(!var_def.is_initialized());
         assert!(var_def.has_type_annotation());
         assert_eq!(var_def.scope_level, 0);
+        assert!(!var_def.is_transformed_view());
+        assert_eq!(var_def.get_container_var(), None);
+        assert_eq!(var_def.get_init_expr(), None);
     }
 
     #[test]
@@ -683,7 +807,7 @@ mod tests {
             "p1",
             dummy_span(),
             Some(dummy_type()),
-            None,
+            VarDefinitionKind::Uninitialized,
             0,
             dummy_span(),
         ));

@@ -589,7 +589,7 @@ mod tests {
             "x",
             dummy_span(),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             dummy_span(),
         ));
@@ -608,7 +608,7 @@ mod tests {
             "x",
             dummy_span(),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             dummy_span(),
         ));
@@ -667,7 +667,7 @@ mod tests {
             "x",
             dummy_span(),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             dummy_span(),
         ));
@@ -686,7 +686,7 @@ mod tests {
             "x",
             dummy_span(),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             1,
             dummy_span(),
         ));
@@ -715,7 +715,7 @@ mod tests {
             "x",
             dummy_span(),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             dummy_span(),
         ));
@@ -727,7 +727,7 @@ mod tests {
             "x",
             dummy_span(),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             dummy_span(),
         ));
