@@ -641,7 +641,7 @@ mod tests {
             name: "x",
             name_span: test_span(),
             var_type: Some(test_type()),
-            init: None,
+            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
             scope_level: 0,
             span: test_span(),
         });
@@ -670,7 +670,7 @@ mod tests {
             name: "x",
             name_span: test_span(),
             var_type: Some(test_type()),
-            init: None,
+            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
             scope_level: 0,
             span: test_span(),
         });
@@ -752,7 +752,7 @@ mod tests {
             name: "i",
             name_span: test_span(),
             var_type: Some(test_type()),
-            init: None,
+            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
             scope_level: 1,
             span: test_span(),
         });

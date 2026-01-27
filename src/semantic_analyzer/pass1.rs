@@ -417,12 +417,13 @@ fn collect_let_stmt<'src, 'arena>(
     // Get current scope level
     let scope_level: ScopeLevel = ctx.scope_stack.current_scope_level();
 
-    // Create variable definition (no initializer in pass 1)
+    // Create variable definition (uninitialized in pass 1)
+    // Initializer will be set in pass 2 if present
     let var_def = ctx.arena.alloc(VarDefinition::new(
         name,
         name_span,
         var_type,
-        None, // Initializer not resolved in pass 1
+        crate::hir::definitions::VarDefinitionKind::Uninitialized,
         scope_level,
         span,
     ));

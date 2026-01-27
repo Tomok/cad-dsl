@@ -626,7 +626,7 @@ mod tests {
             name: "i",
             name_span: span,
             var_type: Some(ResolvedType::I32 { span }),
-            init: None,
+            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
             scope_level: 1,
             span,
         });

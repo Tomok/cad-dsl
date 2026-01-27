@@ -336,7 +336,7 @@ mod tests {
             name: "x",
             name_span: test_span(),
             var_type: Some(ResolvedType::I32 { span: test_span() }),
-            init: None,
+            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
             scope_level: 0,
             span: test_span(),
         });
@@ -374,7 +374,7 @@ mod tests {
             name: "x",
             name_span: test_span(),
             var_type: Some(ResolvedType::I32 { span: test_span() }),
-            init: None,
+            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
             scope_level: 0,
             span: test_span(),
         });
@@ -406,7 +406,7 @@ mod tests {
             name: "x",
             name_span: test_span(),
             var_type: Some(ResolvedType::I32 { span: test_span() }),
-            init: None,
+            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
             scope_level: 0,
             span: test_span(),
         });
@@ -432,7 +432,7 @@ mod tests {
             name: "y",
             name_span: test_span(),
             var_type: Some(ResolvedType::F64 { span: test_span() }),
-            init: None,
+            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
             scope_level: 0,
             span: test_span(),
         });
@@ -499,7 +499,7 @@ mod tests {
             name: "x",
             name_span: test_span(),
             var_type: Some(ResolvedType::I32 { span: test_span() }),
-            init: None,
+            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
             scope_level: 1,
             span: test_span(),
         });

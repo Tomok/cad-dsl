@@ -715,7 +715,14 @@ mod tests {
 
         let span = make_span(1, 1);
         let i32_ty = make_i32_type(span);
-        let var_def = arena.alloc(VarDefinition::new("x", span, Some(i32_ty), None, 0, span));
+        let var_def = arena.alloc(VarDefinition::new(
+            "x",
+            span,
+            Some(i32_ty),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            0,
+            span,
+        ));
 
         let expr = ResolvedExpr {
             span,
@@ -1005,7 +1012,14 @@ mod tests {
             span,
         });
 
-        let var_def = arena.alloc(VarDefinition::new("x", span, Some(*i32_ty), None, 0, span));
+        let var_def = arena.alloc(VarDefinition::new(
+            "x",
+            span,
+            Some(*i32_ty),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            0,
+            span,
+        ));
 
         let inner = arena.alloc(ResolvedExpr {
             span,

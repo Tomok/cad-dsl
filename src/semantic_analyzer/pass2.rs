@@ -259,8 +259,19 @@ fn resolve_let_statement<'src, 'arena>(
             // Top-level let statement - was created in Pass 1, but we need to update it
             // with the resolved type and initializer from Pass 2
             // Since VarDefinition is immutable, create a new one with updated values
-            let new_def =
-                VarDefinition::new(name, name_span, resolved_type, init_expr, scope_level, span);
+            let definition_kind = if let Some(init) = init_expr {
+                crate::hir::definitions::VarDefinitionKind::Initialized { init }
+            } else {
+                crate::hir::definitions::VarDefinitionKind::Uninitialized
+            };
+            let new_def = VarDefinition::new(
+                name,
+                name_span,
+                resolved_type,
+                definition_kind,
+                scope_level,
+                span,
+            );
             let new_def_ref: &'arena VarDefinition<'src, 'arena> = ctx.arena.alloc(new_def);
 
             // Replace the old definition in the scope
@@ -269,8 +280,19 @@ fn resolve_let_statement<'src, 'arena>(
             new_def_ref
         } else {
             // Non-top-level let statement - declare it now
-            let new_def =
-                VarDefinition::new(name, name_span, resolved_type, init_expr, scope_level, span);
+            let definition_kind = if let Some(init) = init_expr {
+                crate::hir::definitions::VarDefinitionKind::Initialized { init }
+            } else {
+                crate::hir::definitions::VarDefinitionKind::Uninitialized
+            };
+            let new_def = VarDefinition::new(
+                name,
+                name_span,
+                resolved_type,
+                definition_kind,
+                scope_level,
+                span,
+            );
             let new_def_ref: &'arena VarDefinition<'src, 'arena> = ctx.arena.alloc(new_def);
             let result = new_def_ref;
 
@@ -324,11 +346,16 @@ fn resolve_let_statement<'src, 'arena>(
 
         let scope_level = ctx.scope_stack.current_scope_level();
 
+        let definition_kind = if let Some(init) = init_expr {
+            crate::hir::definitions::VarDefinitionKind::Initialized { init }
+        } else {
+            crate::hir::definitions::VarDefinitionKind::Uninitialized
+        };
         let var_def = ctx.arena.alloc(VarDefinition::new(
             name,
             name_span,
             resolved_type,
-            init_expr,
+            definition_kind,
             scope_level,
             span,
         ));
@@ -372,11 +399,16 @@ fn resolve_let_statement<'src, 'arena>(
 
         let scope_level = ctx.scope_stack.current_scope_level();
 
+        let definition_kind = if let Some(init) = init_expr {
+            crate::hir::definitions::VarDefinitionKind::Initialized { init }
+        } else {
+            crate::hir::definitions::VarDefinitionKind::Uninitialized
+        };
         let var_def = ctx.arena.alloc(VarDefinition::new(
             name,
             name_span,
             resolved_type,
-            init_expr,
+            definition_kind,
             scope_level,
             span,
         ));
@@ -620,7 +652,7 @@ fn resolve_function_body<'src, 'arena>(
             "self",
             name_span,
             Some(self_type),
-            None, // self doesn't have an initializer
+            crate::hir::definitions::VarDefinitionKind::Uninitialized, // self is a parameter
             scope_level,
             name_span,
         ));
@@ -638,7 +670,7 @@ fn resolve_function_body<'src, 'arena>(
             param_name,
             param.name_span,
             param_type,
-            None, // Parameters don't have initializers
+            crate::hir::definitions::VarDefinitionKind::Uninitialized, // Parameters are uninitialized
             scope_level,
             param.span,
         ));
@@ -748,8 +780,8 @@ fn resolve_for_statement<'src, 'arena>(
     let loop_var_def = ctx.arena.alloc(VarDefinition::new(
         loop_var,
         loop_var_span,
-        None, // Type inference needed
-        None, // No initializer for loop variables
+        None,                                                      // Type inference needed
+        crate::hir::definitions::VarDefinitionKind::Uninitialized, // Loop variable
         scope_level,
         span,
     ));
@@ -1699,7 +1731,7 @@ mod tests {
             Some(ResolvedType::I32 {
                 span: make_span(1, 8),
             }),
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             make_span(1, 1),
         ));
@@ -1870,7 +1902,7 @@ mod tests {
             "x",
             make_span(1, 5),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             make_span(1, 1),
         ));
@@ -1884,7 +1916,7 @@ mod tests {
             "x",
             make_span(1, 17),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             1,
             make_span(1, 13),
         ));
@@ -2475,7 +2507,7 @@ mod tests {
             "arr",
             make_span(1, 1),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             make_span(1, 1),
         ));
@@ -2977,7 +3009,7 @@ mod tests {
             "p",
             make_span(1, 1),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             make_span(1, 1),
         ));
@@ -3008,7 +3040,7 @@ mod tests {
             "obj",
             make_span(1, 6),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             make_span(1, 6),
         ));
@@ -3061,7 +3093,7 @@ mod tests {
             "x",
             make_span(1, 5),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             make_span(1, 1),
         ));
@@ -3093,7 +3125,7 @@ mod tests {
             "obj",
             make_span(1, 1),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             make_span(1, 1),
         ));
@@ -3125,7 +3157,7 @@ mod tests {
             "obj",
             make_span(1, 6),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             make_span(1, 6),
         ));
@@ -3246,7 +3278,7 @@ mod tests {
             "obj",
             make_span(1, 6),
             None,
-            None,
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
             0,
             make_span(1, 6),
         ));

@@ -1694,12 +1694,12 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         };
 
         // Create a dummy var definition in the arena
-        use crate::hir::definitions::VarDefinition;
+        use crate::hir::definitions::{VarDefinition, VarDefinitionKind};
         let dummy_var_def = ctx.arena.alloc(VarDefinition {
             name: root_name,
             name_span: dummy_span,
             var_type: Some(*var_type), // Copy the type (ResolvedType is Copy)
-            init: None,
+            definition_kind: VarDefinitionKind::Uninitialized,
             scope_level: 0,
             span: dummy_span,
         });
