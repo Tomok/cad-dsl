@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document describes a planned architectural improvement to move transform-related semantics from the solver phase into the High-Level Intermediate Representation (HIR). Currently, transform application (shadow variable creation, transform inlining) happens during constraint solving, which violates separation of concerns. This plan proposes representing transforms directly in the HIR during semantic analysis.
+This document describes a planned architectural improvement to move transform-related semantics from the solver phase into the High-Level Intermediate Representation (HIR). Currently, transform application (container variable creation, transform inlining) happens during constraint solving, which violates separation of concerns. This plan proposes representing transforms directly in the HIR during semantic analysis.
 
 **Transform semantics work in two directions**:
 1. **Internal declarations** (dot-prefix): `with sketch { let .p: Point2D; }` creates a container variable (`sketch.entities.p: Point3D`) and a temporary view (`.p: Point2D`)
@@ -52,7 +52,7 @@ HIR → Solver (Pure Z3 Code Gen)
 2. **Scattered Logic**: Transform metadata in HIR, transform application in solver
 3. **Hard to Test**: Must run entire solver to test transform behavior
 4. **Unclear Responsibility**: Is transform semantics or code generation?
-5. **Missing Semantic Information**: HIR doesn't show that variable `x` is actually defined as `transform(shadow_var)`
+5. **Missing Semantic Information**: HIR doesn't show that variable `x` is actually defined as `transform(container_var)`
 6. **Impediment to Other Analyses**: Dataflow analysis, optimizations, and alternative backends cannot see transform relationships
 
 ### Example Problems
@@ -139,7 +139,7 @@ with sketch {
 |-------|-----------|----------------|
 | **Semantic Analysis** | `src/semantic_analyzer/pass2.rs` | Collects transform metadata (which methods exist, their types) |
 | **HIR** | `src/hir/context.rs` | Stores `WithContext` with `Vec<TransformMethod>` |
-| **Solver** | `src/solver/impls/stmt.rs` | **Applies transforms**: creates shadow variables, inlines methods, generates constraints |
+| **Solver** | `src/solver/impls/stmt.rs` | **Applies transforms**: creates container variables, inlines methods, generates constraints |
 
 ### Transform Application Pipeline (Current)
 
@@ -147,10 +147,10 @@ Located in `src/solver/impls/stmt.rs::apply_transform_to_variable()`:
 
 1. **Check context**: Is variable in transform context?
 2. **Select transform**: Find matching `__transform__` method
-3. **Create shadow variable**: Generate `__shadow_0`, `__shadow_1`, etc.
-4. **Create reference**: Make HIR expression referencing shadow
+3. **Create container variable**: Generate qualified name (e.g., `sketch.entities.p`)
+4. **Create reference**: Make HIR expression referencing container variable
 5. **Inline transform**: Substitute parameters in transform method body
-6. **Add constraint**: `declared_var == transform_result`
+6. **Add constraint**: `view_var == transform_result`
 
 ### The Problem with This Approach
 
@@ -174,9 +174,9 @@ If a variable is defined through a transform, that should be explicit in the HIR
 
 | Aspect | Before | After |
 |--------|--------|-------|
-| **Shadow Variables** | Created during solving | Created during semantic analysis |
+| **Container Variables** | Created during solving | Created during semantic analysis |
 | **Transform Expressions** | Inlined during solving | Constructed in HIR |
-| **Variable Definition** | HIR: "var exists" | HIR: "var = transform(shadow)" |
+| **Variable Definition** | HIR: "var exists" | HIR: "view = transform(container)" or "expr wrapped with transform" |
 | **Solver Role** | Semantic + Code Gen | Pure Code Gen (HIR → Z3) |
 | **Error Detection** | During solving | During semantic analysis |
 
@@ -779,7 +779,11 @@ fn should_apply_transform<'src, 'arena>(
 }
 ```
 
-#### 2.5 Modify Variable Declaration Logic
+#### 2.5 Implement Container+View Variable Creation Without String Allocation
+
+**Key Principle**: Use existing `&'src str` slices from source code; don't allocate concatenated strings.
+
+##### 2.5.1 Modify Variable Declaration Logic
 
 Extend `resolve_let_statement()` to detect and apply transform chains:
 
@@ -811,7 +815,7 @@ fn resolve_let_statement<'src, 'arena>(
 }
 ```
 
-#### 2.6 Implement Container+View Variable Creation
+##### 2.5.2 Implement Variable Creation Using Source String Slices
 
 ```rust
 fn resolve_transformed_variable<'src, 'arena>(
@@ -827,13 +831,13 @@ fn resolve_transformed_variable<'src, 'arena>(
         .expect("Transform chain should not be empty")
         .input_type;
 
-    // Build container variable's full qualified name
-    // For `.p` in `with sketch`, this becomes "sketch.entities.p"
-    let container_path = resolve_variable_path(ctx, name_path);
-    let container_name_arena = ctx.arena.alloc_str(&container_path);
+    // Get the container variable name from the existing path resolution
+    // This already returns a qualified path as &'src str (no allocation needed)
+    // For `.p` in `with sketch`, resolve_variable_path returns "sketch.entities.p"
+    let container_name = resolve_variable_path(ctx, name_path);
 
     let container_var_def = ctx.arena.alloc(VarDefinition {
-        name: container_name_arena,
+        name: container_name,  // Already &'src str, no allocation!
         name_span: span,
         var_type: Some(container_type),
         definition_kind: VarDefinitionKind::Uninitialized,  // Free variable for solver
@@ -842,7 +846,7 @@ fn resolve_transformed_variable<'src, 'arena>(
     });
 
     // Register container variable in scope (in container namespace)
-    ctx.scope_stack.add_variable(container_name_arena, container_var_def);
+    ctx.scope_stack.add_variable(container_name, container_var_def);
 
     // STEP 2: Build transform expression
     // This defines the view as transform of container: view == transform(container)
@@ -854,13 +858,12 @@ fn resolve_transformed_variable<'src, 'arena>(
     )?;
 
     // STEP 3: Create view variable (temporary, shadows container in this scope)
-    // Extract short name without dot-prefix
+    // Extract short name without dot-prefix from source
     let (view_name_with_dot, _) = name_path.last().unwrap();
-    let view_name = view_name_with_dot.trim_start_matches('.');
-    let view_name_arena = ctx.arena.alloc_str(view_name);
+    let view_name = view_name_with_dot.trim_start_matches('.');  // Still &'src str, no allocation!
 
     let view_var_def = ctx.arena.alloc(VarDefinition {
-        name: view_name_arena,
+        name: view_name,  // Already &'src str, no allocation!
         name_span: span,
         var_type: Some(view_type),
         definition_kind: VarDefinitionKind::TransformedView {
@@ -873,7 +876,7 @@ fn resolve_transformed_variable<'src, 'arena>(
     });
 
     // Register view variable in local scope (shadows container variable by short name)
-    ctx.scope_stack.add_variable(view_name_arena, view_var_def);
+    ctx.scope_stack.add_variable(view_name, view_var_def);
 
     // STEP 4: Create Let statement
     // The statement represents both variables, but primarily references the view
@@ -890,7 +893,26 @@ fn resolve_transformed_variable<'src, 'arena>(
 }
 ```
 
-#### 2.7 Build Chained Transform Expression
+**Critical Notes**:
+1. **No `alloc_str` calls**: All variable names use existing `&'src str` slices
+2. **View names**: Come directly from source via `trim_start_matches('.')`
+3. **Container names**: Returned by `resolve_variable_path()` as existing `&'src str`
+4. **Success criteria**: Zero string allocations for variable names
+
+##### 2.5.3 Verify resolve_variable_path Returns &'src str
+
+Ensure that `resolve_variable_path()` returns `&'src str` without allocation:
+- Container paths like "sketch.entities.p" must come from existing source slices
+- If current implementation allocates, refactor to use source slices or component-based representation
+- Document how qualified names are constructed from path components
+
+**Success Criteria**:
+- No `Box::leak` calls in semantic analyzer (outside tests)
+- No `arena.alloc_str()` calls for variable names
+- All variable names are `&'src str` referencing source code
+- All tests pass
+
+#### 2.6 Build Chained Transform Expression
 
 ```rust
 fn build_chained_transform_expression<'src, 'arena>(
@@ -940,6 +962,10 @@ fn build_chained_transform_expression<'src, 'arena>(
 }
 ```
 
+**Notes**:
+- No string allocation occurs; all names are `&'src str` from source
+- Container variable reference uses the qualified name from existing path resolution
+
 **Example with nested transforms:**
 
 ```cad
@@ -973,8 +999,10 @@ with outer {
 - Unit tests for container variable naming
 - Integration tests for transformed variable creation
 - Verify HIR contains both container and view variables with correct types
+- Verify no Box::leak calls exist in semantic analyzer code (all allocations use arena)
+- Verify no string allocations for variable names (grep for `alloc_str` in variable name code paths)
 
-#### 2.8 Implement External Variable Access Transformation
+#### 2.7 Implement External Variable Access Transformation
 
 This is a **critical addition** to handle variables declared outside with-blocks that are accessed inside.
 
@@ -1074,7 +1102,7 @@ fn wrap_with_transforms<'src, 'arena>(
 }
 ```
 
-#### 2.9 Update Expression Resolution to Apply Transforms
+#### 2.8 Update Expression Resolution to Apply Transforms
 
 Modify `resolve_expr()` to call `maybe_apply_transform()` on certain expression kinds:
 
@@ -1206,7 +1234,7 @@ fn solve_let_statement<'src, 'arena>(
 Delete or deprecate:
 - `apply_transform_to_variable()` function
 - `select_transform_method()` function
-- `create_shadow_variable()` function
+- `create_container_variable()` function (if it exists as separate function)
 - `inline_transform_method()` function (if only used for transforms)
 
 Keep only if used for user-written function calls.
@@ -1328,8 +1356,8 @@ match var_def.init {
 match &var_def.definition_kind {
     VarDefinitionKind::Initialized { init } => { /* handle initialized */ }
     VarDefinitionKind::Uninitialized => { /* handle uninitialized */ }
-    VarDefinitionKind::Transformed { shadow_var, transform_expr, .. } => {
-        /* handle transformed */
+    VarDefinitionKind::TransformedView { container_var, transform_expr, .. } => {
+        /* handle transformed view */
     }
 }
 ```
@@ -1623,7 +1651,7 @@ struct Sketch {
 - Unit tests for semantic analysis more meaningful
 
 #### 4. Better Dataflow Analysis
-- Dependencies explicit: `.p` depends on `__shadow_0`
+- Dependencies explicit: view variable `.p` depends on container variable `sketch.entities.p`
 - Enables optimization passes
 - Foundation for advanced analyses
 
@@ -1640,9 +1668,9 @@ struct Sketch {
 ### Trade-offs
 
 #### 1. Slightly Larger HIR
-- Shadow variables now in HIR (previously solver-only)
+- Container variables now in HIR (previously solver-only)
 - Transform expressions stored in HIR
-- **Impact**: Minimal (shadow vars are small, transforms are reused)
+- **Impact**: Minimal (container vars are normal variables, transforms are reused)
 
 #### 2. More Complex Semantic Analyzer
 - Additional logic for transform detection and application
@@ -1803,26 +1831,25 @@ Constraint(Eq(
     Literal(0.0)
 ))
 
-// Shadow variable (auto-generated)
+// Container variable (persistent entity in container namespace)
 VarDefinition {
-    name: "__shadow_0",
+    name: "s.entities.p",  // Qualified name from container
     var_type: Point3D,
-    definition_kind: Uninitialized,
+    definition_kind: Uninitialized,  // Free variable for solver
 }
 
-// Variable: s.entities.p (transformed)
+// View variable (temporary, shadows container in local scope)
 VarDefinition {
-    name: "p",
+    name: "p",  // Short name from source
     var_type: Point2D,
-    definition_kind: Transformed {
-        shadow_var: &__shadow_0_def,
+    definition_kind: TransformedView {
+        container_var: &s_entities_p_def,
+        transform_chain: vec![...],
         transform_expr: MethodCall(
             receiver: Var(s),
             method: "__transform__",
-            args: [Ref(Var(__shadow_0))]
+            args: [Ref(Var("s.entities.p"))]
         ),
-        transform_method: &__transform___method_def,
-        with_context: &s_with_context,
     },
 }
 
@@ -1840,11 +1867,11 @@ Constraint(Eq(
 register_var("s.origin.x", f64);
 register_var("s.origin.y", f64);
 register_var("s.origin.z", f64);
-register_var("__shadow_0.x", f64);
-register_var("__shadow_0.y", f64);
-register_var("__shadow_0.z", f64);
-register_var("s.entities.p.x", f64);
+register_var("s.entities.p.x", f64);  // Container variable (Point3D)
 register_var("s.entities.p.y", f64);
+register_var("s.entities.p.z", f64);
+register_var("p.x", f64);  // View variable (Point2D)
+register_var("p.y", f64);
 
 // Add constraints from HIR
 add_constraint("s.origin.x == 0.0");
@@ -1852,24 +1879,26 @@ add_constraint("s.origin.y == 0.0");
 add_constraint("s.origin.z == 0.0");
 
 // Add transform constraint (from VarDefinition.transform_expr)
-// s.entities.p == s.__transform__(&__shadow_0)
+// p == s.__transform__(&s.entities.p)
 // Inlined:
-add_constraint("s.entities.p.x == __shadow_0.x - s.origin.x");
-add_constraint("s.entities.p.y == __shadow_0.y - s.origin.y");
+add_constraint("p.x == s.entities.p.x - s.origin.x");
+add_constraint("p.y == s.entities.p.y - s.origin.y");
 
 // Add user constraint
-add_constraint("s.entities.p.x == 5.0");
+add_constraint("p.x == 5.0");
 
 // Solve with Z3
 let solution = z3_solve();
 
-// Filter output (hide shadow variables)
+// Filter output (hide view variables, show container variables)
 output:
   s.entities.p.x = 5.0
+  s.entities.p.y = 0.0  // Unconstrained, solver picks arbitrary value
+  s.entities.p.z = 0.0  // Unconstrained, solver picks arbitrary value
   s.origin.x = 0.0
   s.origin.y = 0.0
   s.origin.z = 0.0
-  // __shadow_0.* hidden
+  // p.* hidden (view variable)
 ```
 
 ### Example 2: Error Detection (Type Mismatch)
@@ -1920,10 +1949,11 @@ Error: No transform available for type 'SomeOtherType'
 ## Glossary
 
 - **HIR**: High-Level Intermediate Representation - typed, name-resolved representation of the program
-- **Shadow Variable**: Auto-generated internal variable representing pre-transform coordinate space (e.g., `__shadow_0`)
-- **Transform Method**: Special method named `__transform__` that converts between coordinate spaces
+- **Container Variable**: Persistent variable in container namespace representing pre-transform coordinate space (e.g., `sketch.entities.p: Point3D`)
+- **View Variable**: Temporary variable that shadows the container variable and represents post-transform coordinate space (e.g., `p: Point2D`)
+- **Transform Method**: Special method named `__transform__` or `__transform_container__` that converts between coordinate spaces
 - **Transform Expression**: HIR expression representing the transform function call and constraint
-- **VarDefinitionKind**: Enum describing how a variable is defined (uninitialized, initialized, or transformed)
+- **VarDefinitionKind**: Enum describing how a variable is defined (uninitialized, initialized, or transformed view)
 - **With-Context**: Context created by `with` statement, providing transform methods and container fields
 - **Solver**: Backend phase that translates HIR to Z3 constraints and finds solutions
 
@@ -1942,12 +1972,12 @@ Error: No transform available for type 'SomeOtherType'
 
 | Phase | Status | Estimated Days | Actual Days | Notes |
 |-------|--------|----------------|-------------|-------|
-| Phase 1: HIR Data Structures | Not Started | 1-2 | - | |
-| Phase 2: Shadow Variable Generation | Not Started | 2-2.5 | - | Includes nested transform support |
-| Phase 3: Simplify Solver | Not Started | 2 | - | |
+| Phase 1: HIR Data Structures | Not Started | 1-2 | - | Add VarDefinitionKind enum |
+| Phase 2: Container+View Variable Generation | Not Started | 3-3.5 | - | Internal & external transforms, no string allocation |
+| Phase 3: Simplify Solver | Not Started | 2 | - | Remove transform application code |
 | Phase 4: Documentation | Not Started | 0.5 | - | |
 | Phase 5: Testing | Not Started | 1 | - | |
-| **Total** | **Not Started** | **6.5-8** | **-** | |
+| **Total** | **Not Started** | **7.5-9** | **-** | |
 
 ---
 
