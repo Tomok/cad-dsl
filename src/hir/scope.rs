@@ -545,6 +545,31 @@ impl<'src, 'arena> ScopeStack<'src, 'arena> {
             .map(|ctx| ctx.is_transform_context())
             .unwrap_or(false)
     }
+
+    /// Returns all active with-contexts from outermost to innermost
+    ///
+    /// This is needed for nested transform chains. When transforms are nested,
+    /// they should be applied in order from outermost to innermost.
+    ///
+    /// # Example
+    ///
+    /// ```cad
+    /// with outer {          // Context 1
+    ///     with inner {      // Context 2
+    ///         let .p: T;    // Needs both transforms: outer then inner
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// A vector of with-context references in order from outermost (first) to innermost (last)
+    pub fn all_with_contexts(&self) -> Vec<&'arena WithContext<'src, 'arena>> {
+        self.scopes
+            .iter()
+            .filter_map(|scope| scope.with_context)
+            .collect()
+    }
 }
 
 impl<'src, 'arena> Default for ScopeStack<'src, 'arena> {
