@@ -223,6 +223,13 @@ pub struct SolverContext<'src, 'arena> {
     /// Counter for generating unique shadow variable names
     /// Used when applying transforms to create shadow variables
     shadow_counter: usize,
+
+    /// Storage for owned qualified name strings
+    ///
+    /// When we need to create a VariablePath from an identifier's qualified name,
+    /// we need the string to outlive the function call. This Vec stores those strings
+    /// and we return references to them.
+    qualified_name_storage: Vec<String>,
 }
 
 impl<'src, 'arena> SolverContext<'src, 'arena> {
@@ -242,6 +249,27 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             current_solution: None,
             previous_solved_count: 0,
             shadow_counter: 0,
+            qualified_name_storage: Vec::new(),
+        }
+    }
+
+    /// Store a qualified name string and return a reference to it
+    ///
+    /// This is used when we need to create a VariablePath from an owned String
+    /// (like from `identifier.to_qualified_name()`). The string is stored in the
+    /// context and a reference with the appropriate lifetime is returned.
+    fn store_qualified_name(&mut self, name: String) -> &'src str {
+        self.qualified_name_storage.push(name);
+        // SAFETY: We're converting the reference lifetime from the Vec's lifetime
+        // to 'src. This is safe because:
+        // 1. The Vec is never shrunk or reallocated during solving
+        // 2. The SolverContext lives for the entire solving process
+        // 3. Strings are only added, never removed
+        // 4. The caller needs these strings to persist for solving
+        unsafe {
+            let last_idx = self.qualified_name_storage.len() - 1;
+            let s: &str = &self.qualified_name_storage[last_idx];
+            std::mem::transmute::<&str, &'src str>(s)
         }
     }
 
@@ -303,8 +331,10 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         if let Some(container_field) = with_context.container_field {
             // Extract the container variable from the context expression
             if let ResolvedExprKind::Var { definition, .. } = &with_context.context_expr.kind {
+                let qualified_name = definition.identifier.to_qualified_name();
+                let name_ref = self.store_qualified_name(qualified_name);
                 let info = WithContextInfo::Container {
-                    container_path: VariablePath::from_name(definition.name()),
+                    container_path: VariablePath::from_name(name_ref),
                     container_field,
                     transforms: with_context.transforms.clone(),
                     context_expr: with_context.context_expr,
@@ -316,8 +346,10 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             // This is a transform-only context (no container)
             // Extract the source variable from the context expression
             if let ResolvedExprKind::Var { definition, .. } = &with_context.context_expr.kind {
+                let qualified_name = definition.identifier.to_qualified_name();
+                let name_ref = self.store_qualified_name(qualified_name);
                 let info = WithContextInfo::Transform {
-                    source_path: VariablePath::from_name(definition.name()),
+                    source_path: VariablePath::from_name(name_ref),
                     source_scope: definition.scope_level,
                     transforms: with_context.transforms.clone(),
                     context_expr: with_context.context_expr,

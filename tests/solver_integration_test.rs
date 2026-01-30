@@ -844,6 +844,11 @@ with transform {
 fn test_transform_application_basic() {
     // Test that transform methods are automatically applied to variable declarations
     // in transform contexts, creating shadow variables and linking them via constraints.
+    //
+    // REGRESSION TEST: This also validates that the solver uses qualified names
+    // (sketch.entities.p) rather than short names (p) when constructing variable paths
+    // for container variables in transform contexts. This ensures VarDefinition.identifier
+    // is used correctly throughout the solver.
     let test_code = r#"
 struct Point2D {
     x: f64,
