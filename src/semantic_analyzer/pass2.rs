@@ -2054,11 +2054,15 @@ fn get_transform_for_type<'src, 'arena>(
 
     for with_ctx in with_contexts.iter() {
         // Only use Standard transforms for external variables
-        let transform = with_ctx
+        // Skip contexts that don't have a matching transform (e.g., container-only contexts)
+        let Some(transform) = with_ctx
             .transforms
             .iter()
             .filter(|tm| matches!(tm.kind, TransformMethodKind::Standard))
-            .find(|tm| types_match(tm.input_type, current_type))?;
+            .find(|tm| types_match(tm.input_type, current_type))
+        else {
+            continue;
+        };
 
         transform_chain.push(crate::hir::definitions::TransformStep {
             transform_method: transform.function,
