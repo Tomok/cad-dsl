@@ -1105,8 +1105,11 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
 
             // Assignment statement - create conditional constraint
             ResolvedStmtKind::Assignment { var_def, value, .. } => {
-                let var_name = var_def.name();
-                let path = VariablePath::from_name(var_name);
+                let qualified_name = var_def.identifier.to_qualified_name();
+                // Leak the string to get a 'static reference (coercible to 'src)
+                // This is intentional - we need the name to persist for the solver context
+                let name_ref: &'static str = Box::leak(qualified_name.into_boxed_str());
+                let path = VariablePath::from_name(name_ref);
                 let z3_var = self.get_variable_z3(ctx, &path)?;
                 let z3_value = value.solve(ctx)?;
 

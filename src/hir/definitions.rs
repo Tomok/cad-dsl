@@ -63,7 +63,7 @@ pub type HirStmt<'src, 'arena> = crate::ast::types::Stmt<'src>;
 ///     }
 /// }
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TransformStep<'src, 'arena> {
     /// The transform method being applied in this step
     pub transform_method: &'arena FunctionDefinition<'src, 'arena>,
