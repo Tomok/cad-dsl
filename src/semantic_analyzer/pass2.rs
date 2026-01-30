@@ -1682,14 +1682,19 @@ fn resolve_type<'src, 'arena>(
 /// Extract a name from the source text
 ///
 /// This ensures names are `&'src str` references into the source text.
+/// Panics if the name is not found in the source, which indicates a bug.
 fn extract_name<'src>(source: &'src str, name: &str) -> &'src str {
     // Find the name in the source text
-    if let Some(idx) = source.find(name) {
-        &source[idx..idx + name.len()]
-    } else {
-        // Fallback: Use a static string if not found
-        Box::leak(name.to_string().into_boxed_str())
-    }
+    source
+        .find(name)
+        .map(|idx| &source[idx..idx + name.len()])
+        .unwrap_or_else(|| {
+            panic!(
+                "BUG: Name '{}' not found in source text. This should never happen \
+                 as names should come from the parsed AST.",
+                name
+            )
+        })
 }
 
 /// Collect all transform methods from a struct definition
@@ -1806,24 +1811,49 @@ fn resolve_transformed_variable<'src, 'arena>(
         .expect("Transform chain should not be empty")
         .input_type;
 
-    // STEP 2: Build container variable's full qualified name
-    // For `.p` in `with sketch`, this becomes "sketch.entities.p"
-    let container_name = build_container_variable_name(ctx, name_path)?;
-    // Leak the string to get a 'static lifetime (acceptable for variable names)
-    let container_name_src: &'src str = Box::leak(container_name.into_boxed_str());
+    // STEP 2: Build container variable identifier structurally
+    // For `.p` in `with sketch`, this creates ContainerAccess{sketch, entities, "p"}
+    let with_ctx = ctx.scope_stack.current_with_context()?;
+    let container_field = with_ctx.container_field?;
+
+    // Get the context variable's identifier
+    let context_var_identifier = match &with_ctx.context_expr.kind {
+        crate::hir::expr::ResolvedExprKind::Var { definition, .. } => definition.identifier,
+        _ => {
+            // Context is not a simple variable - use a fallback Simple identifier
+            ctx.arena
+                .alloc(crate::hir::definitions::VariableIdentifier::Simple(
+                    "context",
+                ))
+        }
+    };
+
+    // Extract the entity name without dot prefix (already a &'src str from name_path)
+    let (var_name_with_dot, _) = name_path.last()?;
+    let entity_name = var_name_with_dot.trim_start_matches('.');
+
+    // Create structural ContainerAccess identifier
+    let container_identifier = ctx.arena.alloc(
+        crate::hir::definitions::VariableIdentifier::ContainerAccess {
+            container_var: context_var_identifier,
+            container_field,
+            entity_name,
+        },
+    );
+
+    // Build display name for compatibility and scope registration
+    // Since this is a generated qualified name (e.g., "sketch.entities.p"), we need to
+    // allocate it. Using Box::leak() here is acceptable as it's only for display purposes
+    // and happens once per container variable.
+    let display_name = container_identifier.to_qualified_name();
+    let display_name_src: &'src str = Box::leak(display_name.into_boxed_str());
 
     let scope_level = ctx.scope_stack.current_scope_level();
 
     // Create container variable (the real, persistent entity)
-    // NOTE: For now using Simple identifier, will be replaced with ContainerAccess in Phase 3
-    let container_identifier =
-        ctx.arena
-            .alloc(crate::hir::definitions::VariableIdentifier::Simple(
-                container_name_src,
-            ));
     let container_var_def = ctx.arena.alloc(VarDefinition::new(
         container_identifier,
-        container_name_src,
+        display_name_src,
         span,
         Some(*container_type),
         VarDefinitionKind::Uninitialized, // Free variable for solver
@@ -1833,28 +1863,32 @@ fn resolve_transformed_variable<'src, 'arena>(
 
     // Register container variable in scope (in container namespace)
     ctx.scope_stack
-        .declare_variable(container_name_src, container_var_def);
+        .declare_variable(display_name_src, container_var_def);
 
     // STEP 3: Build transform expression
     let transform_expr =
         build_chained_transform_expression(ctx, &transform_chain, container_var_def, span)?;
 
     // STEP 4: Create view variable (temporary, shadows container in this scope)
-    // Extract short name without dot-prefix
+    // Extract short name without dot-prefix (already a &'src str from name_path)
     let (view_name_with_dot, _) = name_path.last().unwrap();
     let view_name = view_name_with_dot.trim_start_matches('.');
-    // Leak the string to get a 'static lifetime (acceptable for variable names)
-    let view_name_src: &'src str = Box::leak(view_name.to_string().into_boxed_str());
 
-    // NOTE: For now using Simple identifier, will be replaced with TransformedView in Phase 3
-    let view_identifier = ctx
-        .arena
-        .alloc(crate::hir::definitions::VariableIdentifier::Simple(
-            view_name_src,
-        ));
+    // Allocate transform chain in arena
+    let transform_chain_arena = ctx.arena.alloc_slice_copy(&transform_chain);
+
+    // Create structural TransformedView identifier
+    let view_identifier = ctx.arena.alloc(
+        crate::hir::definitions::VariableIdentifier::TransformedView {
+            view_name,
+            container_var: container_var_def.identifier,
+            transform_chain: transform_chain_arena,
+        },
+    );
+
     let view_var_def = ctx.arena.alloc(VarDefinition::new(
         view_identifier,
-        view_name_src,
+        view_name,
         span,
         Some(*view_type),
         VarDefinitionKind::TransformedView {
@@ -1867,8 +1901,7 @@ fn resolve_transformed_variable<'src, 'arena>(
     ));
 
     // Register view variable in local scope (shadows container variable by short name)
-    ctx.scope_stack
-        .declare_variable(view_name_src, view_var_def);
+    ctx.scope_stack.declare_variable(view_name, view_var_def);
 
     // STEP 5: Create Let statement
     Some(ctx.arena.alloc(ResolvedStmt::new(
@@ -1881,42 +1914,6 @@ fn resolve_transformed_variable<'src, 'arena>(
             span,
         },
     )))
-}
-
-/// Build the container variable name from the with-context and variable name
-///
-/// For `.p` in `with sketch`, returns "sketch.entities.p"
-fn build_container_variable_name<'src, 'arena>(
-    ctx: &AnalyzerContext<'src, 'arena>,
-    name_path: &[(&'src str, Span)],
-) -> Option<String> {
-    // Get the innermost with-context
-    let with_ctx = ctx.scope_stack.current_with_context()?;
-
-    // Get the container field name
-    let container_field = with_ctx.container_field?;
-    let container_field_name = container_field.name;
-
-    // Extract the variable name from the context expression
-    // The context expression should be a variable reference
-    let context_var_name = match &with_ctx.context_expr.kind {
-        crate::hir::expr::ResolvedExprKind::Var { name, .. } => *name,
-        _ => {
-            // If context is not a simple variable, we can't build a container path
-            // This is a limitation - for now, just use a generated name
-            "context"
-        }
-    };
-
-    // Extract the variable name without dot prefix
-    let (var_name_with_dot, _) = name_path.last()?;
-    let var_name = var_name_with_dot.trim_start_matches('.');
-
-    // Build qualified name: context_var.container_field.var_name
-    Some(format!(
-        "{}.{}.{}",
-        context_var_name, container_field_name, var_name
-    ))
 }
 
 /// Build a chained transform expression
