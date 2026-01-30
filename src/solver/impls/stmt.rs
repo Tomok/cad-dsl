@@ -215,7 +215,7 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                 match self.evaluate_range(iterator, ctx) {
                     Ok((start, end)) => {
                         // Range is known - unroll the loop immediately
-                        self.unroll_loop(ctx, loop_var_def.name, start, end, body)?;
+                        self.unroll_loop(ctx, loop_var_def.name(), start, end, body)?;
                         Ok(())
                     }
                     Err(SolverError::UndefinedVariable(var_name)) => {
@@ -1105,7 +1105,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
 
             // Assignment statement - create conditional constraint
             ResolvedStmtKind::Assignment { var_def, value, .. } => {
-                let var_name = var_def.name;
+                let var_name = var_def.name();
                 let path = VariablePath::from_name(var_name);
                 let z3_var = self.get_variable_z3(ctx, &path)?;
                 let z3_value = value.solve(ctx)?;
@@ -1694,15 +1694,17 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         };
 
         // Create a dummy var definition in the arena
-        use crate::hir::definitions::{VarDefinition, VarDefinitionKind};
-        let dummy_var_def = ctx.arena.alloc(VarDefinition {
-            name: root_name,
-            name_span: dummy_span,
-            var_type: Some(*var_type), // Copy the type (ResolvedType is Copy)
-            definition_kind: VarDefinitionKind::Uninitialized,
-            scope_level: 0,
-            span: dummy_span,
-        });
+        use crate::hir::definitions::{VarDefinition, VarDefinitionKind, VariableIdentifier};
+        let dummy_identifier = ctx.arena.alloc(VariableIdentifier::Simple(root_name));
+        let dummy_var_def = ctx.arena.alloc(VarDefinition::new(
+            dummy_identifier,
+            root_name,
+            dummy_span,
+            Some(*var_type), // Copy the type (ResolvedType is Copy)
+            VarDefinitionKind::Uninitialized,
+            0,
+            dummy_span,
+        ));
 
         // Create a Var expression
         let expr = ctx.arena.alloc(ResolvedExpr {

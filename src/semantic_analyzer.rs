@@ -930,7 +930,7 @@ mod tests {
                     var_def,
                     init: Some(_),
                     ..
-                } if var_def.name == "x"
+                } if var_def.name() == "x"
             );
 
             // Test type checking
@@ -1163,7 +1163,7 @@ mod tests {
                     loop_var_def,
                     body,
                     ..
-                } if loop_var_def.name == "i" && body.len() == 1
+                } if loop_var_def.name() == "i" && body.len() == 1
             );
 
             // Test type checking
@@ -1333,7 +1333,7 @@ mod tests {
                     var_def,
                     init: Some(_),
                     ..
-                } if var_def.name == "p"
+                } if var_def.name() == "p"
             );
 
             // Test type checking
@@ -2035,7 +2035,7 @@ mod tests {
                     var_def,
                     init: Some(_),
                     ..
-                } if var_def.name == "p"
+                } if var_def.name() == "p"
             );
 
             // CRITICAL: Verify that var_type was inferred from the struct literal

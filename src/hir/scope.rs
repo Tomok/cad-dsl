@@ -610,7 +610,9 @@ mod tests {
         let arena = Bump::new();
         let mut scope = Scope::new(0);
 
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let var_def = arena.alloc(VarDefinition::new(
+            identifier,
             "x",
             dummy_span(),
             None,
@@ -626,10 +628,12 @@ mod tests {
         // Lookup should find the variable
         let found = scope.lookup_variable("x");
         assert!(found.is_some());
-        assert_eq!(found.unwrap().name, "x");
+        assert_eq!(found.unwrap().name(), "x");
 
         // Redeclaring in same scope should return the old definition
+        let identifier2 = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let var_def2 = arena.alloc(VarDefinition::new(
+            identifier2,
             "x",
             dummy_span(),
             None,
@@ -688,7 +692,10 @@ mod tests {
         let mut stack = ScopeStack::new();
 
         // Declare x in global scope
+        let identifier_global =
+            arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let x_global = arena.alloc(VarDefinition::new(
+            identifier_global,
             "x",
             dummy_span(),
             None,
@@ -707,7 +714,10 @@ mod tests {
         stack.push_scope();
 
         // Declare x in nested scope (shadows global x)
+        let identifier_nested =
+            arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let x_nested = arena.alloc(VarDefinition::new(
+            identifier_nested,
             "x",
             dummy_span(),
             None,
@@ -736,7 +746,9 @@ mod tests {
         let arena = Bump::new();
         let mut stack = ScopeStack::new();
 
+        let identifier1 = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let var1 = arena.alloc(VarDefinition::new(
+            identifier1,
             "x",
             dummy_span(),
             None,
@@ -748,7 +760,9 @@ mod tests {
         // First declaration succeeds
         assert!(stack.declare_variable("x", var1).is_none());
 
+        let identifier2 = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let var2 = arena.alloc(VarDefinition::new(
+            identifier2,
             "x",
             dummy_span(),
             None,

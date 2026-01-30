@@ -419,7 +419,11 @@ fn collect_let_stmt<'src, 'arena>(
 
     // Create variable definition (uninitialized in pass 1)
     // Initializer will be set in pass 2 if present
+    let identifier = ctx
+        .arena
+        .alloc(crate::hir::definitions::VariableIdentifier::Simple(name));
     let var_def = ctx.arena.alloc(VarDefinition::new(
+        identifier,
         name,
         name_span,
         var_type,
@@ -766,7 +770,7 @@ mod tests {
         assert!(!ctx.has_errors());
         let var = ctx.scope_stack.lookup_variable("x");
         assert!(var.is_some());
-        assert_eq!(var.unwrap().name, "x");
+        assert_eq!(var.unwrap().name(), "x");
     }
 
     #[test]

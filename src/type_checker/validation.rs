@@ -622,14 +622,16 @@ mod tests {
         let span = make_span(1, 1);
 
         let i32_type = arena.alloc(ResolvedType::I32 { span });
-        let loop_var_def = arena.alloc(VarDefinition {
-            name: "i",
-            name_span: span,
-            var_type: Some(ResolvedType::I32 { span }),
-            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
-            scope_level: 1,
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("i"));
+        let loop_var_def = arena.alloc(VarDefinition::new(
+            identifier,
+            "i",
             span,
-        });
+            Some(ResolvedType::I32 { span }),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            1,
+            span,
+        ));
         let iterator = arena.alloc(ResolvedExpr {
             span,
             kind: ResolvedExprKind::IntLit { value: 0 },

@@ -715,7 +715,9 @@ mod tests {
 
         let span = make_span(1, 1);
         let i32_ty = make_i32_type(span);
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let var_def = arena.alloc(VarDefinition::new(
+            identifier,
             "x",
             span,
             Some(i32_ty),
@@ -1012,7 +1014,9 @@ mod tests {
             span,
         });
 
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let var_def = arena.alloc(VarDefinition::new(
+            identifier,
             "x",
             span,
             Some(*i32_ty),

@@ -264,7 +264,11 @@ fn resolve_let_statement<'src, 'arena>(
             } else {
                 crate::hir::definitions::VarDefinitionKind::Uninitialized
             };
+            let identifier = ctx
+                .arena
+                .alloc(crate::hir::definitions::VariableIdentifier::Simple(name));
             let new_def = VarDefinition::new(
+                identifier,
                 name,
                 name_span,
                 resolved_type,
@@ -285,7 +289,11 @@ fn resolve_let_statement<'src, 'arena>(
             } else {
                 crate::hir::definitions::VarDefinitionKind::Uninitialized
             };
+            let identifier = ctx
+                .arena
+                .alloc(crate::hir::definitions::VariableIdentifier::Simple(name));
             let new_def = VarDefinition::new(
+                identifier,
                 name,
                 name_span,
                 resolved_type,
@@ -354,7 +362,11 @@ fn resolve_let_statement<'src, 'arena>(
             } else {
                 crate::hir::definitions::VarDefinitionKind::Uninitialized
             };
+            let identifier = ctx
+                .arena
+                .alloc(crate::hir::definitions::VariableIdentifier::Simple(name));
             let var_def = ctx.arena.alloc(VarDefinition::new(
+                identifier,
                 name,
                 name_span,
                 final_type,
@@ -392,7 +404,11 @@ fn resolve_let_statement<'src, 'arena>(
         } else {
             crate::hir::definitions::VarDefinitionKind::Uninitialized
         };
+        let identifier = ctx
+            .arena
+            .alloc(crate::hir::definitions::VariableIdentifier::Simple(name));
         let var_def = ctx.arena.alloc(VarDefinition::new(
+            identifier,
             name,
             name_span,
             Some(view_type),
@@ -442,7 +458,11 @@ fn resolve_let_statement<'src, 'arena>(
         } else {
             crate::hir::definitions::VarDefinitionKind::Uninitialized
         };
+        let identifier = ctx
+            .arena
+            .alloc(crate::hir::definitions::VariableIdentifier::Simple(name));
         let var_def = ctx.arena.alloc(VarDefinition::new(
+            identifier,
             name,
             name_span,
             resolved_type,
@@ -686,7 +706,11 @@ fn resolve_function_body<'src, 'arena>(
             span: name_span,
         };
 
+        let self_identifier = ctx
+            .arena
+            .alloc(crate::hir::definitions::VariableIdentifier::Simple("self"));
         let self_var = ctx.arena.alloc(VarDefinition::new(
+            self_identifier,
             "self",
             name_span,
             Some(self_type),
@@ -704,7 +728,13 @@ fn resolve_function_body<'src, 'arena>(
         let param_name = extract_name(ctx.source, &param.name);
         let param_type = resolve_type(ctx, &param.type_annotation);
 
+        let param_identifier =
+            ctx.arena
+                .alloc(crate::hir::definitions::VariableIdentifier::Simple(
+                    param_name,
+                ));
         let var_def = ctx.arena.alloc(VarDefinition::new(
+            param_identifier,
             param_name,
             param.name_span,
             param_type,
@@ -815,7 +845,13 @@ fn resolve_for_statement<'src, 'arena>(
     // Create the loop variable definition
     // TODO: Infer type from iterator
     let scope_level = ctx.scope_stack.current_scope_level();
+    let loop_var_identifier = ctx
+        .arena
+        .alloc(crate::hir::definitions::VariableIdentifier::Simple(
+            loop_var,
+        ));
     let loop_var_def = ctx.arena.alloc(VarDefinition::new(
+        loop_var_identifier,
         loop_var,
         loop_var_span,
         None,                                                      // Type inference needed
@@ -1779,7 +1815,14 @@ fn resolve_transformed_variable<'src, 'arena>(
     let scope_level = ctx.scope_stack.current_scope_level();
 
     // Create container variable (the real, persistent entity)
+    // NOTE: For now using Simple identifier, will be replaced with ContainerAccess in Phase 3
+    let container_identifier =
+        ctx.arena
+            .alloc(crate::hir::definitions::VariableIdentifier::Simple(
+                container_name_src,
+            ));
     let container_var_def = ctx.arena.alloc(VarDefinition::new(
+        container_identifier,
         container_name_src,
         span,
         Some(*container_type),
@@ -1803,7 +1846,14 @@ fn resolve_transformed_variable<'src, 'arena>(
     // Leak the string to get a 'static lifetime (acceptable for variable names)
     let view_name_src: &'src str = Box::leak(view_name.to_string().into_boxed_str());
 
+    // NOTE: For now using Simple identifier, will be replaced with TransformedView in Phase 3
+    let view_identifier = ctx
+        .arena
+        .alloc(crate::hir::definitions::VariableIdentifier::Simple(
+            view_name_src,
+        ));
     let view_var_def = ctx.arena.alloc(VarDefinition::new(
+        view_identifier,
         view_name_src,
         span,
         Some(*view_type),
@@ -1900,7 +1950,7 @@ fn build_chained_transform_expression<'src, 'arena>(
             inner: ctx.arena.alloc(ResolvedExpr {
                 span,
                 kind: ResolvedExprKind::Var {
-                    name: container_var.name,
+                    name: container_var.name(),
                     definition: container_var,
                 },
                 ty: container_var_ty,
@@ -2253,7 +2303,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Define variable
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let var_def = arena.alloc(VarDefinition::new(
+            identifier,
             "x",
             make_span(1, 5),
             Some(ResolvedType::I32 {
@@ -2426,7 +2478,10 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Declare x in outer scope
+        let identifier_outer =
+            arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let outer_x = arena.alloc(VarDefinition::new(
+            identifier_outer,
             "x",
             make_span(1, 5),
             None,
@@ -2440,7 +2495,10 @@ mod tests {
         ctx.scope_stack.push_scope();
 
         // Declare x in inner scope (shadows outer x)
+        let identifier_inner =
+            arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let inner_x = arena.alloc(VarDefinition::new(
+            identifier_inner,
             "x",
             make_span(1, 17),
             None,
@@ -3031,7 +3089,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Define array variable
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("arr"));
         let arr_def = arena.alloc(VarDefinition::new(
+            identifier,
             "arr",
             make_span(1, 1),
             None,
@@ -3533,7 +3593,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Define variable p
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("p"));
         let p_def = arena.alloc(VarDefinition::new(
+            identifier,
             "p",
             make_span(1, 1),
             None,
@@ -3564,7 +3626,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Create a variable for the with context
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("obj"));
         let obj_def = arena.alloc(VarDefinition::new(
+            identifier,
             "obj",
             make_span(1, 6),
             None,
@@ -3617,7 +3681,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Define variable x
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let x_def = arena.alloc(VarDefinition::new(
+            identifier,
             "x",
             make_span(1, 5),
             None,
@@ -3649,7 +3715,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Declare the obj variable first
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("obj"));
         let obj_def = arena.alloc(VarDefinition::new(
+            identifier,
             "obj",
             make_span(1, 1),
             None,
@@ -3681,7 +3749,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Create a variable for the with context
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("obj"));
         let obj_def = arena.alloc(VarDefinition::new(
+            identifier,
             "obj",
             make_span(1, 6),
             None,
@@ -3802,7 +3872,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Create a variable for the with context
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("obj"));
         let obj_def = arena.alloc(VarDefinition::new(
+            identifier,
             "obj",
             make_span(1, 6),
             None,
