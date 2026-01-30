@@ -1841,19 +1841,15 @@ fn resolve_transformed_variable<'src, 'arena>(
         },
     );
 
-    // Build display name for compatibility and scope registration
-    // Since this is a generated qualified name (e.g., "sketch.entities.p"), we need to
-    // allocate it. Using Box::leak() here is acceptable as it's only for display purposes
-    // and happens once per container variable.
-    let display_name = container_identifier.to_qualified_name();
-    let display_name_src: &'src str = Box::leak(display_name.into_boxed_str());
-
     let scope_level = ctx.scope_stack.current_scope_level();
 
     // Create container variable (the real, persistent entity)
+    // Use entity_name as display_name since it's already a &'src str from the AST.
+    // The full qualified name (e.g., "sketch.entities.p") can be generated on demand
+    // via identifier.to_qualified_name() for error messages or solver output.
     let container_var_def = ctx.arena.alloc(VarDefinition::new(
         container_identifier,
-        display_name_src,
+        entity_name,
         span,
         Some(*container_type),
         VarDefinitionKind::Uninitialized, // Free variable for solver
@@ -1862,8 +1858,10 @@ fn resolve_transformed_variable<'src, 'arena>(
     ));
 
     // Register container variable in scope (in container namespace)
+    // Note: This uses the entity name, not the full qualified name. Container variables
+    // are internal and users reference them via dot-prefix syntax anyway.
     ctx.scope_stack
-        .declare_variable(display_name_src, container_var_def);
+        .declare_variable(entity_name, container_var_def);
 
     // STEP 3: Build transform expression
     let transform_expr =
