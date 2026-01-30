@@ -304,7 +304,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             // Extract the container variable from the context expression
             if let ResolvedExprKind::Var { definition, .. } = &with_context.context_expr.kind {
                 let info = WithContextInfo::Container {
-                    container_path: VariablePath::from_name(definition.name),
+                    container_path: VariablePath::from_name(definition.name()),
                     container_field,
                     transforms: with_context.transforms.clone(),
                     context_expr: with_context.context_expr,
@@ -317,7 +317,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             // Extract the source variable from the context expression
             if let ResolvedExprKind::Var { definition, .. } = &with_context.context_expr.kind {
                 let info = WithContextInfo::Transform {
-                    source_path: VariablePath::from_name(definition.name),
+                    source_path: VariablePath::from_name(definition.name()),
                     source_scope: definition.scope_level,
                     transforms: with_context.transforms.clone(),
                     context_expr: with_context.context_expr,

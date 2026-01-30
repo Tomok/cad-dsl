@@ -264,7 +264,11 @@ fn resolve_let_statement<'src, 'arena>(
             } else {
                 crate::hir::definitions::VarDefinitionKind::Uninitialized
             };
+            let identifier = ctx
+                .arena
+                .alloc(crate::hir::definitions::VariableIdentifier::Simple(name));
             let new_def = VarDefinition::new(
+                identifier,
                 name,
                 name_span,
                 resolved_type,
@@ -285,7 +289,11 @@ fn resolve_let_statement<'src, 'arena>(
             } else {
                 crate::hir::definitions::VarDefinitionKind::Uninitialized
             };
+            let identifier = ctx
+                .arena
+                .alloc(crate::hir::definitions::VariableIdentifier::Simple(name));
             let new_def = VarDefinition::new(
+                identifier,
                 name,
                 name_span,
                 resolved_type,
@@ -329,21 +337,66 @@ fn resolve_let_statement<'src, 'arena>(
             return None;
         }
 
-        // Resolve the initializer
-        let init_expr = init.and_then(|expr| resolve_expression(ctx, expr));
+        // Resolve type annotation if present
+        let resolved_type = type_annotation.and_then(|ty| resolve_type(ctx, ty));
 
-        // For dot-prefix lets, we need to create a variable definition
-        // The variable is implicitly scoped to the with-context
-        let (name, name_span) = name_path[0];
-        let mut resolved_type = type_annotation.and_then(|ty| resolve_type(ctx, ty));
+        // Check if we need type annotation for transform detection
+        if resolved_type.is_none() {
+            // Without type annotation, we can't determine if transforms apply
+            // Fall back to regular variable creation with initializer
+            let init_expr = init.and_then(|expr| resolve_expression(ctx, expr));
 
-        // Type inference: if no type annotation but initializer is present, infer from initializer
-        if resolved_type.is_none()
-            && let Some(expr) = init_expr
-        {
-            resolved_type = Some(*expr.ty);
+            let (name, name_span) = name_path[0];
+            let mut final_type = resolved_type;
+
+            // Type inference from initializer
+            if final_type.is_none()
+                && let Some(expr) = init_expr
+            {
+                final_type = Some(*expr.ty);
+            }
+
+            let scope_level = ctx.scope_stack.current_scope_level();
+            let definition_kind = if let Some(init) = init_expr {
+                crate::hir::definitions::VarDefinitionKind::Initialized { init }
+            } else {
+                crate::hir::definitions::VarDefinitionKind::Uninitialized
+            };
+            let identifier = ctx
+                .arena
+                .alloc(crate::hir::definitions::VariableIdentifier::Simple(name));
+            let var_def = ctx.arena.alloc(VarDefinition::new(
+                identifier,
+                name,
+                name_span,
+                final_type,
+                definition_kind,
+                scope_level,
+                span,
+            ));
+
+            return Some(ctx.arena.alloc(ResolvedStmt::new(
+                span,
+                ResolvedStmtKind::Let {
+                    dot_prefix,
+                    name_path: name_path.to_vec(),
+                    var_def,
+                    init: init_expr,
+                    span,
+                },
+            )));
         }
 
+        let view_type = resolved_type.unwrap();
+
+        // Check if this variable should be transformed (returns chain)
+        if let Some(transform_chain) = should_apply_transform(ctx, &view_type, name_path) {
+            return resolve_transformed_variable(ctx, name_path, &view_type, transform_chain, span);
+        }
+
+        // No transform needed - create regular variable
+        let init_expr = init.and_then(|expr| resolve_expression(ctx, expr));
+        let (name, name_span) = name_path[0];
         let scope_level = ctx.scope_stack.current_scope_level();
 
         let definition_kind = if let Some(init) = init_expr {
@@ -351,17 +404,20 @@ fn resolve_let_statement<'src, 'arena>(
         } else {
             crate::hir::definitions::VarDefinitionKind::Uninitialized
         };
+        let identifier = ctx
+            .arena
+            .alloc(crate::hir::definitions::VariableIdentifier::Simple(name));
         let var_def = ctx.arena.alloc(VarDefinition::new(
+            identifier,
             name,
             name_span,
-            resolved_type,
+            Some(view_type),
             definition_kind,
             scope_level,
             span,
         ));
 
-        // Create the HIR statement
-        let stmt = ctx.arena.alloc(ResolvedStmt::new(
+        Some(ctx.arena.alloc(ResolvedStmt::new(
             span,
             ResolvedStmtKind::Let {
                 dot_prefix,
@@ -370,9 +426,7 @@ fn resolve_let_statement<'src, 'arena>(
                 init: init_expr,
                 span,
             },
-        ));
-
-        Some(stmt)
+        )))
     } else {
         // Path let (e.g., `let container.field = value;`)
         // Resolve the initializer
@@ -404,7 +458,11 @@ fn resolve_let_statement<'src, 'arena>(
         } else {
             crate::hir::definitions::VarDefinitionKind::Uninitialized
         };
+        let identifier = ctx
+            .arena
+            .alloc(crate::hir::definitions::VariableIdentifier::Simple(name));
         let var_def = ctx.arena.alloc(VarDefinition::new(
+            identifier,
             name,
             name_span,
             resolved_type,
@@ -648,7 +706,11 @@ fn resolve_function_body<'src, 'arena>(
             span: name_span,
         };
 
+        let self_identifier = ctx
+            .arena
+            .alloc(crate::hir::definitions::VariableIdentifier::Simple("self"));
         let self_var = ctx.arena.alloc(VarDefinition::new(
+            self_identifier,
             "self",
             name_span,
             Some(self_type),
@@ -666,7 +728,13 @@ fn resolve_function_body<'src, 'arena>(
         let param_name = extract_name(ctx.source, &param.name);
         let param_type = resolve_type(ctx, &param.type_annotation);
 
+        let param_identifier =
+            ctx.arena
+                .alloc(crate::hir::definitions::VariableIdentifier::Simple(
+                    param_name,
+                ));
         let var_def = ctx.arena.alloc(VarDefinition::new(
+            param_identifier,
             param_name,
             param.name_span,
             param_type,
@@ -777,7 +845,13 @@ fn resolve_for_statement<'src, 'arena>(
     // Create the loop variable definition
     // TODO: Infer type from iterator
     let scope_level = ctx.scope_stack.current_scope_level();
+    let loop_var_identifier = ctx
+        .arena
+        .alloc(crate::hir::definitions::VariableIdentifier::Simple(
+            loop_var,
+        ));
     let loop_var_def = ctx.arena.alloc(VarDefinition::new(
+        loop_var_identifier,
         loop_var,
         loop_var_span,
         None,                                                      // Type inference needed
@@ -1470,7 +1544,22 @@ pub fn resolve_expression<'src, 'arena>(
     };
 
     let resolved = ctx.arena.alloc(ResolvedExpr::new(span, kind, ty));
-    Some(resolved)
+
+    // CRITICAL: Apply automatic transformation if in transform context
+    // This handles external variables like `p: Point3D` accessed in `with sketch { ... }`
+    // Also handles nested fields like `line.start` where start: Point3D
+    // Also handles array elements like `points[0]` where element type is Point3D
+    let final_resolved = match &resolved.kind {
+        // Transform these expression kinds:
+        ResolvedExprKind::Var { .. }
+        | ResolvedExprKind::FieldAccess { .. }
+        | ResolvedExprKind::Index { .. } => maybe_apply_transform(ctx, resolved, span),
+
+        // Don't transform these:
+        _ => resolved,
+    };
+
+    Some(final_resolved)
 }
 
 /// Resolve a struct literal field
@@ -1624,6 +1713,10 @@ fn collect_transform_methods<'src, 'arena>(
 
     let mut transforms = Vec::new();
 
+    // Track output types by kind to detect ambiguity
+    let mut standard_outputs: Vec<(&'arena ResolvedType<'src, 'arena>, Span)> = Vec::new();
+    let mut container_outputs: Vec<(&'arena ResolvedType<'src, 'arena>, Span)> = Vec::new();
+
     // Iterate through all methods in the struct
     for method in &definition.methods {
         // Determine the kind of transform method
@@ -1637,6 +1730,11 @@ fn collect_transform_methods<'src, 'arena>(
         // Transform methods should have exactly one parameter (besides self)
         if method.params.is_empty() {
             // Skip: transform methods require at least one parameter
+            ctx.add_error(SemanticError::InvalidTransformSignature {
+                method_name: method.name.to_string(),
+                reason: "Transform methods must have at least one parameter".to_string(),
+                span: method.span,
+            });
             continue;
         }
 
@@ -1647,12 +1745,496 @@ fn collect_transform_methods<'src, 'arena>(
         // The return type is the output type
         let output_type = ctx.arena.alloc(method.return_type);
 
+        // Check for ambiguous output types within the same kind
+        let outputs = match kind {
+            TransformMethodKind::Standard => &mut standard_outputs,
+            TransformMethodKind::Container => &mut container_outputs,
+        };
+
+        // Check if another transform of this kind has the same output type
+        if let Some((_, existing_span)) = outputs
+            .iter()
+            .find(|(out_ty, _)| types_match(out_ty, output_type))
+        {
+            ctx.add_error(SemanticError::AmbiguousTransform {
+                kind_name: method.name.to_string(),
+                output_type: format!("{:?}", output_type),
+                first_span: *existing_span,
+                second_span: method.span,
+            });
+            continue;
+        }
+
+        outputs.push((output_type, method.span));
+
         // Create the TransformMethod with the appropriate kind
         let transform = TransformMethod::new(method, input_type, output_type, kind);
         transforms.push(transform);
     }
 
     transforms
+}
+
+/// Resolve a transformed variable declaration (creates container + view variables)
+///
+/// This is called when a dot-prefix variable requires transformation through
+/// one or more with-contexts.
+///
+/// # Parameters
+///
+/// - `ctx`: The analyzer context
+/// - `name_path`: The name path (with dot prefix)
+/// - `view_type`: The declared type (output type of transforms)
+/// - `transform_chain`: The chain of transforms to apply
+/// - `span`: The span of the let statement
+///
+/// # Returns
+///
+/// The resolved HIR statement, or None if an error occurred
+fn resolve_transformed_variable<'src, 'arena>(
+    ctx: &mut AnalyzerContext<'src, 'arena>,
+    name_path: &[(&'src str, Span)],
+    view_type: &ResolvedType<'src, 'arena>,
+    transform_chain: Vec<crate::hir::definitions::TransformStep<'src, 'arena>>,
+    span: Span,
+) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
+    use crate::hir::definitions::VarDefinitionKind;
+
+    // STEP 1: Determine container type (input type of first transform)
+    let container_type = transform_chain
+        .first()
+        .expect("Transform chain should not be empty")
+        .input_type;
+
+    // STEP 2: Build container variable's full qualified name
+    // For `.p` in `with sketch`, this becomes "sketch.entities.p"
+    let container_name = build_container_variable_name(ctx, name_path)?;
+    // Leak the string to get a 'static lifetime (acceptable for variable names)
+    let container_name_src: &'src str = Box::leak(container_name.into_boxed_str());
+
+    let scope_level = ctx.scope_stack.current_scope_level();
+
+    // Create container variable (the real, persistent entity)
+    // NOTE: For now using Simple identifier, will be replaced with ContainerAccess in Phase 3
+    let container_identifier =
+        ctx.arena
+            .alloc(crate::hir::definitions::VariableIdentifier::Simple(
+                container_name_src,
+            ));
+    let container_var_def = ctx.arena.alloc(VarDefinition::new(
+        container_identifier,
+        container_name_src,
+        span,
+        Some(*container_type),
+        VarDefinitionKind::Uninitialized, // Free variable for solver
+        scope_level,
+        span,
+    ));
+
+    // Register container variable in scope (in container namespace)
+    ctx.scope_stack
+        .declare_variable(container_name_src, container_var_def);
+
+    // STEP 3: Build transform expression
+    let transform_expr =
+        build_chained_transform_expression(ctx, &transform_chain, container_var_def, span)?;
+
+    // STEP 4: Create view variable (temporary, shadows container in this scope)
+    // Extract short name without dot-prefix
+    let (view_name_with_dot, _) = name_path.last().unwrap();
+    let view_name = view_name_with_dot.trim_start_matches('.');
+    // Leak the string to get a 'static lifetime (acceptable for variable names)
+    let view_name_src: &'src str = Box::leak(view_name.to_string().into_boxed_str());
+
+    // NOTE: For now using Simple identifier, will be replaced with TransformedView in Phase 3
+    let view_identifier = ctx
+        .arena
+        .alloc(crate::hir::definitions::VariableIdentifier::Simple(
+            view_name_src,
+        ));
+    let view_var_def = ctx.arena.alloc(VarDefinition::new(
+        view_identifier,
+        view_name_src,
+        span,
+        Some(*view_type),
+        VarDefinitionKind::TransformedView {
+            container_var: container_var_def,
+            transform_chain: transform_chain.clone(),
+            transform_expr,
+        },
+        scope_level,
+        span,
+    ));
+
+    // Register view variable in local scope (shadows container variable by short name)
+    ctx.scope_stack
+        .declare_variable(view_name_src, view_var_def);
+
+    // STEP 5: Create Let statement
+    Some(ctx.arena.alloc(ResolvedStmt::new(
+        span,
+        ResolvedStmtKind::Let {
+            dot_prefix: true,
+            name_path: name_path.to_vec(),
+            var_def: view_var_def,
+            init: None,
+            span,
+        },
+    )))
+}
+
+/// Build the container variable name from the with-context and variable name
+///
+/// For `.p` in `with sketch`, returns "sketch.entities.p"
+fn build_container_variable_name<'src, 'arena>(
+    ctx: &AnalyzerContext<'src, 'arena>,
+    name_path: &[(&'src str, Span)],
+) -> Option<String> {
+    // Get the innermost with-context
+    let with_ctx = ctx.scope_stack.current_with_context()?;
+
+    // Get the container field name
+    let container_field = with_ctx.container_field?;
+    let container_field_name = container_field.name;
+
+    // Extract the variable name from the context expression
+    // The context expression should be a variable reference
+    let context_var_name = match &with_ctx.context_expr.kind {
+        crate::hir::expr::ResolvedExprKind::Var { name, .. } => *name,
+        _ => {
+            // If context is not a simple variable, we can't build a container path
+            // This is a limitation - for now, just use a generated name
+            "context"
+        }
+    };
+
+    // Extract the variable name without dot prefix
+    let (var_name_with_dot, _) = name_path.last()?;
+    let var_name = var_name_with_dot.trim_start_matches('.');
+
+    // Build qualified name: context_var.container_field.var_name
+    Some(format!(
+        "{}.{}.{}",
+        context_var_name, container_field_name, var_name
+    ))
+}
+
+/// Build a chained transform expression
+///
+/// Creates an expression representing the application of a transform chain:
+/// `inner.__transform__(outer.__transform__(&container_var))`
+///
+/// # Parameters
+///
+/// - `ctx`: The analyzer context
+/// - `transform_chain`: The chain of transforms to apply (outermost to innermost)
+/// - `container_var`: The container variable to transform
+/// - `span`: The span for generated expressions
+///
+/// # Returns
+///
+/// The transform expression, or None if an error occurred
+fn build_chained_transform_expression<'src, 'arena>(
+    ctx: &mut AnalyzerContext<'src, 'arena>,
+    transform_chain: &[crate::hir::definitions::TransformStep<'src, 'arena>],
+    container_var: &'arena VarDefinition<'src, 'arena>,
+    span: Span,
+) -> Option<&'arena ResolvedExpr<'src, 'arena>> {
+    use crate::hir::expr::ResolvedExprKind;
+
+    // Start with reference to container variable: &container_var
+    let container_var_ty = ctx.arena.alloc(container_var.var_type.unwrap());
+    let mut current_expr = ctx.arena.alloc(ResolvedExpr {
+        span,
+        kind: ResolvedExprKind::Ref {
+            inner: ctx.arena.alloc(ResolvedExpr {
+                span,
+                kind: ResolvedExprKind::Var {
+                    name: container_var.name(),
+                    definition: container_var,
+                },
+                ty: container_var_ty,
+            }),
+        },
+        ty: ctx.arena.alloc(ResolvedType::Reference {
+            inner: container_var_ty,
+            span,
+        }),
+    });
+
+    // Apply each transform in order (outermost to innermost)
+    for step in transform_chain {
+        current_expr = ctx.arena.alloc(ResolvedExpr {
+            span,
+            kind: ResolvedExprKind::MethodCall {
+                receiver: step.with_context.context_expr,
+                method_name: step.transform_method.name,
+                method: step.transform_method,
+                args: vec![current_expr],
+            },
+            ty: step.output_type,
+        });
+    }
+
+    Some(current_expr)
+}
+
+/// Check if two types match (structural equality)
+fn types_match<'src, 'arena>(
+    ty1: &ResolvedType<'src, 'arena>,
+    ty2: &ResolvedType<'src, 'arena>,
+) -> bool {
+    // Simple structural comparison
+    // This could be extended for more complex type matching
+    match (ty1, ty2) {
+        (ResolvedType::I32 { .. }, ResolvedType::I32 { .. }) => true,
+        (ResolvedType::F64 { .. }, ResolvedType::F64 { .. }) => true,
+        (ResolvedType::Bool { .. }, ResolvedType::Bool { .. }) => true,
+        (
+            ResolvedType::UserDefined { name: n1, .. },
+            ResolvedType::UserDefined { name: n2, .. },
+        ) => n1 == n2,
+        (
+            ResolvedType::Array {
+                element_type: e1,
+                size: s1,
+                ..
+            },
+            ResolvedType::Array {
+                element_type: e2,
+                size: s2,
+                ..
+            },
+        ) => s1 == s2 && types_match(e1, e2),
+        (ResolvedType::Reference { inner: i1, .. }, ResolvedType::Reference { inner: i2, .. }) => {
+            types_match(i1, i2)
+        }
+        _ => false,
+    }
+}
+
+/// Determine if a variable is a container variable based on its name path
+///
+/// Container variables are declared with dot-prefix syntax inside with-blocks
+fn is_container_variable(name_path: &[(&str, Span)]) -> bool {
+    name_path
+        .first()
+        .map(|(name, _)| name.starts_with('.'))
+        .unwrap_or(false)
+}
+
+/// Check if an expression's type can be transformed in the current context
+///
+/// Returns the transform chain if applicable. This is used for external
+/// variable access transformation (not dot-prefix declarations).
+///
+/// # Parameters
+///
+/// - `ctx`: The analyzer context
+/// - `expr_type`: The type of the expression to check
+///
+/// # Returns
+///
+/// - `Some(transform_chain)` if the type can be transformed
+/// - `None` if no transforms are available or needed
+fn get_transform_for_type<'src, 'arena>(
+    ctx: &AnalyzerContext<'src, 'arena>,
+    expr_type: &ResolvedType<'src, 'arena>,
+) -> Option<Vec<crate::hir::definitions::TransformStep<'src, 'arena>>> {
+    use crate::hir::TransformMethodKind;
+
+    let with_contexts = ctx.scope_stack.all_with_contexts();
+    if with_contexts.is_empty() {
+        return None;
+    }
+
+    // Build transform chain for this type
+    let mut transform_chain = Vec::new();
+    let mut current_type = expr_type;
+
+    for with_ctx in with_contexts.iter() {
+        // Only use Standard transforms for external variables
+        // Skip contexts that don't have a matching transform (e.g., container-only contexts)
+        let Some(transform) = with_ctx
+            .transforms
+            .iter()
+            .filter(|tm| matches!(tm.kind, TransformMethodKind::Standard))
+            .find(|tm| types_match(tm.input_type, current_type))
+        else {
+            continue;
+        };
+
+        transform_chain.push(crate::hir::definitions::TransformStep {
+            transform_method: transform.function,
+            with_context: with_ctx,
+            input_type: transform.input_type,
+            output_type: transform.output_type,
+        });
+        current_type = transform.output_type;
+    }
+
+    if transform_chain.is_empty() {
+        None
+    } else {
+        Some(transform_chain)
+    }
+}
+
+/// Wraps an expression with transform calls if in transform context
+///
+/// This is called after resolving any expression to check if it needs
+/// to be automatically transformed.
+///
+/// # Parameters
+///
+/// - `ctx`: The analyzer context
+/// - `expr`: The resolved expression
+/// - `span`: The span for the wrapper expression
+///
+/// # Returns
+///
+/// Either the original expression or a wrapped version with transforms applied
+fn maybe_apply_transform<'src, 'arena>(
+    ctx: &mut AnalyzerContext<'src, 'arena>,
+    expr: &'arena ResolvedExpr<'src, 'arena>,
+    span: Span,
+) -> &'arena ResolvedExpr<'src, 'arena> {
+    // Check if expression's type is transformable
+    if let Some(transform_chain) = get_transform_for_type(ctx, expr.ty) {
+        // Wrap expression with transform chain
+        wrap_with_transforms(ctx, expr, &transform_chain, span)
+    } else {
+        // No transform needed
+        expr
+    }
+}
+
+/// Wraps an expression with a chain of transform calls
+///
+/// Creates an expression like: `inner.__transform__(outer.__transform__(expr))`
+///
+/// # Parameters
+///
+/// - `ctx`: The analyzer context
+/// - `expr`: The expression to wrap
+/// - `transform_chain`: The chain of transforms to apply
+/// - `span`: The span for wrapper expressions
+///
+/// # Returns
+///
+/// The wrapped expression
+fn wrap_with_transforms<'src, 'arena>(
+    ctx: &mut AnalyzerContext<'src, 'arena>,
+    expr: &'arena ResolvedExpr<'src, 'arena>,
+    transform_chain: &[crate::hir::definitions::TransformStep<'src, 'arena>],
+    span: Span,
+) -> &'arena ResolvedExpr<'src, 'arena> {
+    use crate::hir::expr::ResolvedExprKind;
+
+    // Start with reference to the original expression
+    let mut current_expr = ctx.arena.alloc(ResolvedExpr {
+        span,
+        kind: ResolvedExprKind::Ref { inner: expr },
+        ty: ctx.arena.alloc(ResolvedType::Reference {
+            inner: expr.ty,
+            span,
+        }),
+    });
+
+    // Apply each transform in order
+    for step in transform_chain {
+        current_expr = ctx.arena.alloc(ResolvedExpr {
+            span,
+            kind: ResolvedExprKind::MethodCall {
+                receiver: step.with_context.context_expr,
+                method_name: step.transform_method.name,
+                method: step.transform_method,
+                args: vec![current_expr],
+            },
+            ty: step.output_type,
+        });
+    }
+
+    current_expr
+}
+
+/// Check if a variable type requires transform in current with-context(s)
+///
+/// Returns the complete transform chain if transforms are needed.
+/// Handles both Standard and Container transform kinds:
+/// - Container variables (dot-prefix): prefer __transform_container__, fallback to __transform__
+/// - External variables: only use __transform__
+///
+/// # Parameters
+///
+/// - `ctx`: The analyzer context
+/// - `var_type`: The type of the variable to check
+/// - `name_path`: The name path to determine if it's a container variable
+///
+/// # Returns
+///
+/// - `Some(transform_chain)` if transforms should be applied
+/// - `None` if no transforms are needed
+fn should_apply_transform<'src, 'arena>(
+    ctx: &AnalyzerContext<'src, 'arena>,
+    var_type: &ResolvedType<'src, 'arena>,
+    name_path: &[(&str, Span)],
+) -> Option<Vec<crate::hir::definitions::TransformStep<'src, 'arena>>> {
+    use crate::hir::TransformMethodKind;
+
+    let with_contexts = ctx.scope_stack.all_with_contexts();
+    if with_contexts.is_empty() {
+        return None;
+    }
+
+    let is_container_var = is_container_variable(name_path);
+
+    // Build transform chain from outermost to innermost
+    let mut transform_chain = Vec::new();
+    let mut current_type = var_type;
+
+    // Work from outermost to innermost to find matching transforms
+    for with_ctx in with_contexts.iter() {
+        // Select appropriate transform based on variable kind
+        let transform = if is_container_var {
+            // Container variables: prefer __transform_container__, fallback to __transform__
+            with_ctx
+                .transforms
+                .iter()
+                .filter(|tm| matches!(tm.kind, TransformMethodKind::Container))
+                .find(|tm| types_match(tm.output_type, current_type))
+                .or_else(|| {
+                    with_ctx
+                        .transforms
+                        .iter()
+                        .filter(|tm| matches!(tm.kind, TransformMethodKind::Standard))
+                        .find(|tm| types_match(tm.output_type, current_type))
+                })
+        } else {
+            // External variables: only use __transform__ (Standard)
+            with_ctx
+                .transforms
+                .iter()
+                .filter(|tm| matches!(tm.kind, TransformMethodKind::Standard))
+                .find(|tm| types_match(tm.output_type, current_type))
+        };
+
+        if let Some(transform) = transform {
+            transform_chain.push(crate::hir::definitions::TransformStep {
+                transform_method: transform.function,
+                with_context: with_ctx,
+                input_type: transform.input_type,
+                output_type: transform.output_type,
+            });
+            current_type = transform.input_type;
+        }
+    }
+
+    if transform_chain.is_empty() {
+        None
+    } else {
+        Some(transform_chain)
+    }
 }
 
 // ============================================================================
@@ -1725,7 +2307,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Define variable
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let var_def = arena.alloc(VarDefinition::new(
+            identifier,
             "x",
             make_span(1, 5),
             Some(ResolvedType::I32 {
@@ -1898,7 +2482,10 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Declare x in outer scope
+        let identifier_outer =
+            arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let outer_x = arena.alloc(VarDefinition::new(
+            identifier_outer,
             "x",
             make_span(1, 5),
             None,
@@ -1912,7 +2499,10 @@ mod tests {
         ctx.scope_stack.push_scope();
 
         // Declare x in inner scope (shadows outer x)
+        let identifier_inner =
+            arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let inner_x = arena.alloc(VarDefinition::new(
+            identifier_inner,
             "x",
             make_span(1, 17),
             None,
@@ -2503,7 +3093,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Define array variable
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("arr"));
         let arr_def = arena.alloc(VarDefinition::new(
+            identifier,
             "arr",
             make_span(1, 1),
             None,
@@ -3005,7 +3597,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Define variable p
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("p"));
         let p_def = arena.alloc(VarDefinition::new(
+            identifier,
             "p",
             make_span(1, 1),
             None,
@@ -3036,7 +3630,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Create a variable for the with context
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("obj"));
         let obj_def = arena.alloc(VarDefinition::new(
+            identifier,
             "obj",
             make_span(1, 6),
             None,
@@ -3089,7 +3685,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Define variable x
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
         let x_def = arena.alloc(VarDefinition::new(
+            identifier,
             "x",
             make_span(1, 5),
             None,
@@ -3121,7 +3719,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Declare the obj variable first
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("obj"));
         let obj_def = arena.alloc(VarDefinition::new(
+            identifier,
             "obj",
             make_span(1, 1),
             None,
@@ -3153,7 +3753,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Create a variable for the with context
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("obj"));
         let obj_def = arena.alloc(VarDefinition::new(
+            identifier,
             "obj",
             make_span(1, 6),
             None,
@@ -3274,7 +3876,9 @@ mod tests {
         let mut ctx = AnalyzerContext::new(&arena, source);
 
         // Create a variable for the with context
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("obj"));
         let obj_def = arena.alloc(VarDefinition::new(
+            identifier,
             "obj",
             make_span(1, 6),
             None,

@@ -54,6 +54,21 @@ pub enum SemanticError {
 
     /// Invalid use of dot prefix in this context
     InvalidDotPrefix { span: Span },
+
+    /// Ambiguous transform methods with same output type
+    AmbiguousTransform {
+        kind_name: String,
+        output_type: String,
+        first_span: Span,
+        second_span: Span,
+    },
+
+    /// Invalid transform method signature
+    InvalidTransformSignature {
+        method_name: String,
+        reason: String,
+        span: Span,
+    },
 }
 
 impl fmt::Display for SemanticError {
@@ -157,6 +172,36 @@ impl fmt::Display for SemanticError {
                     f,
                     "Invalid dot prefix usage at line {}, column {}",
                     span.start.line, span.start.column
+                )
+            }
+            SemanticError::AmbiguousTransform {
+                kind_name,
+                output_type,
+                first_span,
+                second_span,
+            } => {
+                write!(
+                    f,
+                    "Ambiguous {} methods: multiple methods with output type '{}'. \
+                     First defined at line {}, column {}, redefined at line {}, column {}. \
+                     Transform methods of the same kind must have unique output types",
+                    kind_name,
+                    output_type,
+                    first_span.start.line,
+                    first_span.start.column,
+                    second_span.start.line,
+                    second_span.start.column
+                )
+            }
+            SemanticError::InvalidTransformSignature {
+                method_name,
+                reason,
+                span,
+            } => {
+                write!(
+                    f,
+                    "Invalid signature for transform method '{}' at line {}, column {}: {}",
+                    method_name, span.start.line, span.start.column, reason
                 )
             }
         }

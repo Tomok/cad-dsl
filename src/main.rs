@@ -73,8 +73,10 @@ fn report_semantic_errors(filename: &str, source: &str, errors: Vec<SemanticErro
             | SemanticError::TypeMismatch { span, .. }
             | SemanticError::NotInWithContext { span }
             | SemanticError::NoContainerField { span, .. }
-            | SemanticError::InvalidDotPrefix { span } => span,
-            SemanticError::DuplicateDefinition { second_span, .. } => second_span,
+            | SemanticError::InvalidDotPrefix { span }
+            | SemanticError::InvalidTransformSignature { span, .. } => span,
+            SemanticError::DuplicateDefinition { second_span, .. }
+            | SemanticError::AmbiguousTransform { second_span, .. } => second_span,
         };
 
         let offset = calculate_byte_offset(source, span.start.line, span.start.column);

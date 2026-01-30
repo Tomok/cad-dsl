@@ -332,14 +332,16 @@ mod tests {
         let source = "let x: i32 = 42;";
 
         let var_type = arena.alloc(ResolvedType::I32 { span: test_span() });
-        let var_def = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(ResolvedType::I32 { span: test_span() }),
-            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
-            scope_level: 0,
-            span: test_span(),
-        });
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
+        let var_def = arena.alloc(VarDefinition::new(
+            identifier,
+            "x",
+            test_span(),
+            Some(ResolvedType::I32 { span: test_span() }),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            0,
+            test_span(),
+        ));
         let init_expr = arena.alloc(ResolvedExpr {
             span: test_span(),
             kind: ResolvedExprKind::IntLit { value: 42 },
@@ -370,14 +372,16 @@ mod tests {
         let arena = Bump::new();
         let source = "let x: i32;";
 
-        let var_def = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(ResolvedType::I32 { span: test_span() }),
-            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
-            scope_level: 0,
-            span: test_span(),
-        });
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
+        let var_def = arena.alloc(VarDefinition::new(
+            identifier,
+            "x",
+            test_span(),
+            Some(ResolvedType::I32 { span: test_span() }),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            0,
+            test_span(),
+        ));
 
         let stmt: &ResolvedStmt = arena.alloc(ResolvedStmt {
             span: test_span(),
@@ -402,14 +406,16 @@ mod tests {
 
         // First statement: let x: i32 = 42;
         let i32_type = arena.alloc(ResolvedType::I32 { span: test_span() });
-        let var_def1 = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(ResolvedType::I32 { span: test_span() }),
-            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
-            scope_level: 0,
-            span: test_span(),
-        });
+        let identifier1 = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
+        let var_def1 = arena.alloc(VarDefinition::new(
+            identifier1,
+            "x",
+            test_span(),
+            Some(ResolvedType::I32 { span: test_span() }),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            0,
+            test_span(),
+        ));
         let init_expr1 = arena.alloc(ResolvedExpr {
             span: test_span(),
             kind: ResolvedExprKind::IntLit { value: 42 },
@@ -428,14 +434,16 @@ mod tests {
 
         // Second statement: let y: f64 = 3.14;
         let f64_type = arena.alloc(ResolvedType::F64 { span: test_span() });
-        let var_def2 = arena.alloc(VarDefinition {
-            name: "y",
-            name_span: test_span(),
-            var_type: Some(ResolvedType::F64 { span: test_span() }),
-            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
-            scope_level: 0,
-            span: test_span(),
-        });
+        let identifier2 = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("y"));
+        let var_def2 = arena.alloc(VarDefinition::new(
+            identifier2,
+            "y",
+            test_span(),
+            Some(ResolvedType::F64 { span: test_span() }),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            0,
+            test_span(),
+        ));
         let init_expr2 = arena.alloc(ResolvedExpr {
             span: test_span(),
             kind: ResolvedExprKind::FloatLit { value: 3.14 },
@@ -495,14 +503,16 @@ mod tests {
         let source = "{ let x: i32 = 42; }";
 
         let i32_type = arena.alloc(ResolvedType::I32 { span: test_span() });
-        let var_def = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(ResolvedType::I32 { span: test_span() }),
-            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
-            scope_level: 1,
-            span: test_span(),
-        });
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
+        let var_def = arena.alloc(VarDefinition::new(
+            identifier,
+            "x",
+            test_span(),
+            Some(ResolvedType::I32 { span: test_span() }),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            1,
+            test_span(),
+        ));
         let init_expr = arena.alloc(ResolvedExpr {
             span: test_span(),
             kind: ResolvedExprKind::IntLit { value: 42 },

@@ -637,14 +637,16 @@ mod tests {
         let arena = Bump::new();
         let var_type = arena.alloc(test_type());
         let init_expr = test_expr(&arena, var_type);
-        let var_def = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(test_type()),
-            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
-            scope_level: 0,
-            span: test_span(),
-        });
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
+        let var_def = arena.alloc(VarDefinition::new(
+            identifier,
+            "x",
+            test_span(),
+            Some(test_type()),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            0,
+            test_span(),
+        ));
 
         let stmt = ResolvedStmt::new(
             test_span(),
@@ -666,14 +668,16 @@ mod tests {
         let arena = Bump::new();
         let var_type = arena.alloc(test_type());
         let value_expr = test_expr(&arena, var_type);
-        let var_def = arena.alloc(VarDefinition {
-            name: "x",
-            name_span: test_span(),
-            var_type: Some(test_type()),
-            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
-            scope_level: 0,
-            span: test_span(),
-        });
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
+        let var_def = arena.alloc(VarDefinition::new(
+            identifier,
+            "x",
+            test_span(),
+            Some(test_type()),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            0,
+            test_span(),
+        ));
 
         let stmt = ResolvedStmt::new(
             test_span(),
@@ -748,14 +752,16 @@ mod tests {
     #[test]
     fn test_for_stmt_construction() {
         let arena = Bump::new();
-        let loop_var_def = arena.alloc(VarDefinition {
-            name: "i",
-            name_span: test_span(),
-            var_type: Some(test_type()),
-            definition_kind: crate::hir::definitions::VarDefinitionKind::Uninitialized,
-            scope_level: 1,
-            span: test_span(),
-        });
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("i"));
+        let loop_var_def = arena.alloc(VarDefinition::new(
+            identifier,
+            "i",
+            test_span(),
+            Some(test_type()),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            1,
+            test_span(),
+        ));
         let iter_type = arena.alloc(test_type());
         let iterator = test_expr(&arena, iter_type);
         let body_stmt = test_stmt(

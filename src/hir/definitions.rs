@@ -79,6 +79,272 @@ pub struct TransformStep<'src, 'arena> {
 }
 
 // ============================================================================
+// Variable Identifier
+// ============================================================================
+
+/// Identifies a variable structurally without string concatenation
+///
+/// This enum represents variable identity using structural chains of references
+/// rather than heap-allocated qualified name strings. This eliminates memory leaks
+/// from Box::leak() and better represents the semantic structure of variable access.
+///
+/// # Design Principles
+///
+/// 1. **Store Structure, Not Strings:** Variable identity is represented by chains of references
+/// 2. **Compute Names On-Demand:** Generate string names only when needed for display/Z3
+/// 3. **Use Arena Allocation:** All structural elements use `&'arena` references
+/// 4. **Preserve Source Lifetimes:** Simple names from source remain `&'src str`
+///
+/// # Examples
+///
+/// ```text
+/// Simple("x")                                    // Simple variable: x
+/// FieldAccess { base: Simple("p"), field: "x" }  // Field access: p.x
+/// ContainerAccess { container: ..., entity: "p" } // Container: sketch.entities.p
+/// ArrayIndex { array: Simple("arr"), index: 0 }  // Array element: arr[0]
+/// TransformedView { view_name: "p", ... }        // Transform view (replaces shadows)
+/// ```
+#[derive(Debug, Clone)]
+pub enum VariableIdentifier<'src, 'arena> {
+    /// Simple variable from source: `x`, `p`, `sketch`
+    Simple(&'src str),
+
+    /// Field access chain: `p.x`, `sketch.origin`
+    FieldAccess {
+        /// The base expression being accessed
+        base: &'arena VariableIdentifier<'src, 'arena>,
+        /// The field name
+        field_name: &'src str,
+    },
+
+    /// Container field access: `sketch.entities.p`
+    ///
+    /// Created when declaring dot-prefix variables in with-statements.
+    /// Represents the full qualified path to an entity within a container.
+    ContainerAccess {
+        /// The container variable identifier
+        container_var: &'arena VariableIdentifier<'src, 'arena>,
+        /// The container field within the struct
+        container_field: &'arena ContainerField<'src, 'arena>,
+        /// The entity name within the container
+        entity_name: &'src str,
+    },
+
+    /// Array element: `points[0]`, `arr[i]` (index is constant)
+    ArrayIndex {
+        /// The array being indexed
+        array: &'arena VariableIdentifier<'src, 'arena>,
+        /// The constant index
+        index: usize,
+    },
+
+    /// Transformed view variable (replaces shadow variables!)
+    ///
+    /// When a variable is declared in a transform context (with-statement with __transform__),
+    /// this variant stores the relationship between the view variable and its container
+    /// variable directly in the identifier. This eliminates the need for generated shadow
+    /// variable names like "__shadow_0".
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// with sketch {
+    ///     let .p: Point2D;  // Creates view variable with TransformedView identifier
+    /// }
+    /// // View: p (Point2D)
+    /// // Container: sketch.entities.p (Point3D)
+    /// // Transform: sketch.__transform__(&sketch.entities.p) -> Point2D
+    /// ```
+    TransformedView {
+        /// The view variable's simple name (e.g., "p")
+        view_name: &'src str,
+        /// The underlying container variable being viewed
+        container_var: &'arena VariableIdentifier<'src, 'arena>,
+        /// Transform chain metadata
+        transform_chain: &'arena [TransformStep<'src, 'arena>],
+    },
+}
+
+impl<'src, 'arena> VariableIdentifier<'src, 'arena> {
+    /// Generate qualified name for display/Z3
+    ///
+    /// This is the ONLY point where String allocation happens for variable names.
+    /// All other operations use the structural representation.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// Simple("x")                  -> "x"
+    /// FieldAccess(Simple("p"), "x") -> "p.x"
+    /// ArrayIndex(Simple("arr"), 0)  -> "arr[0]"
+    /// ```
+    pub fn to_qualified_name(&self) -> String {
+        match self {
+            Self::Simple(name) => name.to_string(),
+            Self::FieldAccess { base, field_name } => {
+                format!("{}.{}", base.to_qualified_name(), field_name)
+            }
+            Self::ContainerAccess {
+                container_var,
+                container_field,
+                entity_name,
+            } => {
+                format!(
+                    "{}.{}.{}",
+                    container_var.to_qualified_name(),
+                    container_field.name,
+                    entity_name
+                )
+            }
+            Self::ArrayIndex { array, index } => {
+                format!("{}[{}]", array.to_qualified_name(), index)
+            }
+            Self::TransformedView { container_var, .. } => {
+                // For transformed views, use the container variable's name
+                // (the view itself is just a temporary alias)
+                container_var.to_qualified_name()
+            }
+        }
+    }
+
+    /// Get the root variable name (for HashMap lookups)
+    ///
+    /// Returns the simple name at the root of the identifier chain.
+    /// Used when we need to look up the root variable in a HashMap.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// Simple("x")                  -> "x"
+    /// FieldAccess(Simple("p"), "x") -> "p"
+    /// ArrayIndex(Simple("arr"), 0)  -> "arr"
+    /// ```
+    pub fn root_name(&self) -> &'src str {
+        match self {
+            Self::Simple(name) => name,
+            Self::FieldAccess { base, .. } => base.root_name(),
+            Self::ContainerAccess { container_var, .. } => container_var.root_name(),
+            Self::ArrayIndex { array, .. } => array.root_name(),
+            Self::TransformedView { view_name, .. } => view_name,
+        }
+    }
+
+    /// Create a simple identifier (convenience constructor)
+    pub fn simple(name: &'src str) -> Self {
+        Self::Simple(name)
+    }
+}
+
+// Manual PartialEq implementation using pointer comparison for arena-allocated references
+impl<'src, 'arena> PartialEq for VariableIdentifier<'src, 'arena> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Simple(a), Self::Simple(b)) => a == b,
+            (
+                Self::FieldAccess {
+                    base: base_a,
+                    field_name: field_a,
+                },
+                Self::FieldAccess {
+                    base: base_b,
+                    field_name: field_b,
+                },
+            ) => {
+                // Compare bases structurally (recursively)
+                base_a == base_b && field_a == field_b
+            }
+            (
+                Self::ContainerAccess {
+                    container_var: container_a,
+                    container_field: field_a,
+                    entity_name: entity_a,
+                },
+                Self::ContainerAccess {
+                    container_var: container_b,
+                    container_field: field_b,
+                    entity_name: entity_b,
+                },
+            ) => {
+                // Use pointer comparison for container_field (identity equality)
+                container_a == container_b
+                    && std::ptr::eq(*field_a, *field_b)
+                    && entity_a == entity_b
+            }
+            (
+                Self::ArrayIndex {
+                    array: array_a,
+                    index: index_a,
+                },
+                Self::ArrayIndex {
+                    array: array_b,
+                    index: index_b,
+                },
+            ) => array_a == array_b && index_a == index_b,
+            (
+                Self::TransformedView {
+                    view_name: view_a,
+                    container_var: container_a,
+                    transform_chain: chain_a,
+                },
+                Self::TransformedView {
+                    view_name: view_b,
+                    container_var: container_b,
+                    transform_chain: chain_b,
+                },
+            ) => {
+                // Use pointer comparison for transform_chain (identity equality)
+                view_a == view_b && container_a == container_b && std::ptr::eq(*chain_a, *chain_b)
+            }
+            _ => false, // Different variants are not equal
+        }
+    }
+}
+
+impl<'src, 'arena> Eq for VariableIdentifier<'src, 'arena> {}
+
+// Manual Hash implementation using pointer hashing for arena-allocated references
+impl<'src, 'arena> std::hash::Hash for VariableIdentifier<'src, 'arena> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // First, hash the discriminant to differentiate variants
+        std::mem::discriminant(self).hash(state);
+
+        match self {
+            Self::Simple(name) => {
+                name.hash(state);
+            }
+            Self::FieldAccess { base, field_name } => {
+                base.hash(state);
+                field_name.hash(state);
+            }
+            Self::ContainerAccess {
+                container_var,
+                container_field,
+                entity_name,
+            } => {
+                container_var.hash(state);
+                // Hash the pointer address for container_field
+                std::ptr::hash(*container_field, state);
+                entity_name.hash(state);
+            }
+            Self::ArrayIndex { array, index } => {
+                array.hash(state);
+                index.hash(state);
+            }
+            Self::TransformedView {
+                view_name,
+                container_var,
+                transform_chain,
+            } => {
+                view_name.hash(state);
+                container_var.hash(state);
+                // Hash the pointer address for transform_chain
+                std::ptr::hash(*transform_chain, state);
+            }
+        }
+    }
+}
+
+// ============================================================================
 // Variable Definition Kind
 // ============================================================================
 
@@ -201,8 +467,19 @@ pub type ScopeLevel = usize;
 /// - When looking up a variable, we search from innermost to outermost scope
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarDefinition<'src, 'arena> {
-    /// Variable name as it appears in source
-    pub name: &'src str,
+    /// Variable identifier (structural representation)
+    ///
+    /// This replaces the simple string name with a structural identifier that
+    /// can represent qualified paths (e.g., field access, container access, arrays).
+    /// Eliminates heap allocations for qualified names.
+    pub identifier: &'arena VariableIdentifier<'src, 'arena>,
+
+    /// Simple display name for error messages
+    ///
+    /// This is the "short name" without qualification, used primarily for
+    /// user-facing error messages. For simple variables, this is the same as
+    /// the source name. For complex identifiers, this is the most relevant part.
+    pub display_name: &'src str,
 
     /// Span of the variable name for error reporting
     pub name_span: Span,
@@ -225,7 +502,8 @@ pub struct VarDefinition<'src, 'arena> {
 impl<'src, 'arena> VarDefinition<'src, 'arena> {
     /// Create a new variable definition
     pub fn new(
-        name: &'src str,
+        identifier: &'arena VariableIdentifier<'src, 'arena>,
+        display_name: &'src str,
         name_span: Span,
         var_type: Option<HirType<'src, 'arena>>,
         definition_kind: VarDefinitionKind<'src, 'arena>,
@@ -233,13 +511,32 @@ impl<'src, 'arena> VarDefinition<'src, 'arena> {
         span: Span,
     ) -> Self {
         Self {
-            name,
+            identifier,
+            display_name,
             name_span,
             var_type,
             definition_kind,
             scope_level,
             span,
         }
+    }
+
+    /// Get the simple name for backward compatibility
+    ///
+    /// Returns the display name, which is the short name without qualification.
+    /// This method is provided for backward compatibility with code that expects
+    /// a simple string name.
+    pub fn name(&self) -> &'src str {
+        self.display_name
+    }
+
+    /// Get the qualified name (allocates string)
+    ///
+    /// This generates the full qualified name from the structural identifier.
+    /// Use sparingly as it allocates a String. Prefer using the identifier
+    /// directly for most operations.
+    pub fn qualified_name(&self) -> String {
+        self.identifier.to_qualified_name()
     }
 
     /// Check if this variable is initialized
@@ -776,7 +1073,11 @@ mod tests {
 
     #[test]
     fn test_var_definition_uninitialized() {
+        let arena = Bump::new();
+        let identifier = arena.alloc(VariableIdentifier::Simple("x"));
+
         let var_def = VarDefinition::<'_, '_>::new(
+            identifier,
             "x",
             dummy_span(),
             Some(dummy_type()),
@@ -785,7 +1086,9 @@ mod tests {
             dummy_span(),
         );
 
-        assert_eq!(var_def.name, "x");
+        assert_eq!(var_def.name(), "x");
+        assert_eq!(var_def.display_name, "x");
+        assert_eq!(var_def.qualified_name(), "x");
         assert!(!var_def.is_initialized());
         assert!(var_def.has_type_annotation());
         assert_eq!(var_def.scope_level, 0);
@@ -803,7 +1106,9 @@ mod tests {
         assert_eq!(container.entity_count(), 0);
         assert!(!container.has_entity("p1"));
 
+        let identifier = arena.alloc(VariableIdentifier::Simple("p1"));
         let var_def = arena.alloc(VarDefinition::new(
+            identifier,
             "p1",
             dummy_span(),
             Some(dummy_type()),
@@ -819,7 +1124,7 @@ mod tests {
 
         let found = container.get_entity("p1");
         assert!(found.is_some());
-        assert_eq!(found.unwrap().name, "p1");
+        assert_eq!(found.unwrap().name(), "p1");
     }
 
     #[test]
@@ -879,5 +1184,162 @@ mod tests {
         assert!(func_def.is_top_level());
         assert!(!func_def.is_method());
         assert_eq!(func_def.param_count(), 0);
+    }
+
+    // ========================================================================
+    // VariableIdentifier Tests
+    // ========================================================================
+
+    #[test]
+    fn test_variable_identifier_simple() {
+        let id = VariableIdentifier::simple("x");
+
+        assert_eq!(id.to_qualified_name(), "x");
+        assert_eq!(id.root_name(), "x");
+        assert!(matches!(id, VariableIdentifier::Simple("x")));
+    }
+
+    #[test]
+    fn test_variable_identifier_field_access() {
+        let arena = Bump::new();
+
+        let base = arena.alloc(VariableIdentifier::Simple("p"));
+        let id = VariableIdentifier::FieldAccess {
+            base,
+            field_name: "x",
+        };
+
+        assert_eq!(id.to_qualified_name(), "p.x");
+        assert_eq!(id.root_name(), "p");
+    }
+
+    #[test]
+    fn test_variable_identifier_nested_field_access() {
+        let arena = Bump::new();
+
+        // Build: sketch.origin.x
+        let base = arena.alloc(VariableIdentifier::Simple("sketch"));
+        let with_origin = arena.alloc(VariableIdentifier::FieldAccess {
+            base,
+            field_name: "origin",
+        });
+        let id = VariableIdentifier::FieldAccess {
+            base: with_origin,
+            field_name: "x",
+        };
+
+        assert_eq!(id.to_qualified_name(), "sketch.origin.x");
+        assert_eq!(id.root_name(), "sketch");
+    }
+
+    #[test]
+    fn test_variable_identifier_array_index() {
+        let arena = Bump::new();
+
+        let array = arena.alloc(VariableIdentifier::Simple("arr"));
+        let id = VariableIdentifier::ArrayIndex { array, index: 0 };
+
+        assert_eq!(id.to_qualified_name(), "arr[0]");
+        assert_eq!(id.root_name(), "arr");
+    }
+
+    #[test]
+    fn test_variable_identifier_array_of_structs() {
+        let arena = Bump::new();
+
+        // Build: points[1].x
+        let base_array = arena.alloc(VariableIdentifier::Simple("points"));
+        let with_index = arena.alloc(VariableIdentifier::ArrayIndex {
+            array: base_array,
+            index: 1,
+        });
+        let id = VariableIdentifier::FieldAccess {
+            base: with_index,
+            field_name: "x",
+        };
+
+        assert_eq!(id.to_qualified_name(), "points[1].x");
+        assert_eq!(id.root_name(), "points");
+    }
+
+    #[test]
+    fn test_variable_identifier_container_access() {
+        let arena = Bump::new();
+
+        let container_var = arena.alloc(VariableIdentifier::Simple("sketch"));
+        let container_field =
+            arena.alloc(ContainerField::new("entities", dummy_span(), dummy_span()));
+
+        let id = VariableIdentifier::ContainerAccess {
+            container_var,
+            container_field,
+            entity_name: "p",
+        };
+
+        assert_eq!(id.to_qualified_name(), "sketch.entities.p");
+        assert_eq!(id.root_name(), "sketch");
+    }
+
+    #[test]
+    fn test_variable_identifier_transformed_view() {
+        let arena = Bump::new();
+
+        // Container variable: sketch.entities.p
+        let sketch_id = arena.alloc(VariableIdentifier::Simple("sketch"));
+        let container_field =
+            arena.alloc(ContainerField::new("entities", dummy_span(), dummy_span()));
+        let container_var = arena.alloc(VariableIdentifier::ContainerAccess {
+            container_var: sketch_id,
+            container_field,
+            entity_name: "p",
+        });
+
+        // Transform chain (empty for this test)
+        let transform_chain: &[TransformStep] = &[];
+
+        let id = VariableIdentifier::TransformedView {
+            view_name: "p",
+            container_var,
+            transform_chain,
+        };
+
+        // TransformedView returns the container's qualified name
+        assert_eq!(id.to_qualified_name(), "sketch.entities.p");
+        // But root_name returns the view name
+        assert_eq!(id.root_name(), "p");
+    }
+
+    #[test]
+    fn test_variable_identifier_hash_and_eq() {
+        use std::collections::HashSet;
+
+        let arena = Bump::new();
+
+        let id1 = VariableIdentifier::Simple("x");
+        let id2 = VariableIdentifier::Simple("x");
+        let id3 = VariableIdentifier::Simple("y");
+
+        assert_eq!(id1, id2);
+        assert_ne!(id1, id3);
+
+        // Test that identifiers can be used in HashSet
+        let mut set = HashSet::new();
+        set.insert(id1.clone());
+        assert!(set.contains(&id2));
+        assert!(!set.contains(&id3));
+
+        // Test field access equality
+        let base1 = arena.alloc(VariableIdentifier::Simple("p"));
+        let base2 = arena.alloc(VariableIdentifier::Simple("p"));
+        let field1 = VariableIdentifier::FieldAccess {
+            base: base1,
+            field_name: "x",
+        };
+        let field2 = VariableIdentifier::FieldAccess {
+            base: base2,
+            field_name: "x",
+        };
+
+        assert_eq!(field1, field2);
     }
 }
