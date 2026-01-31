@@ -58,7 +58,9 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
             // Variable reference
             ResolvedExprKind::Var { name, definition } => {
                 // Build the variable path from the definition's identifier
-                // This handles container variables correctly (e.g., "t.entities.p" instead of just "p")
+                // Note: Container variables (e.g., "sketch.entities.x") are typically accessed via
+                // ResolvedExprKind::ContainerFieldAccess, not this Var case. This case handles
+                // simple variable references and function parameters.
                 let qualified_name = definition.identifier.to_qualified_name();
                 let qualified_name_ref = ctx.store_qualified_name_public(qualified_name);
                 let path = VariablePath::from_name(qualified_name_ref);
