@@ -395,6 +395,7 @@ fn resolve_let_statement<'src, 'arena>(
         }
 
         // No transform needed - create regular variable
+        // For dot-prefix variables in container with-contexts, create ContainerAccess identifier
         let init_expr = init.and_then(|expr| resolve_expression(ctx, expr));
         let (name, name_span) = name_path[0];
         let scope_level = ctx.scope_stack.current_scope_level();
@@ -404,9 +405,45 @@ fn resolve_let_statement<'src, 'arena>(
         } else {
             crate::hir::definitions::VarDefinitionKind::Uninitialized
         };
-        let identifier = ctx
-            .arena
-            .alloc(crate::hir::definitions::VariableIdentifier::Simple(name));
+
+        // Check if this is a dot-prefix variable in a container with-context
+        let identifier = match (dot_prefix, ctx.scope_stack.current_with_context()) {
+            // Dot-prefix variable in a container with-context
+            (true, Some(with_ctx)) if with_ctx.container_field.is_some() => {
+                let container_field = with_ctx.container_field.unwrap();
+
+                // Get the context variable's identifier
+                let context_var_identifier = match &with_ctx.context_expr.kind {
+                    crate::hir::expr::ResolvedExprKind::Var { definition, .. } => {
+                        definition.identifier
+                    }
+                    _ => {
+                        // Context is not a simple variable - use a fallback Simple identifier
+                        ctx.arena
+                            .alloc(crate::hir::definitions::VariableIdentifier::Simple(
+                                "context",
+                            ))
+                    }
+                };
+
+                // Extract the entity name without dot prefix
+                let entity_name = name.trim_start_matches('.');
+
+                // Create structural ContainerAccess identifier
+                ctx.arena.alloc(
+                    crate::hir::definitions::VariableIdentifier::ContainerAccess {
+                        container_var: context_var_identifier,
+                        container_field,
+                        entity_name,
+                    },
+                )
+            }
+            // All other cases: regular variable with simple identifier
+            _ => ctx
+                .arena
+                .alloc(crate::hir::definitions::VariableIdentifier::Simple(name)),
+        };
+
         let var_def = ctx.arena.alloc(VarDefinition::new(
             identifier,
             name,
@@ -1013,6 +1050,15 @@ pub fn resolve_expression<'src, 'arena>(
         // Variables
         Expr::Var { name, span } => match ctx.scope_stack.lookup_variable(name) {
             Some(def) => {
+                #[cfg(feature = "solver-debug")]
+                eprintln!(
+                    "[SEMANTIC-DEBUG] Looked up var '{}' at line {}: identifier={:?}, qualified_name={}",
+                    name,
+                    span.start.line,
+                    def.identifier,
+                    def.identifier.to_qualified_name()
+                );
+
                 let var_type = def.var_type.as_ref().unwrap_or_else(|| {
                     // Fallback type if not resolved
                     ctx.arena.alloc(ResolvedType::I32 { span: *span })
@@ -1805,11 +1851,18 @@ fn resolve_transformed_variable<'src, 'arena>(
 ) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
     use crate::hir::definitions::VarDefinitionKind;
 
-    // STEP 1: Determine container type (input type of first transform)
-    let container_type = transform_chain
+    // STEP 1: Determine container type (input type of first transform, unwrapped)
+    // The transform method takes a reference (e.g., &Point3D), but the container
+    // variable itself should have the actual type (Point3D), not the reference type.
+    let transform_input_type = transform_chain
         .first()
         .expect("Transform chain should not be empty")
         .input_type;
+
+    let container_type = match transform_input_type {
+        ResolvedType::Reference { inner, .. } => inner,
+        _ => transform_input_type,
+    };
 
     // STEP 2: Build container variable identifier structurally
     // For `.p` in `with sketch`, this creates ContainerAccess{sketch, entities, "p"}
@@ -1857,11 +1910,9 @@ fn resolve_transformed_variable<'src, 'arena>(
         span,
     ));
 
-    // Register container variable in scope (in container namespace)
-    // Note: This uses the entity name, not the full qualified name. Container variables
-    // are internal and users reference them via dot-prefix syntax anyway.
-    ctx.scope_stack
-        .declare_variable(entity_name, container_var_def);
+    // NOTE: Do NOT register the container variable in the scope!
+    // It's internal-only and referenced directly in the transform expression.
+    // User code should only see the view variable.
 
     // STEP 3: Build transform expression
     let transform_expr =

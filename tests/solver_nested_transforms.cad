@@ -1,0 +1,81 @@
+// Test case for nested transform with-statements
+// Creates three cubes stacked vertically, each smaller than the one below
+
+struct Point3D {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+struct Cube {
+    p1: Point3D,  // One corner
+    p2: Point3D,  // Opposite corner
+}
+
+struct Transform {
+    offset: Point3D,
+    container entities,
+
+    fn __transform__(p: &Point3D) -> Point3D {
+        return Point3D {
+            x: p.x + self.offset.x,
+            y: p.y + self.offset.y,
+            z: p.z + self.offset.z,
+        };
+    }
+}
+
+struct Scale {
+    scale: f64,
+    container entities,
+
+    fn __transform__(p: &Point3D) -> Point3D {
+        return Point3D {
+            x: p.x * self.scale,
+            y: p.y * self.scale,
+            z: p.z * self.scale,
+        };
+    }
+}
+
+fn new_cube() -> Cube {
+    return Cube {
+        p1: Point3D { x: -1.0, y: -1.0, z: -1.0 },
+        p2: Point3D { x: 1.0, y: 1.0, z: 1.0 },
+    };
+}
+
+let cubes: [Cube; 3];
+
+// Cube 0: Base unit cube
+cubes[0] == new_cube();
+
+// Declare all transforms and scales upfront
+let t1: Transform;
+t1.offset.x == 0.0;
+t1.offset.y == 1.0;
+t1.offset.z == 0.0;
+
+let s1: Scale;
+s1.scale == 0.8;
+
+let t2: Transform;
+t2.offset.x == 0.0;
+t2.offset.y == 1.0;
+t2.offset.z == 0.0;
+
+let s2: Scale;
+s2.scale == 0.8;
+
+// Cube 1 and 2: Nested transforms and scales
+with t1 {
+    with s1 {
+        cubes[1] == new_cube();
+
+        with t2 {
+            with s2 {
+                cubes[2] == new_cube();
+            }
+        }
+    }
+}

@@ -3,6 +3,9 @@ name = "cad-dsl"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+solver-debug = []
+
 [dependencies]
 ariadne = "0.4"
 bumpalo = "3.16"

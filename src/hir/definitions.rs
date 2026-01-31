@@ -200,9 +200,11 @@ impl<'src, 'arena> VariableIdentifier<'src, 'arena> {
                 format!("{}[{}]", array.to_qualified_name(), index)
             }
             Self::TransformedView { container_var, .. } => {
-                // For transformed views, use the container variable's name
-                // (the view itself is just a temporary alias)
-                container_var.to_qualified_name()
+                // For transformed views, use the container variable's name with a __view suffix
+                // This ensures view variables have unique names and won't conflict with each other
+                // or with container variables. View variables are internal and will be filtered
+                // from the final solution output.
+                format!("{}__view", container_var.to_qualified_name())
             }
         }
     }
@@ -1303,8 +1305,9 @@ mod tests {
             transform_chain,
         };
 
-        // TransformedView returns the container's qualified name
-        assert_eq!(id.to_qualified_name(), "sketch.entities.p");
+        // TransformedView returns the container's qualified name with __view suffix
+        // This ensures view variables have unique names and won't conflict with container variables
+        assert_eq!(id.to_qualified_name(), "sketch.entities.p__view");
         // But root_name returns the view name
         assert_eq!(id.root_name(), "p");
     }

@@ -1,0 +1,32 @@
+// Simple transform test - single transform without nesting
+
+struct Point3D {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+struct Transform {
+    offset: Point3D,
+    container entities,
+
+    fn __transform__(p: &Point3D) -> Point3D {
+        return Point3D {
+            x: p.x + self.offset.x,
+            y: p.y + self.offset.y,
+            z: p.z + self.offset.z,
+        };
+    }
+}
+
+let t: Transform;
+t.offset.x == 1.0;
+t.offset.y == 2.0;
+t.offset.z == 3.0;
+
+with t {
+    let .p: Point3D;
+    .p.x == 10.0;
+    .p.y == 20.0;
+    .p.z == 30.0;
+}

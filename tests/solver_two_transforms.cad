@@ -1,0 +1,38 @@
+// Test two transform structs in the same file
+
+struct Point3D {
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+struct Transform {
+    offset: Point3D,
+    container entities,
+
+    fn __transform__(p: &Point3D) -> Point3D {
+        return Point3D {
+            x: p.x + self.offset.x,
+            y: p.y + self.offset.y,
+            z: p.z + self.offset.z,
+        };
+    }
+}
+
+struct Scale {
+    scale: f64,
+    container entities,
+
+    fn __transform__(p: &Point3D) -> Point3D {
+        return Point3D {
+            x: p.x * self.scale,
+            y: p.y * self.scale,
+            z: p.z * self.scale,
+        };
+    }
+}
+
+let t: Transform;
+t.offset.x == 1.0;
+t.offset.y == 2.0;
+t.offset.z == 3.0;
