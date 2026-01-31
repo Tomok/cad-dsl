@@ -1,6 +1,8 @@
 # Solver Architecture
 
-This document describes the trait-based constraint solver architecture for CAD-DSL, including the tree-based variable management, scope handling with RAII guards, transform mechanics for coordinate system transformations, and iterative solving with deferred constraints.
+This document describes the trait-based constraint solver architecture for CAD-DSL, including the tree-based variable management, scope handling with RAII guards, and iterative solving with deferred constraints.
+
+**For transform mechanics (coordinate system transformations)**, see [HIR_TRANSFORM_REPRESENTATION.md](HIR_TRANSFORM_REPRESENTATION.md), which describes how transforms are applied during semantic analysis before reaching the solver.
 
 ## Table of Contents
 
@@ -13,21 +15,23 @@ This document describes the trait-based constraint solver architecture for CAD-D
   - [RAII Scope Guards](#raii-scope-guards)
 - [Solvable Trait](#solvable-trait)
 - [Iterative Solving](#iterative-solving)
-- [Transform Mechanics](#transform-mechanics)
+- [Transform Handling](#transform-handling)
 - [Module Structure](#module-structure)
 - [Usage Guide](#usage-guide)
 
 ## Overview
 
-The solver uses a **trait-based design** where HIR (High-level Intermediate Representation) nodes implement a `Solvable` trait that translates them into Z3 constraints. This architecture provides:
+The solver is a **pure translation layer** that converts fully-resolved HIR (High-level Intermediate Representation) into Z3 constraints and extracts solutions. All semantic transformations (including coordinate transforms) are completed during semantic analysis before the solver runs.
+
+The solver uses a **trait-based design** where HIR nodes implement a `Solvable` trait:
 
 - **Modular constraint generation**: Each HIR node type implements its own solving logic
-- **Type-safe variable management**: Tree structure enforces correct variable access patterns
+- **Type-safe variable management**: Structural variable identifiers eliminate string manipulation
 - **Automatic scope cleanup**: RAII guards prevent scope leaks
 - **Iterative solving**: Handles deferred constraints (e.g., for-loops with computed ranges)
-- **Zero-copy efficiency**: String allocation only when creating Z3 variables
+- **Pure translation**: Solver only translates HIR to Z3, no semantic transformations
 
-**Key Innovation**: Variables are stored in a **tree structure** that mirrors the type hierarchy. Instead of flattening everything to strings upfront (e.g., `"p.x"`, `"p.y"`, `"points[0].x"`), we maintain structural hierarchy and only generate flattened Z3 variable names when creating Z3 primitives.
+**Key Principle**: The solver receives **complete semantic information** from the HIR. It does not perform semantic analysis, type checking, or transform application - those phases are complete before solving begins.
 
 ## Core Design Principles
 
@@ -161,177 +165,71 @@ impl<'src> VariablePath<'src> {
 - `points[0].y` → `[Field("points"), Index(0), Field("y")]`
 - `sketch.entities.line` → `[Field("sketch"), Field("entities"), Field("line")]`
 
-### Tree-Based Variable Storage
+### Structural Variable Identifiers
 
-Variables are stored as a tree that mirrors the type structure.
+Variables are identified structurally using `VariableIdentifier` rather than flattened strings.
 
 ```rust
-/// Z3 primitive types (leaves in the tree)
-#[derive(Debug, Clone)]
-enum Z3Primitive<'ctx> {
-    Int(z3::ast::Int<'ctx>),
-    Real(z3::ast::Real<'ctx>),
-    Bool(z3::ast::Bool<'ctx>),
-}
+/// Identifies a variable structurally without string concatenation
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum VariableIdentifier<'src, 'arena> {
+    /// Simple variable: `x`
+    Simple(&'src str),
 
-/// Node in the variable tree
-#[derive(Debug)]
-enum VariableNode<'src, 'arena, 'ctx> {
-    /// Primitive variable (leaf node)
-    Primitive {
-        typ: ResolvedType<'src, 'arena>,
-        z3_var: Z3Primitive<'ctx>,
-        scope_level: usize,
-        transform_link: Option<Box<TransformLink<'src, 'arena, 'ctx>>>,
+    /// Field access: `base.field`
+    FieldAccess {
+        base: &'arena VariableIdentifier<'src, 'arena>,
+        field: &'src str,
     },
 
-    /// Struct variable (branch node)
-    Struct {
-        typ: ResolvedType<'src, 'arena>,
-        children: HashMap<&'src str, VariableNode<'src, 'arena, 'ctx>>,
-        scope_level: usize,
-        transform_link: Option<Box<TransformLink<'src, 'arena, 'ctx>>>,
+    /// Container field access: `container.field` (dot-prefix variables)
+    ContainerFieldAccess {
+        container_var: &'arena VariableIdentifier<'src, 'arena>,
+        container_field: &'src str,
     },
 
-    /// Array variable (branch node)
-    Array {
-        typ: ResolvedType<'src, 'arena>,
-        children: Vec<VariableNode<'src, 'arena, 'ctx>>,
-        scope_level: usize,
-        transform_link: Option<Box<TransformLink<'src, 'arena, 'ctx>>>,
+    /// Array index: `array[index]`
+    ArrayIndex {
+        array: &'arena VariableIdentifier<'src, 'arena>,
+        index: usize,
     },
 }
 
-impl<'src, 'arena, 'ctx> VariableNode<'src, 'arena, 'ctx> {
-    /// Get scope level of this node
-    fn scope_level(&self) -> usize {
-        match self {
-            Self::Primitive { scope_level, .. } => *scope_level,
-            Self::Struct { scope_level, .. } => *scope_level,
-            Self::Array { scope_level, .. } => *scope_level,
-        }
-    }
+**Key features**:
+- **Structural representation**: Variables are identified by their structure, not string names
+- **Arena-allocated**: All components use `&'arena` references, avoiding heap allocations
+- **Type-safe navigation**: Compile-time guarantees about valid access patterns
+- **Lazy string generation**: Strings only created when needed for Z3 variable names
 
-    /// Navigate to descendant node by path
-    fn get_at_path(&self, path: &[PathComponent<'src>]) -> Option<&Self> {
-        if path.is_empty() {
-            return Some(self);
-        }
+**Example identifiers**:
+```rust
+// Simple variable: x
+VariableIdentifier::Simple("x")
 
-        match (self, &path[0]) {
-            (Self::Struct { children, .. }, PathComponent::Field(field)) => {
-                children.get(field)?.get_at_path(&path[1..])
-            }
-            (Self::Array { children, .. }, PathComponent::Index(idx)) => {
-                children.get(*idx)?.get_at_path(&path[1..])
-            }
-            _ => None,
-        }
-    }
-
-    /// Mutable navigation
-    fn get_at_path_mut(&mut self, path: &[PathComponent<'src>]) -> Option<&mut Self> {
-        if path.is_empty() {
-            return Some(self);
-        }
-
-        match (self, &path[0]) {
-            (Self::Struct { children, .. }, PathComponent::Field(field)) => {
-                children.get_mut(field)?.get_at_path_mut(&path[1..])
-            }
-            (Self::Array { children, .. }, PathComponent::Index(idx)) => {
-                children.get_mut(*idx)?.get_at_path_mut(&path[1..])
-            }
-            _ => None,
-        }
-    }
-
-    /// Extract primitive Z3 variable (only valid for Primitive nodes)
-    fn as_primitive(&self) -> Option<&Z3Primitive<'ctx>> {
-        match self {
-            Self::Primitive { z3_var, .. } => Some(z3_var),
-            _ => None,
-        }
-    }
-
-    /// Recursively collect all primitive leaves under this node
-    fn collect_primitives(&self, base_path: &VariablePath<'src>)
-        -> Vec<(VariablePath<'src>, &Z3Primitive<'ctx>)>
-    {
-        match self {
-            Self::Primitive { z3_var, .. } => {
-                vec![(base_path.clone(), z3_var)]
-            }
-            Self::Struct { children, .. } => {
-                children.iter()
-                    .flat_map(|(field_name, child)| {
-                        child.collect_primitives(&base_path.with_field(field_name))
-                    })
-                    .collect()
-            }
-            Self::Array { children, .. } => {
-                children.iter()
-                    .enumerate()
-                    .flat_map(|(idx, child)| {
-                        child.collect_primitives(&base_path.with_index(idx))
-                    })
-                    .collect()
-            }
-        }
-    }
+// Field access: p.x
+VariableIdentifier::FieldAccess {
+    base: &VariableIdentifier::Simple("p"),
+    field: "x",
 }
-```
 
-**Tree Structure Example**:
+// Array element: points[0].y
+VariableIdentifier::ArrayIndex {
+    array: &VariableIdentifier::Simple("points"),
+    index: 0,
+}.with_field("y")
 
-Given this CAD-DSL code:
-```
-struct Point { x: i32, y: i32 }
-let points: [Point; 2];
-```
-
-The tree looks like:
-```
-variables["points"] = Array {
-    children: [
-        Struct {                          // points[0]
-            children: {
-                "x": Primitive(Z3Int),    // points[0].x
-                "y": Primitive(Z3Int),    // points[0].y
-            }
-        },
-        Struct {                          // points[1]
-            children: {
-                "x": Primitive(Z3Int),    // points[1].x
-                "y": Primitive(Z3Int),    // points[1].y
-            }
-        }
-    ]
-}
+// Container variable: sketch.entities.p
+VariableIdentifier::ContainerFieldAccess {
+    container_var: &VariableIdentifier::Simple("sketch"),
+    container_field: "entities",
+}.with_field("p")
 ```
 
 ### Solver Context
 
-The `SolverContext` manages the variable tree, scopes, and Z3 integration.
+The `SolverContext` manages variables, scopes, and Z3 integration.
 
 ```rust
-/// Context information for with-statements
-#[derive(Debug, Clone)]
-enum WithContextInfo<'src, 'arena> {
-    /// Container with-statement: `with container { .field }`
-    Container {
-        container_path: VariablePath<'src>,
-        container_field: &'arena FieldDefinition<'src, 'arena>,
-    },
-
-    /// Transform with-statement: coordinate transformations
-    Transform {
-        source_path: VariablePath<'src>,
-        transform_fn: &'arena FunctionDefinition<'src, 'arena>,
-        source_scope: usize,
-    },
-}
-
 /// Main solver context
 struct SolverContext<'src, 'arena, 'ctx> {
     /// Z3 context (persistent across scopes)
@@ -340,146 +238,94 @@ struct SolverContext<'src, 'arena, 'ctx> {
     /// Z3 solver (persistent, constraints accumulate)
     z3_solver: &'ctx z3::Solver<'ctx>,
 
-    /// Root variable tree
-    variables: HashMap<&'src str, VariableNode<'src, 'arena, 'ctx>>,
+    /// Variable storage: maps identifiers to Z3 variables
+    /// Variables are flattened to primitive fields for Z3
+    variables: HashMap<VariablePath<'src>, Z3Expr<'ctx>>,
 
     /// Current scope depth (incremented on scope entry)
     scope_level: usize,
 
-    /// Stack of active with-statement contexts
-    with_stack: Vec<WithContextInfo<'src, 'arena>>,
+    /// HIR arena for temporary allocations during solving
+    arena: &'arena bumpalo::Bump,
 }
 
 impl<'src, 'arena, 'ctx> SolverContext<'src, 'arena, 'ctx> {
-    /// Declare a new variable (builds entire tree for composite types)
+    /// Declare a new variable based on its definition kind
     fn declare_variable(
         &mut self,
-        name: &'src str,
-        typ: ResolvedType<'src, 'arena>,
+        var_def: &'arena VarDefinition<'src, 'arena>,
     ) -> Result<(), SolverError> {
-        let base_path = VariablePath::from_name(name);
-        let node = self.build_variable_tree(&base_path, typ)?;
+        match &var_def.definition_kind {
+            VarDefinitionKind::Uninitialized => {
+                // Free variable - create Z3 variables for all primitive fields
+                self.declare_variable_at_path(&var_def.identifier, &var_def.var_type)?;
+            }
 
-        // Handle transform contexts (create shadow variables)
-        if let Some(with_ctx) = self.with_stack.last() {
-            if let WithContextInfo::Transform { .. } = with_ctx {
-                self.create_transform_shadow(&base_path, &typ, with_ctx)?;
+            VarDefinitionKind::Initialized { init } => {
+                // Declare variable and add initialization constraint
+                self.declare_variable_at_path(&var_def.identifier, &var_def.var_type)?;
+                let init_z3 = init.solve(self)?;
+                self.add_equality_constraint(&var_def.identifier, &init_z3)?;
+            }
+
+            VarDefinitionKind::TransformedView { container_var, transform_expr, .. } => {
+                // Container variable should already be declared (it's Uninitialized)
+                // Declare the view variable
+                self.declare_variable_at_path(&var_def.identifier, &var_def.var_type)?;
+
+                // Add transform constraint: view == transform_expr
+                let transform_z3 = transform_expr.solve(self)?;
+                self.add_equality_constraint(&var_def.identifier, &transform_z3)?;
             }
         }
-
-        self.variables.insert(name, node);
         Ok(())
     }
 
-    /// Recursively build variable tree from type
-    fn build_variable_tree(
-        &self,
-        path: &VariablePath<'src>,
-        typ: ResolvedType<'src, 'arena>,
-    ) -> Result<VariableNode<'src, 'arena, 'ctx>, SolverError> {
+    /// Declare variable at a specific path (flattens structs/arrays to primitives)
+    fn declare_variable_at_path(
+        &mut self,
+        identifier: &VariableIdentifier<'src, 'arena>,
+        typ: &ResolvedType<'src, 'arena>,
+    ) -> Result<(), SolverError> {
         match typ {
             ResolvedType::I32 | ResolvedType::F64 | ResolvedType::Bool => {
-                // Leaf node: create Z3 primitive
-                let z3_var = self.create_z3_primitive(path, &typ)?;
-                Ok(VariableNode::Primitive {
-                    typ,
-                    z3_var,
-                    scope_level: self.scope_level,
-                    transform_link: None,
-                })
+                // Primitive type: create Z3 variable
+                let path = self.identifier_to_path(identifier);
+                let z3_name = path.to_string(); // Only string allocation!
+                let z3_var = match typ {
+                    ResolvedType::I32 => Z3Expr::Int(Int::new_const(self.z3_ctx, z3_name)),
+                    ResolvedType::F64 => Z3Expr::Real(Real::new_const(self.z3_ctx, z3_name)),
+                    ResolvedType::Bool => Z3Expr::Bool(Bool::new_const(self.z3_ctx, z3_name)),
+                    _ => unreachable!(),
+                };
+                self.variables.insert(path, z3_var);
             }
 
             ResolvedType::Struct { def, .. } => {
-                // Branch node: recursively create children
-                let mut children = HashMap::new();
+                // Recursively declare fields
                 for field in &def.fields {
-                    let child_path = path.with_field(field.name);
-                    let child_node = self.build_variable_tree(&child_path, field.field_type)?;
-                    children.insert(field.name, child_node);
+                    let field_id = self.arena.alloc(VariableIdentifier::FieldAccess {
+                        base: identifier,
+                        field: field.name,
+                    });
+                    self.declare_variable_at_path(field_id, &field.field_type)?;
                 }
-                Ok(VariableNode::Struct {
-                    typ,
-                    children,
-                    scope_level: self.scope_level,
-                    transform_link: None,
-                })
             }
 
             ResolvedType::Array { element_type, size, .. } => {
-                // Branch node: create indexed children
-                let mut children = Vec::with_capacity(size);
-                for i in 0..size {
-                    let child_path = path.with_index(i);
-                    let child_node = self.build_variable_tree(&child_path, *element_type)?;
-                    children.push(child_node);
+                // Recursively declare elements
+                for i in 0..*size {
+                    let elem_id = self.arena.alloc(VariableIdentifier::ArrayIndex {
+                        array: identifier,
+                        index: i,
+                    });
+                    self.declare_variable_at_path(elem_id, element_type)?;
                 }
-                Ok(VariableNode::Array {
-                    typ,
-                    children,
-                    scope_level: self.scope_level,
-                    transform_link: None,
-                })
             }
 
-            _ => Err(SolverError::UnsupportedType(typ)),
+            _ => return Err(SolverError::UnsupportedType(typ.clone())),
         }
-    }
-
-    /// Create Z3 primitive variable (STRING ALLOCATION HAPPENS HERE)
-    fn create_z3_primitive(
-        &self,
-        path: &VariablePath<'src>,
-        typ: &ResolvedType<'src, 'arena>,
-    ) -> Result<Z3Primitive<'ctx>, SolverError> {
-        let name = path.to_z3_name(); // Only string allocation!
-        Ok(match typ {
-            ResolvedType::I32 => Z3Primitive::Int(z3::ast::Int::new_const(self.z3_ctx, name)),
-            ResolvedType::F64 => Z3Primitive::Real(z3::ast::Real::new_const(self.z3_ctx, name)),
-            ResolvedType::Bool => Z3Primitive::Bool(z3::ast::Bool::new_const(self.z3_ctx, name)),
-            _ => return Err(SolverError::NotAPrimitiveType),
-        })
-    }
-
-    /// Lookup variable by path
-    fn get_variable(&self, path: &VariablePath<'src>)
-        -> Option<&VariableNode<'src, 'arena, 'ctx>>
-    {
-        if path.components.is_empty() {
-            return None;
-        }
-
-        // Extract root name
-        let root_name = match &path.components[0] {
-            PathComponent::Field(name) => name,
-            _ => return None,
-        };
-
-        // Navigate from root
-        let root = self.variables.get(root_name)?;
-        root.get_at_path(&path.components[1..])
-    }
-
-    /// Mutable lookup
-    fn get_variable_mut(&mut self, path: &VariablePath<'src>)
-        -> Option<&mut VariableNode<'src, 'arena, 'ctx>>
-    {
-        if path.components.is_empty() {
-            return None;
-        }
-
-        let root_name = match &path.components[0] {
-            PathComponent::Field(name) => name,
-            _ => return None,
-        };
-
-        let root = self.variables.get_mut(root_name)?;
-        root.get_at_path_mut(&path.components[1..])
-    }
-
-    /// Remove all variables from current scope level
-    fn pop_scope(&mut self) {
-        self.variables.retain(|_, node| node.scope_level() < self.scope_level);
-        self.scope_level -= 1;
+        Ok(())
     }
 }
 ```
@@ -657,271 +503,77 @@ impl<'src, 'arena, 'ctx> Solvable<'src, 'arena, 'ctx> for ResolvedStmt<'src, 'ar
 }
 ```
 
-## Transform Mechanics
+## Transform Handling
 
-Transform with-statements automatically invoke `__transform__` methods to create **shadow variables** linked by constraints.
+**Transform semantics are implemented in the semantic analyzer**, not the solver. By the time the HIR reaches the solver, all transform-related variable creation and constraint generation is complete.
 
-### Key Insight: __transform__ is Just a Method
+For detailed information on how transforms work, see [HIR_TRANSFORM_REPRESENTATION.md](HIR_TRANSFORM_REPRESENTATION.md).
 
-**`__transform__` is a regular method** - it uses the same inlining mechanism as any other method. The only special behavior is:
+### Solver's Role in Transforms
 
-1. **Lookup**: When entering a with-statement, collect **all** `__transform__` methods (a struct can have multiple overloads)
-2. **Selection**: When a variable is declared, select the appropriate `__transform__` based on declared type
-3. **Auto-call**: Automatically call the selected `__transform__` method
-4. **Shadow creation**: Create a shadow variable for that method's parameter type
+The solver receives HIR that already contains:
 
-The **inlining mechanism is identical** to regular method calls!
+1. **Container variables**: Persistent entities in container namespaces (e.g., `sketch.entities.p: Point3D`)
+2. **View variables**: Temporary transformed views with `VarDefinitionKind::TransformedView`
+3. **Transform constraints**: Method call expressions linking container and view variables
 
-**Important**: The language spec allows **multiple `__transform__` overloads** for different types (e.g., one for `Point`, one for `Length`). The correct method must be selected based on the declared variable's type.
+The solver simply:
+- Declares variables based on their `VarDefinitionKind`
+- Evaluates transform method calls like any other method
+- Adds the resulting constraints to Z3
 
-### Example: Multiple Transform Overloads
+### Example: What the Solver Sees
 
-The language spec allows multiple `__transform__` methods for different types:
-
-```rust
-struct Scale {
-    factor: f64,
-    center: Point,
-
-    // Transform for Point type
-    fn __transform__(p: &Point) -> Point {
-        Point {
-            x: self.center.x + (p.x - self.center.x) * self.factor,
-            y: self.center.y + (p.y - self.center.y) * self.factor
-        }
-    }
-
-    // Transform for f64 type (lengths scale linearly)
-    fn __transform__(len: &f64) -> f64 {
-        len * self.factor
-    }
-}
-
-with scale_2x {
-    let .scaled_point: Point;   // Uses __transform__(&Point) -> Point
-    let .scaled_length: f64;     // Uses __transform__(&f64) -> f64
-}
+**Source code**:
 ```
-
-**At declaration time**, the solver must:
-1. Look at the declared type (`Point` or `f64`)
-2. Find the matching `__transform__` method (by return type)
-3. Use that method's parameter type for the shadow variable
-4. Call that specific method
-
-### Concept: Single Transform
-
-When you write:
-```
-struct Point2D { x: f64, y: f64 }
-struct Point3D { x: f64, y: f64, z: f64 }
-
-struct Sketch2D {
-    container entities,
-    origin: Point3D,
-
-    // Transform method: Point3D -> Point2D (2D projection)
-    fn __transform__(p3d: &Point3D) -> Point2D {
-        Point2D {
-            x: p3d.x - self.origin.x,
-            y: p3d.y - self.origin.y
-        }
-    }
-}
-
-let sketch: Sketch2D = Sketch2D {
-    origin: Point3D { x: 0.0, y: 0.0, z: 0.0 }
-};
-
-with sketch {
-    let .p: Point2D;  // Declared in local 2D scope
-    .p.x == 10.0;
-    .p.y == 20.0;
-}
-
-// After with-statement, 'sketch.entities' contains a 2D point 'p'
-// linked to a 3D shadow variable via the __transform__ projection
-```
-
-**What happens**:
-1. **With-statement enters**: Collect **all** `__transform__` methods from `Sketch2D` → push transform context
-   - In this case: one method `fn __transform__(&Point3D) -> Point2D`
-2. **Variable declaration** `.p: Point2D`:
-   - Create variable `sketch.entities.p` (type: Point2D)
-   - Detect transform context is active
-   - **Select** the `__transform__` method where return type matches declared type (Point2D)
-   - Found: `fn __transform__(p3d: &Point3D) -> Point2D`
-   - Extract parameter type from selected method: `Point3D`
-   - Create shadow variable of type `Point3D`
-3. **Auto-invoke the selected `__transform__`**:
-   - This is a **normal method call**: `sketch.__transform__(&shadow)`
-   - Uses standard method inlining mechanism
-   - Method body evaluated, returns Point2D expression
-   - Constraint created: `sketch.entities.p == <method result>`
-4. **User constraints** `.p.x == 10.0` and `.p.y == 20.0` are added normally
-5. **Z3 solving**: Finds values for both the 2D variable and its 3D shadow, maintaining the transformation relationship
-
-### Implementation
-
-The implementation has two parts:
-
-**Part 1: General method/function inlining** (used for ALL methods):
-
-```rust
-impl<'src, 'arena, 'ctx> SolverContext<'src, 'arena, 'ctx> {
-    /// Inline any method call - works for ALL methods including __transform__
-    fn inline_method(
-        &mut self,
-        self_path: VariablePath<'src>,
-        method: &'arena MethodDefinition<'src, 'arena>,
-        args: &[&'arena ResolvedExpr<'src, 'arena>],
-    ) -> Result<Z3Ast<'ctx>, SolverError> {
-        // 1. Create new scope for method body
-        let _guard = ScopeGuard::new(self);
-
-        // 2. Bind self
-        self.self_binding = Some(self_path);
-
-        // 3. Bind parameters to arguments
-        for (param, arg) in method.params.iter().zip(args.iter()) {
-            // For reference parameters: resolve to path
-            // For value parameters: evaluate expression
-            self.bind_parameter(param, arg)?;
-        }
-
-        // 4. Process method body statements
-        for stmt in &method.body {
-            stmt.solve(self)?;
-        }
-
-        // 5. Evaluate return expression
-        method.return_expr.solve(self)
-    }
-
-    /// Inline any function call
-    fn inline_function(
-        &mut self,
-        func: &'arena FunctionDefinition<'src, 'arena>,
-        args: &[&'arena ResolvedExpr<'src, 'arena>],
-    ) -> Result<Z3Ast<'ctx>, SolverError> {
-        // Similar to inline_method, but without self binding
-        // ...
-    }
-}
-```
-
-**Part 2: Transform auto-call logic** (only special handling for `__transform__`):
-
-```rust
-impl<'src, 'arena, 'ctx> SolverContext<'src, 'arena, 'ctx> {
-    /// Handle variable declaration in transform context
-    /// This is the ONLY transform-specific code!
-    fn declare_variable_in_transform_context(
-        &mut self,
-        var_name: &'src str,
-        declared_type: &ResolvedType<'src, 'arena>,
-    ) -> Result<(), SolverError> {
-        let transform_ctx = self.current_transform_context()?;
-
-        // 1. Create the declared variable (e.g., Point2D)
-        let local_path = self.declare_variable(var_name, declared_type)?;
-
-        // 2. Select the appropriate __transform__ method
-        //    Find method where return type matches declared_type
-        let selected_method = transform_ctx.methods
-            .iter()
-            .find(|m| m.return_type == declared_type)
-            .ok_or(SolverError::NoMatchingTransform(declared_type))?;
-
-        // 3. Get source type from selected method's parameter
-        let source_type = selected_method.params[0].ty.as_reference()?;
-
-        // 4. Create shadow variable with source type
-        let shadow_path = self.create_shadow_variable(source_type)?;
-
-        // 5. Call the selected __transform__ using normal method inlining
-        let result = self.inline_method(
-            transform_ctx.struct_path,           // self
-            selected_method,                      // the selected __transform__
-            &[&ResolvedExpr::Variable(shadow_path)],  // args
-        )?;
-
-        // 6. Constrain: local == result
-        self.add_constraint(local_path == result)?;
-
-        Ok(())
-    }
-}
-```
-
-**Critical Point**: The transform context stores **all** `__transform__` methods, not just one. At declaration time, we select the method whose return type matches the declared variable type.
-
-**Key Point**: The `inline_method()` function is used for **both** regular method calls (like `circle.area()`) **and** automatic `__transform__` calls. The only difference is **when** it gets invoked, not **how** it works.
-
-### Transform Example Walkthrough
-
-**Input**:
-```
-struct Point2D { x: f64, y: f64 }
-struct Point3D { x: f64, y: f64, z: f64 }
-
-struct Sketch2D {
-    container entities,
-    origin: Point3D,
-
-    // Transform method for Point3D -> Point2D (2D projection)
-    fn __transform__(p3d: &Point3D) -> Point2D {
-        Point2D {
-            x: p3d.x - self.origin.x,
-            y: p3d.y - self.origin.y
-        }
-    }
-}
-
-let sketch: Sketch2D = Sketch2D {
-    origin: Point3D { x: 0.0, y: 0.0, z: 0.0 }
-};
-
 with sketch {
     let .p: Point2D;
     .p.x == 10.0;
-    .p.y == 20.0;
 }
 ```
 
-**Step-by-step**:
+**HIR received by solver** (simplified):
+```rust
+// Container variable (created during semantic analysis)
+VarDefinition {
+    name: "sketch.entities.p",
+    var_type: Point3D,
+    definition_kind: Uninitialized,  // Free variable
+}
 
-1. **Enter with-statement**: `WithGuard` collects **all** `__transform__` methods → push transform context
-   - Found methods: `[fn __transform__(&Point3D) -> Point2D]`
-   - Store all methods in transform context
-2. **Declare `.p: Point2D`**:
-   - Create variable: `sketch.entities.p` (type: Point2D)
-   - Check: Are we in transform context? **Yes**
-   - **Select** method where return type matches Point2D
-   - Found: `fn __transform__(p3d: &Point3D) -> Point2D`
-   - Extract parameter type: `Point3D`
-   - Create shadow variable of type `Point3D` in higher scope
-3. **Auto-invoke the selected `__transform__`** (this is a **normal method call**!):
-   - Call: `sketch.__transform__(&shadow)` using `inline_method()`
-   - Create scope for method body
-   - Bind `self` to `sketch`
-   - Bind parameter `p3d` to `shadow` path
-   - Evaluate return expression:
-     ```rust
-     Point2D {
-         x: p3d.x - self.origin.x,  // = shadow.x - sketch.origin.x
-         y: p3d.y - self.origin.y   // = shadow.y - sketch.origin.y
-     }
-     ```
-   - Returns Z3 struct expression
-4. **Create constraint**: `sketch.entities.p == <method result>`
-   - Expands to field-wise constraints:
-     - `sketch.entities.p.x == shadow.x - sketch.origin.x`
-     - `sketch.entities.p.y == shadow.y - sketch.origin.y`
-5. **Add user constraints**: `.p.x == 10.0` and `.p.y == 20.0`
-6. **Z3 solving**: Finds values for all variables including shadow
+// View variable (created during semantic analysis)
+VarDefinition {
+    name: "p",
+    var_type: Point2D,
+    definition_kind: TransformedView {
+        container_var: &container_var,
+        transform_expr: sketch.__transform__(&sketch.entities.p),
+    }
+}
 
-**Note**: In this example there's only one `__transform__` method, but the selection mechanism works the same way when multiple overloads exist.
+// User constraint
+Constraint: p.x == 10.0
+```
+
+**Solver processing**:
+1. Declare `sketch.entities.p: Point3D` as free variable (uninitialized)
+2. Declare `p: Point2D` as free variable
+3. Add transform constraint: `p == sketch.__transform__(&sketch.entities.p)` (method inlining)
+4. Add user constraint: `p.x == 10.0`
+5. Solve with Z3
+
+The solver doesn't need to know about transform semantics - it just follows the HIR structure.
+
+### Function and Method Inlining
+
+User-defined functions and methods (including `__transform__`) are **inlined** rather than called:
+
+- Function/method body is analyzed and substituted
+- Parameters bound to arguments in the function scope
+- Return expression evaluated to produce result
+- Generates direct constraints using existing expression-to-Z3 infrastructure
+
+**There is no special handling for `__transform__`** in the solver - it's just a method that gets inlined like any other.
 
 ## Module Structure
 

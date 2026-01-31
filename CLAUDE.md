@@ -273,7 +273,7 @@ The project has comprehensive test suites for each component. All major componen
   - Nested structs with qualified names
   - Recursive struct detection
   - **Container with-statements** (dot-prefix syntax for namespacing)
-  - **Transform with-statements**: Automatic coordinate transformations via `__transform__` methods with shadow variables
+  - **Transform with-statements**: Automatic coordinate transformations via `__transform__` methods with container and view variables
   - **Struct literals**: Full support in variable initialization and transform return values
 
 ### ❌ Not Yet Implemented
@@ -353,6 +353,7 @@ When adding new features to the constraint solver:
 - **With-Statements**:
   - Container contexts with dot-prefix syntax for namespacing
   - Transform contexts with automatic coordinate transformations via `__transform__` methods
+  - See `docs/HIR_TRANSFORM_REPRESENTATION.md` for detailed transform semantics
 
 ### Limitations
 
@@ -608,7 +609,11 @@ sketch.origin.y = 0
 sketch.origin.z = 0
 ```
 
-**How it works:** When a variable is declared with a 2D type in a transform context, the solver automatically creates a shadow 3D variable and applies the `__transform__` method. The constraints link the declared 2D variable to the transformed shadow 3D variable. Shadow variables are internal and filtered from the output, only the final 2D coordinates are shown.
+**How it works:** When a variable is declared with a 2D type in a transform context (e.g., `let .p: Point2D`), the semantic analyzer creates two variables:
+1. **Container variable**: `sketch.entities.p: Point3D` - the real entity in 3D world space
+2. **View variable**: `p: Point2D` - temporary transformed view, only visible inside the with-block
+
+The `__transform__` method links them via constraints. View variables are filtered from output; only container variables (with full 3D coordinates) are shown. See `docs/HIR_TRANSFORM_REPRESENTATION.md` for complete details.
 
 ## Dependencies
 

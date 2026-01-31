@@ -1,8 +1,16 @@
-# HIR Transform Representation - Implementation Plan
+# HIR Transform Representation
+
+## Document Purpose
+
+This document is the **authoritative specification** for how coordinate transforms work in CAD-DSL. It describes the complete semantic model for transform with-statements, including how container and view variables are created, how transform methods are selected and applied, and how transforms interact with scoping.
+
+**For solver-specific details**, see [SOLVER_ARCHITECTURE.md](SOLVER_ARCHITECTURE.md), which describes how the solver translates fully-resolved HIR (including transforms) into Z3 constraints.
+
+---
 
 ## Executive Summary
 
-This document describes the architectural improvement to move transform-related semantics from the solver phase into the High-Level Intermediate Representation (HIR). Transform application (container variable creation, transform inlining) now happens during semantic analysis, properly separating concerns. Transforms are represented directly in the HIR with structural variable identifiers.
+Transform-related semantics are implemented in the semantic analyzer, not the solver. Transform application (container variable creation, transform expression generation) happens during semantic analysis (HIR construction), properly separating concerns. The solver receives fully-resolved HIR with all transform relationships explicitly represented.
 
 **Transform semantics work in two directions**:
 1. **Internal declarations** (dot-prefix): `with sketch { let .p: Point2D; }` creates a container variable (`sketch.entities.p: Point3D`) and a temporary view (`.p: Point2D`)
@@ -10,9 +18,9 @@ This document describes the architectural improvement to move transform-related 
 
 **Status**: ✅ Complete (Implemented and Tested)
 
-**Actual Effort**: ~4-5 days (completed phases 1-5)
+**Implementation Date**: January 2026
 
-**Priority**: High (Architectural improvement - COMPLETED)
+**Key Achievement**: Clean separation between semantic analysis (what variables mean) and code generation (how to solve them)
 
 ---
 
