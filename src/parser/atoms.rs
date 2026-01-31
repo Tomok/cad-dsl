@@ -83,35 +83,51 @@ fn rune_block<'src>(
 /// Returns the body string and its span
 fn rune_body<'src>()
 -> impl Parser<'src, &'src [Token<'src>], (&'src str, Span), ParseError<'src>> + Clone {
-    // Simplified approach for Phase 1:
-    // 1. Match opening brace
-    // 2. Skip any tokens until we find a closing brace
-    // 3. Return a placeholder string
-    //
-    // TODO Phase 2+: Implement proper bracket counting and source capture
-    // Limitations: This doesn't handle nested braces correctly
-    // For full implementation, we need:
-    // - Custom parser with state to track brace depth
-    // - Access to original source to extract substring
+    // Implementation with bracket counting as required by Phase 1.4
+    // Strategy:
+    // 1. After seeing opening {, count brace depth
+    // 2. Accumulate all tokens until matching }
+    // 3. Convert tokens back to string (placeholder for now)
 
     select! { Token::LeftBrace(t) => t.position }
-        .then_ignore(
-            // Skip all tokens except RightBrace
-            any()
-                .and_is(select! { Token::RightBrace(_) => () }.not())
-                .repeated(),
-        )
-        .then_ignore(select! { Token::RightBrace(_) => () })
-        .map(|start_pos| {
-            // TODO: Reconstruct actual source from tokens
-            // For now, return placeholder empty string
-            let body = "";
-            let span = Span {
-                start: start_pos,
-                lines: 0,
-                end_column: start_pos.column + 1,
-            };
-            (body, span)
+        .then(any().repeated().collect::<Vec<_>>())
+        .try_map(|(start_pos, tokens), span| {
+            let mut depth = 0i32;
+            let mut body_tokens = Vec::new();
+
+            for token in tokens {
+                match token {
+                    Token::LeftBrace(_) => {
+                        depth += 1;
+                        body_tokens.push(token);
+                    }
+                    Token::RightBrace(_) => {
+                        if depth == 0 {
+                            // Found matching closing brace
+                            // TODO Phase 2+: Reconstruct actual source from body_tokens
+                            // For now, return placeholder empty string
+                            let body = "";
+                            let body_span = Span {
+                                start: start_pos,
+                                lines: 0,
+                                end_column: start_pos.column + 1,
+                            };
+                            return Ok((body, body_span));
+                        }
+                        depth -= 1;
+                        body_tokens.push(token);
+                    }
+                    _ => {
+                        body_tokens.push(token);
+                    }
+                }
+            }
+
+            // If we get here, we didn't find a matching brace
+            Err(Rich::custom(
+                span,
+                "Unclosed rune block: missing closing brace",
+            ))
         })
 }
 
