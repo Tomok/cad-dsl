@@ -120,6 +120,7 @@ fixed_token!(TokenReturn, Return, "return");
 fixed_token!(TokenTrue, True, "true");
 fixed_token!(TokenFalse, False, "false");
 fixed_token!(TokenSelf, SelfKw, "self");
+fixed_token!(TokenRune, Rune, "rune");
 
 // ============================================================================
 // Operator Tokens
@@ -335,6 +336,8 @@ pub enum Token<'src> {
     False(TokenFalse),
     #[token("self", TokenSelf::from_lexer)]
     SelfKw(TokenSelf),
+    #[token("rune", TokenRune::from_lexer)]
+    Rune(TokenRune),
 
     // Operators
     #[token("=", TokenEquals::from_lexer)]
@@ -434,6 +437,7 @@ impl<'src> TokenTrait for Token<'src> {
             Token::True(t) => t.position(),
             Token::False(t) => t.position(),
             Token::SelfKw(t) => t.position(),
+            Token::Rune(t) => t.position(),
             Token::Equals(t) => t.position(),
             Token::EqualsEquals(t) => t.position(),
             Token::NotEquals(t) => t.position(),
@@ -489,6 +493,7 @@ impl<'src> TokenTrait for Token<'src> {
             Token::True(t) => t.value_str(),
             Token::False(t) => t.value_str(),
             Token::SelfKw(t) => t.value_str(),
+            Token::Rune(t) => t.value_str(),
             Token::Equals(t) => t.value_str(),
             Token::EqualsEquals(t) => t.value_str(),
             Token::NotEquals(t) => t.value_str(),

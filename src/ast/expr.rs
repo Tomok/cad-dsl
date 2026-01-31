@@ -33,6 +33,42 @@ impl<'src> HasSpan for StructLitField<'src> {
 }
 
 // ============================================================================
+// Rune Block Structures
+// ============================================================================
+
+/// Represents a parameter in a rune block
+#[derive(Debug, Clone, PartialEq)]
+pub struct RuneParam<'src> {
+    /// Parameter name in rune code
+    pub name: &'src str,
+    /// Optional expression to bind (None for direct parameters like `x`, Some for `x=expr`)
+    pub value: Option<Expr<'src>>,
+    pub span: Span,
+}
+
+impl<'src> HasSpan for RuneParam<'src> {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+/// Represents a rune block expression
+#[derive(Debug, Clone, PartialEq)]
+pub struct RuneBlock<'src> {
+    /// Parameters to the rune block
+    pub params: Vec<RuneParam<'src>>,
+    /// Raw Rune code (captured as string from source)
+    pub body: &'src str,
+    pub span: Span,
+}
+
+impl<'src> HasSpan for RuneBlock<'src> {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+// ============================================================================
 // Expression AST with Type-Safe Operator Precedence
 // ============================================================================
 
@@ -304,6 +340,10 @@ pub enum Expr<'src> {
         body: Box<Expr<'src>>,
         span: Span,
     },
+
+    // Rune block - in all levels (high precedence like atoms)
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
+    RuneBlock(Box<RuneBlock<'src>>),
 }
 
 // ============================================================================
@@ -345,6 +385,7 @@ impl<'src> HasSpan for Expr<'src> {
             Expr::Range { span, .. } => *span,
 
             Expr::Closure { span, .. } => *span,
+            Expr::RuneBlock(block) => block.span,
         }
     }
 }
@@ -384,6 +425,7 @@ impl<'src> HasSpan for CmpLhs<'src> {
             CmpLhs::Range { span, .. } => *span,
 
             CmpLhs::Closure { span, .. } => *span,
+            CmpLhs::RuneBlock(block) => block.span,
         }
     }
 }
@@ -415,6 +457,7 @@ impl<'src> HasSpan for CmpRhs<'src> {
             CmpRhs::Range { span, .. } => *span,
 
             CmpRhs::Closure { span, .. } => *span,
+            CmpRhs::RuneBlock(block) => block.span,
         }
     }
 }
@@ -446,6 +489,7 @@ impl<'src> HasSpan for AddLhs<'src> {
             AddLhs::Range { span, .. } => *span,
 
             AddLhs::Closure { span, .. } => *span,
+            AddLhs::RuneBlock(block) => block.span,
         }
     }
 }
@@ -475,6 +519,7 @@ impl<'src> HasSpan for AddRhs<'src> {
             AddRhs::Range { span, .. } => *span,
 
             AddRhs::Closure { span, .. } => *span,
+            AddRhs::RuneBlock(block) => block.span,
         }
     }
 }
@@ -504,6 +549,7 @@ impl<'src> HasSpan for MulLhs<'src> {
             MulLhs::Range { span, .. } => *span,
 
             MulLhs::Closure { span, .. } => *span,
+            MulLhs::RuneBlock(block) => block.span,
         }
     }
 }
@@ -530,6 +576,7 @@ impl<'src> HasSpan for MulRhs<'src> {
             MulRhs::Range { span, .. } => *span,
 
             MulRhs::Closure { span, .. } => *span,
+            MulRhs::RuneBlock(block) => block.span,
         }
     }
 }
@@ -555,6 +602,7 @@ impl<'src> HasSpan for PowLhs<'src> {
             PowLhs::Range { span, .. } => *span,
 
             PowLhs::Closure { span, .. } => *span,
+            PowLhs::RuneBlock(block) => block.span,
         }
     }
 }
@@ -581,6 +629,7 @@ impl<'src> HasSpan for PowRhs<'src> {
             PowRhs::Range { span, .. } => *span,
 
             PowRhs::Closure { span, .. } => *span,
+            PowRhs::RuneBlock(block) => block.span,
         }
     }
 }
@@ -602,6 +651,7 @@ impl<'src> HasSpan for Atom<'src> {
             Atom::Range { span, .. } => *span,
 
             Atom::Closure { span, .. } => *span,
+            Atom::RuneBlock(block) => block.span,
         }
     }
 }

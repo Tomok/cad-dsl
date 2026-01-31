@@ -1578,6 +1578,13 @@ pub fn resolve_expression<'src, 'arena>(
             (kind, ty)
         }
 
+        // Rune block
+        Expr::RuneBlock(_block) => {
+            // TODO: Phase 2 - Implement full rune block semantics
+            // For now, just return a placeholder
+            todo!("Rune blocks are not yet supported in semantic analysis (Phase 2+)")
+        }
+
         // Parentheses
         Expr::Paren { inner, span: _ } => {
             let resolved_inner = resolve_expression(ctx, inner)?;

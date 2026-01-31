@@ -9,7 +9,7 @@
 //! - Method calls
 //! - Atomic expressions (combination of all primitives)
 
-use crate::ast::{Atom, Expr};
+use crate::ast::{Atom, Expr, RuneBlock, RuneParam};
 use crate::lexer::{Span, Token};
 use chumsky::prelude::*;
 
@@ -27,6 +27,95 @@ enum PostfixOp<'src> {
 }
 
 // ============================================================================
+// Rune Block Parser
+// ============================================================================
+
+/// Parse a rune block: rune(params) { body }
+fn rune_block<'src>(
+    expr: impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], Atom<'src>, ParseError<'src>> + Clone {
+    // Parse the rune keyword
+    select! { Token::Rune(t) => t.position }
+        .then(
+            // Parse parameters: (x) or (x=expr, y, z=100)
+            {
+                let param = select! { Token::Identifier(t) => (t.name, t.span) }
+                    .then(
+                        select! { Token::Equals(_) => () }
+                            .ignore_then(expr.clone())
+                            .or_not(),
+                    )
+                    .map(|((name, name_span), value)| RuneParam {
+                        name,
+                        value,
+                        span: name_span,
+                    });
+
+                param
+                    .separated_by(select! { Token::Comma(_) => () })
+                    .allow_trailing()
+                    .collect::<Vec<_>>()
+                    .delimited_by(
+                        select! { Token::LeftParen(_) => () },
+                        select! { Token::RightParen(_) => () },
+                    )
+            },
+        )
+        .then(
+            // Parse the body with bracket counting
+            rune_body(),
+        )
+        .map_with(|((rune_pos, params), (body, _body_span)), e| {
+            let span_range = e.span();
+            Atom::RuneBlock(Box::new(RuneBlock {
+                params,
+                body,
+                span: Span {
+                    start: rune_pos,
+                    lines: 0,
+                    end_column: span_range.end + 1,
+                },
+            }))
+        })
+}
+
+/// Parse the body of a rune block with bracket counting
+/// Returns the body string and its span
+fn rune_body<'src>()
+-> impl Parser<'src, &'src [Token<'src>], (&'src str, Span), ParseError<'src>> + Clone {
+    // Simplified approach for Phase 1:
+    // 1. Match opening brace
+    // 2. Skip any tokens until we find a closing brace
+    // 3. Return a placeholder string
+    //
+    // TODO Phase 2+: Implement proper bracket counting and source capture
+    // Limitations: This doesn't handle nested braces correctly
+    // For full implementation, we need:
+    // - Custom parser with state to track brace depth
+    // - Access to original source to extract substring
+
+    select! { Token::LeftBrace(t) => t.position }
+        .then_ignore(
+            // Skip all tokens except RightBrace
+            any()
+                .and_is(select! { Token::RightBrace(_) => () }.not())
+                .repeated(),
+        )
+        .then_ignore(select! { Token::RightBrace(_) => () })
+        .map(|start_pos| {
+            // TODO: Reconstruct actual source from tokens
+            // For now, return placeholder empty string
+            let body = "";
+            let span = Span {
+                start: start_pos,
+                lines: 0,
+                end_column: start_pos.column + 1,
+            };
+            (body, span)
+        })
+}
+
+// ============================================================================
 // Atomic Parsers (with optional recursion for function calls)
 // ============================================================================
 
@@ -37,6 +126,8 @@ pub fn atom<'src>(
 ) -> impl Parser<'src, &'src [Token<'src>], Atom<'src>, ParseError<'src>> + Clone {
     // First, parse a base atom (literal, variable, or function call)
     let base_atom = choice((
+        // Rune block: rune(params) { body }
+        rune_block(expr.clone()),
         // Dot-prefixed field access: .identifier(.identifier)*
         // For container field access in with blocks (e.g., .field or .field.x)
         select! { Token::Dot(t) => t.position }
@@ -291,6 +382,7 @@ pub fn atom<'src>(
                     Atom::Range { span, .. } => span.start,
 
                     Atom::Closure { span, .. } => span.start,
+                    Atom::RuneBlock(block) => block.span.start,
                 };
 
                 atom = match suffix {
