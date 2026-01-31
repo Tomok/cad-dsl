@@ -587,7 +587,7 @@ with t1 {
     // Verify the transform chain applied correctly: 100 = base + 10 + 20 + 30
     // So base = 40, and result should be v.v = 90 (after transforms are applied)
     assert!(
-        stdout.contains("t3.entities.v.v = 90") || stdout.contains("t3.entities.v.v = 40"),
+        stdout.contains("t3.entities.v.v = 90"),
         "Expected t3.entities.v.v in solution, got:\n{}",
         stdout
     );
