@@ -130,19 +130,7 @@ pub enum WithContextInfo<'src, 'arena> {
     ///
     /// Variables declared with dot-prefix are placed in the container field.
     /// May also have transforms if the container struct defines __transform__ methods.
-    Container {
-        /// Path to the container variable
-        container_path: VariablePath<'src>,
-
-        /// The container field definition
-        container_field: &'arena crate::hir::definitions::ContainerField<'src, 'arena>,
-
-        /// Available transform methods (may be empty if no transforms defined)
-        transforms: Vec<crate::hir::TransformMethod<'src, 'arena>>,
-
-        /// The context expression (for binding "self" in transform methods)
-        context_expr: &'arena crate::hir::expr::ResolvedExpr<'src, 'arena>,
-    },
+    Container,
 
     /// Transform with-statement: coordinate transformations
     ///
@@ -220,10 +208,6 @@ pub struct SolverContext<'src, 'arena> {
     /// (used to detect progress)
     previous_solved_count: usize,
 
-    /// Counter for generating unique shadow variable names
-    /// Used when applying transforms to create shadow variables
-    shadow_counter: usize,
-
     /// Storage for owned qualified name strings
     ///
     /// When we need to create a VariablePath from an identifier's qualified name,
@@ -248,7 +232,6 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             iteration: 0,
             current_solution: None,
             previous_solved_count: 0,
-            shadow_counter: 0,
             qualified_name_storage: Vec::new(),
         }
     }
@@ -270,6 +253,102 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             let last_idx = self.qualified_name_storage.len() - 1;
             let s: &str = &self.qualified_name_storage[last_idx];
             std::mem::transmute::<&str, &'src str>(s)
+        }
+    }
+
+    /// Public version of store_qualified_name for use in stmt.rs
+    ///
+    /// This allows solver implementations to store qualified names from HIR identifiers.
+    pub fn store_qualified_name_public(&mut self, name: String) -> &'src str {
+        self.store_qualified_name(name)
+    }
+
+    /// Build a VariablePath from a VariableIdentifier by traversing its structure
+    ///
+    /// This correctly handles all identifier variants including TransformedView by
+    /// building the path component-by-component instead of treating the qualified
+    /// name as a single component.
+    pub fn build_var_path_from_identifier(
+        &mut self,
+        identifier: &crate::hir::definitions::VariableIdentifier<'src, 'arena>,
+    ) -> Result<VariablePath<'src>, crate::solver::SolverError> {
+        use crate::hir::definitions::VariableIdentifier;
+        use crate::solver::SolverError;
+
+        match identifier {
+            VariableIdentifier::Simple(name) => Ok(VariablePath::from_name(name)),
+
+            VariableIdentifier::FieldAccess { base, field_name } => {
+                let base_path = self.build_var_path_from_identifier(base)?;
+                Ok(base_path.with_field(field_name))
+            }
+
+            VariableIdentifier::ContainerAccess {
+                container_var,
+                container_field,
+                entity_name,
+            } => {
+                let container_path = self.build_var_path_from_identifier(container_var)?;
+                Ok(container_path
+                    .with_field(container_field.name)
+                    .with_field(entity_name))
+            }
+
+            VariableIdentifier::ArrayIndex { array, index } => {
+                let array_path = self.build_var_path_from_identifier(array)?;
+                Ok(array_path.with_index(*index))
+            }
+
+            VariableIdentifier::TransformedView { container_var, .. } => {
+                // For transformed views, build the container's path and add __view suffix
+                let container_path = self.build_var_path_from_identifier(container_var)?;
+
+                // The container path is like "t.entities.p", we need to replace the last
+                // component "p" with "p__view"
+                let components = container_path.components();
+                if components.is_empty() {
+                    return Err(SolverError::ContextError(
+                        "TransformedView with empty container path".to_string(),
+                    ));
+                }
+
+                // Extract the last component (entity name)
+                let last_idx = components.len() - 1;
+                let entity_name = match components[last_idx] {
+                    crate::solver::PathComponent::Field(name) => name,
+                    _ => {
+                        return Err(SolverError::ContextError(
+                            "TransformedView container path must end with field name".to_string(),
+                        ));
+                    }
+                };
+
+                // Build new path with all components except last, then add entity__view
+                let mut view_path = VariablePath::from_name(match components[0] {
+                    crate::solver::PathComponent::Field(name) => name,
+                    _ => {
+                        return Err(SolverError::ContextError(
+                            "Path must start with field name".to_string(),
+                        ));
+                    }
+                });
+
+                for component in components.iter().take(last_idx).skip(1) {
+                    match component {
+                        crate::solver::PathComponent::Field(field) => {
+                            view_path = view_path.with_field(field);
+                        }
+                        crate::solver::PathComponent::Index(idx) => {
+                            view_path = view_path.with_index(*idx);
+                        }
+                    }
+                }
+
+                // Add the last component with __view suffix
+                let view_entity_name = format!("{}__view", entity_name);
+                let view_entity_name_ref = self.store_qualified_name_public(view_entity_name);
+                Ok(view_path.with_field(view_entity_name_ref))
+            }
         }
     }
 
@@ -328,18 +407,10 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         use crate::hir::expr::ResolvedExprKind;
 
         // Check if this is a container context
-        if let Some(container_field) = with_context.container_field {
+        if with_context.container_field.is_some() {
             // Extract the container variable from the context expression
-            if let ResolvedExprKind::Var { definition, .. } = &with_context.context_expr.kind {
-                let qualified_name = definition.identifier.to_qualified_name();
-                let name_ref = self.store_qualified_name(qualified_name);
-                let info = WithContextInfo::Container {
-                    container_path: VariablePath::from_name(name_ref),
-                    container_field,
-                    transforms: with_context.transforms.clone(),
-                    context_expr: with_context.context_expr,
-                };
-                self.with_stack.push(info);
+            if let ResolvedExprKind::Var { .. } = &with_context.context_expr.kind {
+                self.with_stack.push(WithContextInfo::Container);
                 self.scope_level += 1;
             }
         } else if !with_context.transforms.is_empty() {
@@ -368,35 +439,9 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         }
     }
 
-    /// Generate a unique ID for shadow variables
-    ///
-    /// Shadow variables are created during transform application to link
-    /// the declared variable to its transformed counterpart.
-    pub fn next_shadow_id(&mut self) -> usize {
-        let id = self.shadow_counter;
-        self.shadow_counter += 1;
-        id
-    }
-
     // ========================================================================
     // Variable Declaration and Management
     // ========================================================================
-
-    /// Declare a new variable (builds entire tree for composite types)
-    ///
-    /// This is the main entry point for variable declarations.
-    /// For composite types (structs, arrays), it recursively builds
-    /// the entire tree structure.
-    pub fn declare_variable(
-        &mut self,
-        name: &'src str,
-        typ: &'arena ResolvedType<'src, 'arena>,
-    ) -> Result<(), SolverError> {
-        let base_path = VariablePath::from_name(name);
-        let node = self.build_variable_tree(&base_path, typ)?;
-        self.variables.insert(name, node);
-        Ok(())
-    }
 
     /// Declare a new variable at a specific path
     ///
@@ -487,6 +532,9 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         match typ {
             ResolvedType::I32 { .. } | ResolvedType::F64 { .. } | ResolvedType::Bool { .. } => {
                 // Leaf node: create Z3 primitive
+                #[cfg(feature = "solver-debug")]
+                eprintln!("[SOLVER-DEBUG]     Creating Z3 variable: {}", path);
+
                 let z3_var = self.create_z3_primitive(path, typ)?;
                 Ok(VariableNode::Primitive { z3_var })
             }
@@ -666,9 +714,9 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         let mut solution = Solution::new();
 
         // Walk through all variables and collect primitive values
-        // Skip shadow variables (internal transform implementation detail)
+        // Skip shadow variables and view variables (internal transform implementation details)
         for (root_name, root_node) in &self.variables {
-            if root_name.starts_with("__shadow_") {
+            if root_name.starts_with("__shadow_") || root_name.contains("__view") {
                 continue;
             }
             let root_path = VariablePath::from_name(root_name);
@@ -761,12 +809,11 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                                 }
                             }
                             None => {
-                                // as_rational() failed - this means the value exists but
-                                // cannot be represented as a rational or converted to f64
-                                Err(SolverError::ModelEvaluationError(format!(
-                                    "Real variable has value that cannot be converted to f64: {}",
-                                    evaluated
-                                )))
+                                // as_rational() failed - this could mean:
+                                // 1. The value is a symbolic expression (under-constrained)
+                                // 2. The value cannot be represented as a rational
+                                // In either case, treat it as under-constrained
+                                Ok(Value::UnderConstrained)
                             }
                         }
                     }

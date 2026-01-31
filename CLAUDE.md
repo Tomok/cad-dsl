@@ -627,3 +627,4 @@ Planned dependencies (for Rune blocks implementation):
 - `rune-alloc` - Memory allocation support for Rune (not yet added)
 
 Z3 constraint solver is provided as both a system dependency (via Nix) and a Rust crate dependency for constraint solving implementation.
+- if you find cases that are not handled correctly, create unit or integration tests for them

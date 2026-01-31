@@ -56,11 +56,19 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
             }
 
             // Variable reference
-            ResolvedExprKind::Var { name, .. } => {
-                // TODO: Apply transforms when accessing variables in transform context
-                // For now, just get the variable's Z3 value
-                // Transform implementation will be completed in a future iteration
-                let path = VariablePath::from_name(name);
+            ResolvedExprKind::Var { name, definition } => {
+                // Build the variable path from the definition's identifier
+                // This handles container variables correctly (e.g., "t.entities.p" instead of just "p")
+                let qualified_name = definition.identifier.to_qualified_name();
+                let qualified_name_ref = ctx.store_qualified_name_public(qualified_name);
+                let path = VariablePath::from_name(qualified_name_ref);
+
+                #[cfg(feature = "solver-debug")]
+                eprintln!(
+                    "[SOLVER-DEBUG] Resolving var reference: name='{}', path='{}'",
+                    name, path
+                );
+
                 let var_node = ctx
                     .get_variable(&path)
                     .ok_or_else(|| SolverError::UndefinedVariable(name.to_string()))?;
@@ -82,23 +90,99 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 field_name,
                 ..
             } => {
-                // Recursively build the path
-                let base_path = self.build_variable_path(receiver, ctx)?;
-                let full_path = base_path.with_field(field_name);
+                // Try to build a variable path first (for simple cases like p.x)
+                if let Ok(base_path) = self.build_variable_path(receiver, ctx) {
+                    let full_path = base_path.with_field(field_name);
 
-                let var_node = ctx.get_variable(&full_path).ok_or_else(|| {
-                    SolverError::UndefinedVariable(format!("{}.{}", base_path, field_name))
-                })?;
+                    let var_node = ctx.get_variable(&full_path).ok_or_else(|| {
+                        SolverError::UndefinedVariable(format!("{}.{}", base_path, field_name))
+                    })?;
 
-                let z3_var = var_node
-                    .as_primitive()
-                    .ok_or(SolverError::NotAPrimitiveType)?;
+                    let z3_var = var_node
+                        .as_primitive()
+                        .ok_or(SolverError::NotAPrimitiveType)?;
 
-                Ok(match z3_var {
-                    Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
-                    Z3Primitive::Real(z3_real) => Z3Expr::Real(z3_real.clone()),
-                    Z3Primitive::Bool(z3_bool) => Z3Expr::Bool(z3_bool.clone()),
-                })
+                    return Ok(match z3_var {
+                        Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
+                        Z3Primitive::Real(z3_real) => Z3Expr::Real(z3_real.clone()),
+                        Z3Primitive::Bool(z3_bool) => Z3Expr::Bool(z3_bool.clone()),
+                    });
+                }
+
+                // If building a path failed, check if receiver is a MethodCall returning a struct
+                // In this case, we need to inline the method and extract the field from the struct literal
+                match &receiver.kind {
+                    ResolvedExprKind::MethodCall {
+                        method_name,
+                        method,
+                        receiver: method_receiver,
+                        args,
+                    } => {
+                        // Inline the method to get the return expression (likely a StructLit)
+                        use std::collections::HashMap;
+
+                        let qualified_name = if let Some(parent) = method.parent_struct {
+                            format!("{}::{}", parent.name, method_name)
+                        } else {
+                            method_name.to_string()
+                        };
+
+                        let return_expr =
+                            ctx.get_function_return(&qualified_name).ok_or_else(|| {
+                                SolverError::UnsupportedExpression(format!(
+                                    "Method '{}' has no return expression registered",
+                                    method_name
+                                ))
+                            })?;
+
+                        // Create parameter substitution map
+                        let mut param_map: HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>> =
+                            HashMap::new();
+                        param_map.insert("self", *method_receiver);
+
+                        for (param, arg) in method.params.iter().zip(args.iter()) {
+                            param_map.insert(param.name, *arg);
+                        }
+
+                        // Substitute parameters in the return expression
+                        let inlined_expr =
+                            self.substitute_parameters(return_expr, &param_map, ctx)?;
+
+                        // Now extract the field from the inlined expression
+                        match &inlined_expr.kind {
+                            ResolvedExprKind::StructLit { fields, .. } => {
+                                // Find the field with the matching name
+                                let field_expr = fields
+                                    .iter()
+                                    .find_map(|f| match f {
+                                        crate::hir::expr::ResolvedStructLitField::Field {
+                                            name,
+                                            value,
+                                            ..
+                                        } if *name == *field_name => Some(*value),
+                                        _ => None,
+                                    })
+                                    .ok_or_else(|| {
+                                        SolverError::UnsupportedExpression(format!(
+                                            "Field '{}' not found in struct literal",
+                                            field_name
+                                        ))
+                                    })?;
+
+                                // Solve the field expression
+                                field_expr.solve(ctx)
+                            }
+                            _ => Err(SolverError::UnsupportedExpression(format!(
+                                "Expected struct literal from method '{}', got {:?}",
+                                method_name, inlined_expr.kind
+                            ))),
+                        }
+                    }
+                    _ => Err(SolverError::UnsupportedExpression(format!(
+                        "Cannot build variable path from this expression: {:?}",
+                        receiver.kind
+                    ))),
+                }
             }
 
             // Array index
@@ -387,7 +471,6 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 with_context,
                 ..
             } => {
-                // Build the full path: container.container_field.resolved_path
                 // Extract container variable name from with_context.context_expr
                 let container_name = match &with_context.context_expr.kind {
                     ResolvedExprKind::Var { name, .. } => name,
@@ -408,6 +491,53 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                     })?
                     .name;
 
+                // For Phase 4: Try view variable path first (with __view suffix after the entity name)
+                // For `.p.x`, first try `t.entities.p__view.x`
+                if !resolved_path.is_empty() {
+                    let entity_name = resolved_path[0];
+                    let remaining_fields = &resolved_path[1..];
+
+                    // Build view path: container.container_field.entity__view.remaining_fields
+                    let mut view_path = VariablePath::from_name(container_name);
+                    view_path = view_path.with_field(container_field_name);
+
+                    let view_entity_name = format!("{}__view", entity_name);
+                    let view_entity_name_ref = ctx.store_qualified_name_public(view_entity_name);
+                    view_path = view_path.with_field(view_entity_name_ref);
+
+                    for field in remaining_fields {
+                        view_path = view_path.with_field(field);
+                    }
+
+                    #[cfg(feature = "solver-debug")]
+                    eprintln!(
+                        "[SOLVER-DEBUG] ContainerFieldAccess: trying view path={}",
+                        view_path
+                    );
+
+                    // Try to get the view variable
+                    if let Some(var_node) = ctx.get_variable(&view_path) {
+                        #[cfg(feature = "solver-debug")]
+                        eprintln!("[SOLVER-DEBUG]   Found view variable!");
+
+                        let z3_var = var_node
+                            .as_primitive()
+                            .ok_or(SolverError::NotAPrimitiveType)?;
+
+                        return Ok(match z3_var {
+                            Z3Primitive::Int(z3_int) => Z3Expr::Int(z3_int.clone()),
+                            Z3Primitive::Real(z3_real) => Z3Expr::Real(z3_real.clone()),
+                            Z3Primitive::Bool(z3_bool) => Z3Expr::Bool(z3_bool.clone()),
+                        });
+                    }
+
+                    #[cfg(feature = "solver-debug")]
+                    eprintln!(
+                        "[SOLVER-DEBUG]   View variable not found, falling back to container path"
+                    );
+                }
+
+                // Fall back to container variable path (for non-transformed variables)
                 // Build the full path: container.container_field.resolved_path
                 let mut full_path = VariablePath::from_name(container_name);
                 full_path = full_path.with_field(container_field_name);
@@ -447,10 +577,25 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
     fn build_variable_path(
         &self,
         base: &ResolvedExpr<'src, 'arena>,
-        ctx: &SolverContext<'src, 'arena>,
+        ctx: &mut SolverContext<'src, 'arena>,
     ) -> Result<VariablePath<'src>, SolverError> {
         match &base.kind {
-            ResolvedExprKind::Var { name, .. } => Ok(VariablePath::from_name(name)),
+            ResolvedExprKind::Var {
+                name: _name,
+                definition,
+            } => {
+                // Build path from the variable's identifier (handles container variables correctly)
+                #[cfg(feature = "solver-debug")]
+                {
+                    let qualified_name = definition.identifier.to_qualified_name();
+                    eprintln!(
+                        "[SOLVER-DEBUG] build_variable_path for Var: name='{}', qualified_name='{}'",
+                        _name, qualified_name
+                    );
+                }
+
+                ctx.build_var_path_from_identifier(definition.identifier)
+            }
 
             ResolvedExprKind::FieldAccess {
                 receiver,
@@ -466,6 +611,12 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
                 let inner_path = self.build_variable_path(array, ctx)?;
                 Ok(inner_path.with_index(index_val as usize))
             }
+
+            // Reference expressions - unwrap and build path from inner expression
+            ResolvedExprKind::Ref { inner } => self.build_variable_path(inner, ctx),
+
+            // Dereference expressions - unwrap and build path from inner expression
+            ResolvedExprKind::Deref { inner } => self.build_variable_path(inner, ctx),
 
             _ => Err(SolverError::UnsupportedExpression(
                 "Cannot build variable path from this expression".to_string(),

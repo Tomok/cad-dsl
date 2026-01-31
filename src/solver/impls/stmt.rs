@@ -3,9 +3,10 @@
 //! This module implements the `Solvable` trait for `ResolvedStmt` nodes,
 //! processing HIR statements and adding constraints to the Z3 solver.
 
+use crate::hir::definitions::VarDefinitionKind;
 use crate::hir::expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind};
 use crate::hir::types::ResolvedType;
-use crate::solver::context::{SolverContext, WithContextInfo};
+use crate::solver::context::SolverContext;
 use crate::solver::impls::expr::Z3Expr;
 use crate::solver::{Solvable, SolverError, VariablePath};
 
@@ -16,185 +17,51 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
         match &self.kind {
             // Let statement - declare variable
             ResolvedStmtKind::Let {
-                dot_prefix,
-                name_path,
+                dot_prefix: _,
+                name_path: _,
                 var_def,
                 init,
                 ..
             } => {
-                // Determine the full variable name
-                let _full_name = if *dot_prefix {
-                    // Dot-prefix variable in with-statement
-                    match ctx.current_with_context() {
-                        Some(WithContextInfo::Container {
-                            container_path,
-                            container_field,
-                            ..
-                        }) => {
-                            // Construct path: container.field.varname
-                            let var_name = name_path.first().map(|(n, _)| *n).ok_or_else(|| {
-                                SolverError::ContextError("Empty name path".to_string())
-                            })?;
+                // Build the variable path from the identifier structure
+                // This correctly handles all identifier variants including TransformedView
+                let var_path = ctx.build_var_path_from_identifier(var_def.identifier)?;
 
-                            let full_path = container_path
-                                .with_field(container_field.name)
-                                .with_field(var_name);
-
-                            // Check if this is a reference alias (let .r = &x or let .r = get_ref())
-                            // This now supports type-based alias tracking for function/method returns
-                            let target_path = if let Some(init_expr) = init {
-                                self.extract_reference_target_with_inlining(init_expr, ctx)
-                            } else {
-                                None
-                            };
-
-                            if let Some(target) = target_path {
-                                // This is an alias declaration
-                                // Don't create a variable, just register the alias
-                                ctx.register_alias(full_path.clone(), target);
-                            } else {
-                                // Regular variable declaration
-                                let var_type = var_def.var_type.as_ref().ok_or_else(|| {
-                                    SolverError::ContextError(
-                                        "Variable type not resolved".to_string(),
-                                    )
-                                })?;
-                                ctx.declare_variable_at_path(&full_path, var_type)?;
-
-                                // Check if we should apply a transform (no initializer in transform context)
-                                if init.is_none() {
-                                    // Try to apply transform if we're in a transform context
-                                    self.apply_transform_to_variable(ctx, &full_path, var_type)?;
-                                }
-
-                                // If there's an initializer, add constraint
-                                if let Some(init_expr) = init {
-                                    // Special handling for struct literals
-                                    if let ResolvedExprKind::StructLit { fields, .. } =
-                                        &init_expr.kind
-                                    {
-                                        // Handle struct literal with potential reference fields
-                                        self.process_struct_literal_init(ctx, &full_path, fields)?;
-                                    } else {
-                                        // Regular primitive initialization
-                                        let z3_value = init_expr.solve(ctx)?;
-                                        let z3_var = self.get_variable_z3(ctx, &full_path)?;
-
-                                        // Add equality constraint
-                                        let constraint = match (z3_var, z3_value) {
-                                            (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
-                                            (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
-                                            (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
-                                            (Z3Expr::Int(var), Z3Expr::Real(val)) => {
-                                                var.to_real().eq(&val)
-                                            }
-                                            (Z3Expr::Real(var), Z3Expr::Int(val)) => {
-                                                var.eq(val.to_real())
-                                            }
-                                            _ => {
-                                                return Err(SolverError::UnsupportedExpression(
-                                                    "Type mismatch in initialization".to_string(),
-                                                ));
-                                            }
-                                        };
-
-                                        ctx.z3_solver.assert(&constraint);
-                                    }
-                                }
-                            }
-
-                            full_path.to_z3_name()
-                        }
-                        _ => {
-                            return Err(SolverError::ContextError(
-                                "Dot-prefix variable outside with-statement".to_string(),
-                            ));
-                        }
-                    }
+                // Check if this is a reference alias (let .r = &x or let .r = get_ref())
+                // This now supports type-based alias tracking for function/method returns
+                let target_path = if let Some(init_expr) = init {
+                    self.extract_reference_target_with_inlining(init_expr, ctx)
                 } else {
-                    // Regular variable
-                    let var_name = name_path
-                        .first()
-                        .map(|(n, _)| *n)
-                        .ok_or_else(|| SolverError::ContextError("Empty name path".to_string()))?;
-
-                    // Check if this is a reference alias (let r = &x or let r = get_ref())
-                    // This now supports type-based alias tracking for function/method returns
-                    let target_path = if let Some(init_expr) = init {
-                        self.extract_reference_target_with_inlining(init_expr, ctx)
-                    } else {
-                        None
-                    };
-
-                    if let Some(target) = target_path {
-                        // This is an alias declaration
-                        // Don't create a variable, just register the alias
-                        let alias_path = VariablePath::from_name(var_name);
-                        ctx.register_alias(alias_path, target);
-                    } else {
-                        // Regular variable declaration
-                        let var_type = var_def.var_type.as_ref().ok_or_else(|| {
-                            SolverError::ContextError("Variable type not resolved".to_string())
-                        })?;
-                        ctx.declare_variable(var_name, var_type)?;
-
-                        // Handle initialization or apply transforms
-                        match init {
-                            None => {
-                                // Apply transform for variables without initializers
-                                let var_path = VariablePath::from_name(var_name);
-                                self.apply_transform_to_variable(ctx, &var_path, var_type)?;
-                            }
-                            Some(init_expr) => {
-                                // Special handling for struct literals
-                                if let ResolvedExprKind::StructLit { fields, .. } = &init_expr.kind
-                                {
-                                    // Handle struct literal with potential reference fields
-                                    let base_path = VariablePath::from_name(var_name);
-                                    self.process_struct_literal_init(ctx, &base_path, fields)?;
-                                } else {
-                                    // Regular primitive initialization
-                                    let z3_value = init_expr.solve(ctx)?;
-                                    let path = VariablePath::from_name(var_name);
-                                    let z3_var = self.get_variable_z3(ctx, &path)?;
-
-                                    // Add equality constraint
-                                    let constraint = match (z3_var, z3_value) {
-                                        (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
-                                        (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
-                                        (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
-                                        (Z3Expr::Int(var), Z3Expr::Real(val)) => {
-                                            var.to_real().eq(&val)
-                                        }
-                                        (Z3Expr::Real(var), Z3Expr::Int(val)) => {
-                                            var.eq(val.to_real())
-                                        }
-                                        _ => {
-                                            return Err(SolverError::UnsupportedExpression(
-                                                "Type mismatch in initialization".to_string(),
-                                            ));
-                                        }
-                                    };
-
-                                    ctx.z3_solver.assert(&constraint);
-                                }
-                            }
-                        }
-                    }
-
-                    var_name.to_string()
+                    None
                 };
+
+                if let Some(target) = target_path {
+                    // This is an alias declaration
+                    // Don't create a variable, just register the alias
+                    ctx.register_alias(var_path, target);
+                } else {
+                    // Regular variable declaration - use HIR VarDefinitionKind
+                    self.solve_variable_by_kind(ctx, &var_path, var_def)?;
+                }
 
                 Ok(())
             }
 
             // Expression statement - add as constraint
             ResolvedStmtKind::Expression { expr, .. } => {
+                #[cfg(feature = "solver-debug")]
+                eprintln!(
+                    "[SOLVER-DEBUG] Adding constraint from expression (span: {:?})",
+                    expr.span
+                );
+
                 let z3_expr = expr.solve(ctx)?;
 
                 // Expression statements must evaluate to boolean (constraints)
                 match z3_expr {
                     Z3Expr::Bool(constraint) => {
+                        #[cfg(feature = "solver-debug")]
+                        eprintln!("[SOLVER-DEBUG]   Constraint: {}", constraint);
                         ctx.z3_solver.assert(&constraint);
                         Ok(())
                     }
@@ -1456,411 +1323,174 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         Ok(())
     }
 
-    /// Apply transform to a variable declaration in transform context
+    /// Handle a variable declaration based on its VarDefinitionKind
     ///
-    /// Creates a shadow variable and links it to the declared variable
-    /// via the appropriate __transform__ method.
-    ///
-    /// This is called when a variable is declared without an initializer
-    /// inside a transform with-statement.
-    fn apply_transform_to_variable(
+    /// This function processes variables according to how they are defined in the HIR:
+    /// - Uninitialized: Declares a free variable for the solver
+    /// - Initialized: Declares variable and adds equality constraint
+    /// - TransformedView: Handles container+view variable pair with transform constraint
+    fn solve_variable_by_kind(
         &self,
         ctx: &mut SolverContext<'src, 'arena>,
         var_path: &VariablePath<'src>,
-        declared_type: &'arena ResolvedType<'src, 'arena>,
+        var_def: &'arena crate::hir::definitions::VarDefinition<'src, 'arena>,
     ) -> Result<(), SolverError> {
-        // 1. Get transform context info and determine variable type
-        let (transforms, context_expr, is_pure_transform, is_container_variable) =
-            match ctx.current_with_context() {
-                Some(WithContextInfo::Transform {
-                    transforms,
-                    context_expr,
-                    ..
-                }) => (transforms.clone(), *context_expr, true, false),
-                Some(WithContextInfo::Container {
-                    transforms,
-                    context_expr,
-                    container_path,
-                    container_field,
-                    ..
-                }) => {
-                    // Check if this is a container variable by comparing paths
-                    let container_prefix = container_path.with_field(container_field.name);
-                    let is_container_var = var_path.starts_with(&container_prefix);
-                    (transforms.clone(), *context_expr, false, is_container_var)
-                }
-                _ => return Ok(()), // Not in transform context
-            };
+        #[cfg(feature = "solver-debug")]
+        eprintln!(
+            "[SOLVER-DEBUG] solve_variable_by_kind: path={}, kind={:?}",
+            var_path,
+            match &var_def.definition_kind {
+                VarDefinitionKind::Uninitialized => "Uninitialized",
+                VarDefinitionKind::Initialized { .. } => "Initialized",
+                VarDefinitionKind::TransformedView { .. } => "TransformedView",
+            }
+        );
 
-        if transforms.is_empty() {
-            return Ok(());
-        }
+        match &var_def.definition_kind {
+            VarDefinitionKind::Uninitialized => {
+                // Free variable - just declare it
+                let var_type = var_def.var_type.as_ref().ok_or_else(|| {
+                    SolverError::ContextError("Variable type not resolved".to_string())
+                })?;
+                #[cfg(feature = "solver-debug")]
+                eprintln!(
+                    "[SOLVER-DEBUG]   Declaring uninitialized variable: {} (type: {:?})",
+                    var_path, var_type
+                );
+                ctx.declare_variable_at_path(var_path, var_type)?;
+                Ok(())
+            }
 
-        // 2. Select appropriate transform based on variable type
-        let transform_method =
-            match Self::select_transform_method(&transforms, declared_type, is_container_variable)?
-            {
-                Some(t) => t,
-                None => {
-                    if is_pure_transform || is_container_variable {
-                        return Err(SolverError::ContextError(format!(
-                            "No matching transform for type {:?}",
-                            declared_type
-                        )));
-                    } else {
-                        return Ok(());
-                    }
-                }
-            };
+            VarDefinitionKind::Initialized { init } => {
+                // Variable with initialization expression
+                let var_type = var_def.var_type.as_ref().ok_or_else(|| {
+                    SolverError::ContextError("Variable type not resolved".to_string())
+                })?;
+                ctx.declare_variable_at_path(var_path, var_type)?;
 
-        // 3. Get input type from transform method's first parameter
-        let input_type = &transform_method.input_type;
+                // Add constraint: var == init
+                // Special handling for struct literals
+                if let ResolvedExprKind::StructLit { fields, .. } = &init.kind {
+                    self.process_struct_literal_init(ctx, var_path, fields)?;
+                } else {
+                    let z3_value = init.solve(ctx)?;
+                    let z3_var = self.get_variable_z3(ctx, var_path)?;
 
-        // 4. Create shadow variable with input type
-        let shadow_path = self.create_shadow_variable(ctx, input_type)?;
-
-        // 5. Create a reference expression for the shadow variable
-        // We need to create a &'arena ResolvedExpr that references the shadow
-        let shadow_ref_expr = self.create_var_ref_expr(ctx, &shadow_path, input_type)?;
-
-        // 6. Inline the transform method call
-        // Call: context_expr.__transform__(&shadow)
-        let transform_result =
-            self.inline_transform_method(ctx, context_expr, transform_method, &[shadow_ref_expr])?;
-
-        // 7. Add constraint: var_path == transform_result
-        // Handle struct literals specially by creating field-wise constraints
-        use crate::hir::expr::{ResolvedExprKind, ResolvedStructLitField};
-        match &transform_result.kind {
-            ResolvedExprKind::StructLit { fields, .. } => {
-                // For struct literals, create field-wise equality constraints
-                for field in fields {
-                    match field {
-                        ResolvedStructLitField::Field { name, value, .. } => {
-                            // Solve the field value expression to Z3
-                            let field_z3 = value.solve(ctx)?;
-
-                            // Create path to the struct field
-                            let field_path = var_path.with_field(name);
-
-                            // Add equality constraint for this field
-                            self.add_struct_equality_constraint(ctx, &field_path, &field_z3)?;
-                        }
-                        ResolvedStructLitField::ComputedProperty { .. } => {
+                    let constraint = match (z3_var, z3_value) {
+                        (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                        (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                        (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                        (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
+                        (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
+                        _ => {
                             return Err(SolverError::UnsupportedExpression(
-                                "Computed properties in transform results not supported"
-                                    .to_string(),
+                                "Type mismatch in initialization".to_string(),
                             ));
                         }
+                    };
+
+                    ctx.z3_solver.assert(&constraint);
+                }
+
+                Ok(())
+            }
+
+            VarDefinitionKind::TransformedView {
+                container_var,
+                transform_expr,
+                ..
+            } => {
+                // View variable with transform relationship
+                // 1. First, handle the container variable (it should be Uninitialized)
+                let container_path = self.build_var_path_for_definition(ctx, container_var)?;
+                #[cfg(feature = "solver-debug")]
+                eprintln!(
+                    "[SOLVER-DEBUG]   TransformedView: view_path={}, container_path={}",
+                    var_path, container_path
+                );
+                self.solve_variable_by_kind(ctx, &container_path, container_var)?;
+
+                // 2. Declare the view variable
+                let view_type = var_def.var_type.as_ref().ok_or_else(|| {
+                    SolverError::ContextError("View variable type not resolved".to_string())
+                })?;
+                #[cfg(feature = "solver-debug")]
+                eprintln!(
+                    "[SOLVER-DEBUG]   Declaring view variable: {} (type: {:?})",
+                    var_path, view_type
+                );
+                ctx.declare_variable_at_path(var_path, view_type)?;
+
+                // 3. Add constraints: view.field == transform_expr.field for each field
+                // Transform expressions are typically MethodCalls that return structs.
+                // We create field-access expressions for each field and evaluate those.
+
+                // Get the struct definition from the view type to know which fields to constrain
+                let struct_def = match view_type {
+                    ResolvedType::UserDefined { definition, .. } => definition,
+                    _ => {
+                        return Err(SolverError::UnsupportedExpression(
+                            "TransformedView with non-struct view type".to_string(),
+                        ));
                     }
+                };
+
+                // For each field in the struct, create constraint: view.field == transform_expr.field
+                for field_def in &struct_def.fields {
+                    // Create field access expression: transform_expr.field_name
+                    use crate::hir::expr::ResolvedExprKind;
+                    let transform_field_expr = ctx.arena.alloc(ResolvedExpr {
+                        span: transform_expr.span,
+                        kind: ResolvedExprKind::FieldAccess {
+                            receiver: transform_expr,
+                            field_name: field_def.name,
+                            field: field_def,
+                        },
+                        ty: ctx.arena.alloc(field_def.field_type),
+                    });
+
+                    // Evaluate the field expression to Z3
+                    let field_z3 = transform_field_expr.solve(ctx)?;
+
+                    // Get the view variable's field
+                    let field_path = var_path.with_field(field_def.name);
+                    let view_field_z3 = self.get_variable_z3(ctx, &field_path)?;
+
+                    #[cfg(feature = "solver-debug")]
+                    eprintln!(
+                        "[SOLVER-DEBUG]   Adding transform constraint: {}.{} == transform_expr.{}",
+                        var_path, field_def.name, field_def.name
+                    );
+
+                    // Add constraint: view.field == transform_expr.field
+                    let constraint = match (view_field_z3, field_z3) {
+                        (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                        (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                        (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                        (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
+                        (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
+                        _ => {
+                            return Err(SolverError::UnsupportedExpression(format!(
+                                "Type mismatch in transform field '{}'",
+                                field_def.name
+                            )));
+                        }
+                    };
+
+                    ctx.z3_solver.assert(&constraint);
                 }
+
+                Ok(())
             }
-            _ => {
-                // For non-struct expressions, solve to Z3 and add constraint
-                let result_z3 = transform_result.solve(ctx)?;
-                self.add_struct_equality_constraint(ctx, var_path, &result_z3)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Select appropriate transform for a variable based on context
-    ///
-    /// # Parameters
-    /// - `transforms`: Available transform methods
-    /// - `declared_type`: The type of the variable being declared
-    /// - `is_container_variable`: True if this is a container variable (dot-prefix)
-    ///
-    /// # Returns
-    /// The matching transform method, or error if none found or ambiguous
-    fn select_transform_method<'t>(
-        transforms: &'t [crate::hir::TransformMethod<'src, 'arena>],
-        declared_type: &'arena ResolvedType<'src, 'arena>,
-        is_container_variable: bool,
-    ) -> Result<Option<&'t crate::hir::TransformMethod<'src, 'arena>>, SolverError> {
-        use crate::hir::TransformMethodKind;
-
-        // Filter transforms by output type match
-        let matching: Vec<_> = transforms
-            .iter()
-            .filter(|t| Self::types_match_semantically(t.output_type, declared_type))
-            .collect();
-
-        if matching.is_empty() {
-            return Ok(None);
-        }
-
-        if is_container_variable {
-            // Container variables: prefer __transform_container__, fallback to __transform__
-            let container_methods: Vec<_> = matching
-                .iter()
-                .filter(|t| matches!(t.kind, TransformMethodKind::Container))
-                .copied()
-                .collect();
-
-            if container_methods.len() > 1 {
-                return Err(SolverError::ContextError(format!(
-                    "Multiple __transform_container__ methods found for type {:?}. \
-                     Transform methods must have unique output types.",
-                    declared_type
-                )));
-            }
-
-            if let Some(&t) = container_methods.first() {
-                return Ok(Some(t));
-            }
-
-            // Fallback to standard transform
-            let standard_methods: Vec<_> = matching
-                .iter()
-                .filter(|t| matches!(t.kind, TransformMethodKind::Standard))
-                .copied()
-                .collect();
-
-            if standard_methods.len() > 1 {
-                return Err(SolverError::ContextError(format!(
-                    "Multiple __transform__ methods found for type {:?}. \
-                     Transform methods must have unique output types.",
-                    declared_type
-                )));
-            }
-
-            Ok(standard_methods.first().copied())
-        } else {
-            // External variables: only use __transform__ (standard)
-            let standard_methods: Vec<_> = matching
-                .iter()
-                .filter(|t| matches!(t.kind, TransformMethodKind::Standard))
-                .copied()
-                .collect();
-
-            if standard_methods.len() > 1 {
-                return Err(SolverError::ContextError(format!(
-                    "Multiple __transform__ methods found for type {:?}. \
-                     Transform methods must have unique output types.",
-                    declared_type
-                )));
-            }
-
-            Ok(standard_methods.first().copied())
         }
     }
 
-    /// Create a shadow variable in the current scope
-    ///
-    /// Shadow variables are used to link transformed variables to their
-    /// source values via transform constraints.
-    fn create_shadow_variable(
+    /// Build a VariablePath from a VarDefinition's identifier
+    fn build_var_path_for_definition(
         &self,
         ctx: &mut SolverContext<'src, 'arena>,
-        shadow_type: &'arena ResolvedType<'src, 'arena>,
+        var_def: &'arena crate::hir::definitions::VarDefinition<'src, 'arena>,
     ) -> Result<VariablePath<'src>, SolverError> {
-        // Generate unique name for shadow variable
-        let shadow_id = ctx.next_shadow_id();
-        let shadow_name = format!("__shadow_{}", shadow_id);
-
-        // Leak string to get 'src lifetime (safe for solver duration)
-        let shadow_name_static: &'src str = Box::leak(shadow_name.into_boxed_str());
-
-        // Create variable in current scope
-        ctx.declare_variable(shadow_name_static, shadow_type)?;
-
-        Ok(VariablePath::from_name(shadow_name_static))
-    }
-
-    /// Create a variable reference expression in the arena
-    ///
-    /// This creates a ResolvedExpr node that references a variable by path.
-    /// The type must be provided since VariableNode doesn't store full type information.
-    fn create_var_ref_expr(
-        &self,
-        ctx: &SolverContext<'src, 'arena>,
-        var_path: &VariablePath<'src>,
-        var_type: &'arena ResolvedType<'src, 'arena>,
-    ) -> Result<&'arena ResolvedExpr<'src, 'arena>, SolverError> {
-        // Extract the root name from the path
-        let root_name = match var_path.components().first() {
-            Some(crate::solver::PathComponent::Field(name)) => *name,
-            _ => {
-                return Err(SolverError::ContextError(
-                    "Invalid variable path for reference expression".to_string(),
-                ));
-            }
-        };
-
-        // Create a dummy span for generated code
-        let dummy_span = crate::lexer::Span {
-            start: crate::lexer::LineColumn { line: 0, column: 0 },
-            lines: 0,
-            end_column: 0,
-        };
-
-        // Create a dummy var definition in the arena
-        use crate::hir::definitions::{VarDefinition, VarDefinitionKind, VariableIdentifier};
-        let dummy_identifier = ctx.arena.alloc(VariableIdentifier::Simple(root_name));
-        let dummy_var_def = ctx.arena.alloc(VarDefinition::new(
-            dummy_identifier,
-            root_name,
-            dummy_span,
-            Some(*var_type), // Copy the type (ResolvedType is Copy)
-            VarDefinitionKind::Uninitialized,
-            0,
-            dummy_span,
-        ));
-
-        // Create a Var expression
-        let expr = ctx.arena.alloc(ResolvedExpr {
-            span: dummy_span,
-            kind: ResolvedExprKind::Var {
-                name: root_name,
-                definition: dummy_var_def,
-            },
-            ty: var_type,
-        });
-
-        Ok(expr)
-    }
-
-    /// Inline a transform method call
-    ///
-    /// Similar to inline_method in expr.rs, but used specifically for transforms.
-    /// Returns the inlined expression (not yet converted to Z3).
-    fn inline_transform_method(
-        &self,
-        ctx: &mut SolverContext<'src, 'arena>,
-        receiver_expr: &'arena ResolvedExpr<'src, 'arena>,
-        transform: &crate::hir::TransformMethod<'src, 'arena>,
-        args: &[&'arena ResolvedExpr<'src, 'arena>],
-    ) -> Result<&'arena ResolvedExpr<'src, 'arena>, SolverError> {
-        // Get the method from the transform
-        let method = transform.function;
-
-        // Get the qualified name (for methods: StructName::__transform__)
-        let qualified_name = if let Some(parent) = method.parent_struct {
-            format!("{}::{}", parent.name, "__transform__")
-        } else {
-            "__transform__".to_string()
-        };
-
-        // Get the return expression
-        let return_expr = ctx.get_function_return(&qualified_name).ok_or_else(|| {
-            SolverError::UnsupportedExpression(format!(
-                "Transform method '{}' has no return expression registered",
-                qualified_name
-            ))
-        })?;
-
-        // Create parameter substitution map
-        use std::collections::HashMap;
-        let mut param_map: HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>> = HashMap::new();
-
-        // Bind "self" to the receiver expression
-        param_map.insert("self", receiver_expr);
-
-        // Bind parameters to arguments
-        for (param, arg) in method.params.iter().zip(args.iter()) {
-            param_map.insert(param.name, *arg);
-        }
-
-        // Substitute parameters in the return expression
-        // Note: substitute_parameters is a method on ResolvedExpr, so we call it on return_expr
-        let inlined_expr = return_expr.substitute_parameters(return_expr, &param_map, ctx)?;
-
-        // Return the inlined expression (caller will handle conversion to Z3)
-        Ok(inlined_expr)
-    }
-
-    /// Add a constraint that a variable equals a Z3 expression
-    ///
-    /// Handles both primitive types and struct types (field-wise equality).
-    fn add_struct_equality_constraint(
-        &self,
-        ctx: &mut SolverContext<'src, 'arena>,
-        var_path: &VariablePath<'src>,
-        z3_value: &Z3Expr,
-    ) -> Result<(), SolverError> {
-        // Get the variable
-        let var_node = ctx
-            .get_variable(var_path)
-            .ok_or_else(|| SolverError::UndefinedVariable(var_path.to_z3_name()))?;
-
-        // For primitives, create simple equality
-        if let Some(z3_var) = var_node.as_primitive() {
-            let constraint = match (z3_var, z3_value) {
-                (crate::solver::context::Z3Primitive::Int(var), Z3Expr::Int(val)) => var.eq(val),
-                (crate::solver::context::Z3Primitive::Real(var), Z3Expr::Real(val)) => var.eq(val),
-                (crate::solver::context::Z3Primitive::Bool(var), Z3Expr::Bool(val)) => var.eq(val),
-                (crate::solver::context::Z3Primitive::Int(var), Z3Expr::Real(val)) => {
-                    var.to_real().eq(val)
-                }
-                (crate::solver::context::Z3Primitive::Real(var), Z3Expr::Int(val)) => {
-                    var.eq(val.to_real())
-                }
-                _ => {
-                    return Err(SolverError::UnsupportedExpression(
-                        "Type mismatch in transform constraint".to_string(),
-                    ));
-                }
-            };
-            ctx.z3_solver.assert(&constraint);
-            return Ok(());
-        }
-
-        // For structs, we need field-wise equality
-        // But Z3Expr doesn't directly support struct values from inlined expressions
-        // The inlined expression should have been a struct literal that was already
-        // solved field-by-field, so this case shouldn't occur.
-        Err(SolverError::UnsupportedExpression(
-            "Transform result must be a primitive or solved struct literal".to_string(),
-        ))
-    }
-
-    /// Compare two types semantically (ignoring span information)
-    ///
-    /// This is used for matching transform output types with declared types,
-    /// where the same logical type may have been parsed at different source locations.
-    fn types_match_semantically(
-        type1: &ResolvedType<'src, 'arena>,
-        type2: &ResolvedType<'src, 'arena>,
-    ) -> bool {
-        match (type1, type2) {
-            (ResolvedType::I32 { .. }, ResolvedType::I32 { .. }) => true,
-            (ResolvedType::F64 { .. }, ResolvedType::F64 { .. }) => true,
-            (ResolvedType::Bool { .. }, ResolvedType::Bool { .. }) => true,
-            (
-                ResolvedType::UserDefined {
-                    name: name1,
-                    definition: def1,
-                    ..
-                },
-                ResolvedType::UserDefined {
-                    name: name2,
-                    definition: def2,
-                    ..
-                },
-            ) => {
-                // Compare by struct name and definition pointer
-                // If they point to the same definition, they're the same type
-                name1 == name2 && std::ptr::eq(*def1 as *const _, *def2 as *const _)
-            }
-            (
-                ResolvedType::Reference { inner: inner1, .. },
-                ResolvedType::Reference { inner: inner2, .. },
-            ) => Self::types_match_semantically(inner1, inner2),
-            (
-                ResolvedType::Array {
-                    element_type: elem1,
-                    size: size1,
-                    ..
-                },
-                ResolvedType::Array {
-                    element_type: elem2,
-                    size: size2,
-                    ..
-                },
-            ) => size1 == size2 && Self::types_match_semantically(elem1, elem2),
-            _ => false,
-        }
+        ctx.build_var_path_from_identifier(var_def.identifier)
     }
 }

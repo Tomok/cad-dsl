@@ -104,11 +104,6 @@ impl<'src> VariablePath<'src> {
         &self.components
     }
 
-    /// Check if this path starts with the given prefix
-    pub fn starts_with(&self, prefix: &VariablePath<'src>) -> bool {
-        self.components().starts_with(prefix.components())
-    }
-
     /// Check if path is empty
     pub fn is_empty(&self) -> bool {
         self.components.is_empty()
@@ -419,8 +414,15 @@ pub fn solve<'src, 'arena>(
             }
 
             // Format each variable assignment
+            // Filter out view variables (internal-only variables ending in __view)
             for (path, value) in &solution.assignments {
                 let var_name = path.to_z3_name();
+
+                // Skip view variables - they are internal and should not be shown to users
+                if var_name.contains("__view") {
+                    continue;
+                }
+
                 let value_str = match value {
                     Value::Int(v) => format!("{}", v),
                     Value::Real(v) => format!("{}", v),
@@ -458,6 +460,12 @@ pub fn solve<'src, 'arena>(
             error_msg.push_str("\nResolved variables:\n");
             for (path, value) in &solution.assignments {
                 let var_name = path.to_z3_name();
+
+                // Skip view variables - they are internal and should not be shown to users
+                if var_name.contains("__view") {
+                    continue;
+                }
+
                 let value_str = match value {
                     Value::Int(v) => format!("{}", v),
                     Value::Real(v) => format!("{}", v),
