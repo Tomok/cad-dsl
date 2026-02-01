@@ -171,3 +171,23 @@ fn test_rune_block_unclosed() {
     );
     assert!(result.is_err(), "Expected error for unclosed rune block");
 }
+
+#[test]
+fn test_rune_block_followed_by_addition() {
+    // Test that tokens after the rune block are not consumed
+    // This verifies the parser stops at the matching } and leaves remaining tokens
+    let result = parse_with_timeout(
+        "rune(x) { x + 1 } + 2",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+    let expr = result.unwrap();
+    // Should parse as: (rune(x) { x + 1 }) + 2
+    match expr {
+        Expr::Add { lhs, rhs, .. } => {
+            assert_matches!(*lhs, AddLhs::RuneBlock(_));
+            assert_matches!(*rhs, AddRhs::IntLit { value: 2, .. });
+        }
+        _ => panic!("Expected Add expression, got: {:?}", expr),
+    }
+}
