@@ -86,50 +86,41 @@ fn rune_body<'src>()
 -> impl Parser<'src, &'src [Token<'src>], (&'src str, Span), ParseError<'src>> + Clone {
     // Implementation with bracket counting as required by Phase 1.4
     // Strategy:
-    // 1. After seeing opening {, count brace depth
-    // 2. Accumulate all tokens until matching }
-    // 3. Store span of opening and closing braces for later source extraction
+    // 1. Parse opening {
+    // 2. Recursively parse body content (handling nested braces)
+    // 3. Parse closing } and store span
+
+    // Parse body tokens: either nested braces or any other token
+    let body_token = recursive(|body_content| {
+        choice((
+            // Nested brace block: { ... }
+            select! { Token::LeftBrace(_) => () }
+                .ignore_then(body_content.clone().repeated())
+                .then_ignore(select! { Token::RightBrace(_) => () })
+                .ignored(),
+            // Any token except  braces
+            any()
+                .try_map(|token, span| match token {
+                    Token::LeftBrace(_) | Token::RightBrace(_) => {
+                        Err(Rich::custom(span, "Unexpected brace"))
+                    }
+                    _ => Ok(()),
+                })
+                .ignored(),
+        ))
+    });
 
     select! { Token::LeftBrace(t) => t.position }
-        .then(any().repeated().collect::<Vec<_>>())
-        .try_map(|(open_brace_pos, tokens), span| {
-            let mut depth = 0i32;
-
-            for token in tokens {
-                match token {
-                    Token::LeftBrace(_) => {
-                        depth += 1;
-                    }
-                    Token::RightBrace(t) => {
-                        if depth == 0 {
-                            // Found matching closing brace
-                            // Store the span from opening { to closing }
-                            // The actual source substring will be extracted during semantic analysis
-                            let close_brace_pos = t.position;
-
-                            let body_span = Span {
-                                start: open_brace_pos,
-                                lines: 0,
-                                end_column: close_brace_pos.column + 1,
-                            };
-
-                            // Placeholder - actual body will be extracted during semantic analysis
-                            // using calculate_byte_offset and the span information
-                            let body = "";
-
-                            return Ok((body, body_span));
-                        }
-                        depth -= 1;
-                    }
-                    _ => {}
-                }
-            }
-
-            // If we get here, we didn't find a matching brace
-            Err(Rich::custom(
-                span,
-                "Unclosed rune block: missing closing brace",
-            ))
+        .then(body_token.repeated())
+        .then(select! { Token::RightBrace(t) => t.position })
+        .map(|((open_pos, _body_tokens), close_pos)| {
+            let body_span = Span {
+                start: open_pos,
+                lines: 0,
+                end_column: close_pos.column + 1,
+            };
+            // Placeholder - actual body will be extracted during semantic analysis
+            ("", body_span)
         })
 }
 
