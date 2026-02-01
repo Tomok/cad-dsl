@@ -80,46 +80,48 @@ fn rune_block<'src>(
 }
 
 /// Parse the body of a rune block with bracket counting
-/// Returns the body string and its span
+/// Returns a placeholder body string and the span from opening to closing brace
+/// The actual body text will be extracted during semantic analysis using the span
 fn rune_body<'src>()
 -> impl Parser<'src, &'src [Token<'src>], (&'src str, Span), ParseError<'src>> + Clone {
     // Implementation with bracket counting as required by Phase 1.4
     // Strategy:
     // 1. After seeing opening {, count brace depth
     // 2. Accumulate all tokens until matching }
-    // 3. Convert tokens back to string (placeholder for now)
+    // 3. Store span of opening and closing braces for later source extraction
 
     select! { Token::LeftBrace(t) => t.position }
         .then(any().repeated().collect::<Vec<_>>())
-        .try_map(|(start_pos, tokens), span| {
+        .try_map(|(open_brace_pos, tokens), span| {
             let mut depth = 0i32;
-            let mut body_tokens = Vec::new();
 
             for token in tokens {
                 match token {
                     Token::LeftBrace(_) => {
                         depth += 1;
-                        body_tokens.push(token);
                     }
-                    Token::RightBrace(_) => {
+                    Token::RightBrace(t) => {
                         if depth == 0 {
                             // Found matching closing brace
-                            // TODO Phase 2+: Reconstruct actual source from body_tokens
-                            // For now, return placeholder empty string
-                            let body = "";
+                            // Store the span from opening { to closing }
+                            // The actual source substring will be extracted during semantic analysis
+                            let close_brace_pos = t.position;
+
                             let body_span = Span {
-                                start: start_pos,
+                                start: open_brace_pos,
                                 lines: 0,
-                                end_column: start_pos.column + 1,
+                                end_column: close_brace_pos.column + 1,
                             };
+
+                            // Placeholder - actual body will be extracted during semantic analysis
+                            // using calculate_byte_offset and the span information
+                            let body = "";
+
                             return Ok((body, body_span));
                         }
                         depth -= 1;
-                        body_tokens.push(token);
                     }
-                    _ => {
-                        body_tokens.push(token);
-                    }
+                    _ => {}
                 }
             }
 

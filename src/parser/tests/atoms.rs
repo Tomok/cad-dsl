@@ -89,3 +89,85 @@ fn test_expr_simple_int() {
     );
     assert_matches!(result.unwrap(), Expr::IntLit { value: 42, .. });
 }
+
+// ============================================================================
+// Rune Block Tests
+// ============================================================================
+
+#[test]
+fn test_rune_block_simple() {
+    let result = parse_with_timeout(
+        "rune(x) { x + 1 }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+    let expr = result.unwrap();
+    assert_matches!(
+        expr,
+        Expr::RuneBlock(ref block) if block.params.len() == 1 && block.params[0].name == "x"
+    );
+}
+
+#[test]
+fn test_rune_block_with_default_value() {
+    let result = parse_with_timeout(
+        "rune(x=10) { x * 2 }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+    let expr = result.unwrap();
+    assert_matches!(
+        expr,
+        Expr::RuneBlock(ref block)
+            if block.params.len() == 1
+            && block.params[0].name == "x"
+            && block.params[0].value.is_some()
+    );
+}
+
+#[test]
+fn test_rune_block_multiple_params() {
+    let result = parse_with_timeout(
+        "rune(x, y, z=100) { x + y + z }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+    let expr = result.unwrap();
+    assert_matches!(
+        expr,
+        Expr::RuneBlock(ref block)
+            if block.params.len() == 3
+            && block.params[0].name == "x"
+            && block.params[1].name == "y"
+            && block.params[2].name == "z"
+            && block.params[0].value.is_none()
+            && block.params[1].value.is_none()
+            && block.params[2].value.is_some()
+    );
+}
+
+#[test]
+fn test_rune_block_nested_braces() {
+    // Test bracket counting with nested braces
+    let result = parse_with_timeout(
+        "rune(x) { if x > 0 { x } else { -x } }",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+    let expr = result.unwrap();
+    assert_matches!(
+        expr,
+        Expr::RuneBlock(ref block) if block.params.len() == 1 && block.params[0].name == "x"
+    );
+}
+
+#[test]
+fn test_rune_block_unclosed() {
+    // Test that unclosed brace is properly detected
+    let result = parse_with_timeout(
+        "rune(x) { x + 1",
+        |input| expr().parse(input).into_result(),
+        Duration::from_secs(2),
+    );
+    assert!(result.is_err(), "Expected error for unclosed rune block");
+}
