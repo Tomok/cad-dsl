@@ -10,8 +10,10 @@
 // Allow dead code for now since this module is not yet fully integrated
 
 use super::errors::SemanticError;
-use crate::hir::definitions::{FunctionDefinition, StructDefinition};
+use crate::hir::definitions::{FunctionDefinition, FunctionParam, StructDefinition};
 use crate::hir::scope::ScopeStack;
+use crate::hir::types::ResolvedType;
+use crate::lexer::{LineColumn, Span};
 use bumpalo::Bump;
 use std::collections::HashMap;
 
@@ -119,7 +121,7 @@ impl<'src, 'arena> AnalyzerContext<'src, 'arena> {
     ///
     /// A new analyzer context ready for semantic analysis
     pub fn new(arena: &'arena Bump, source: &'src str) -> Self {
-        Self {
+        let mut ctx = Self {
             arena,
             source,
             scope_stack: ScopeStack::new(),
@@ -128,7 +130,61 @@ impl<'src, 'arena> AnalyzerContext<'src, 'arena> {
             method_definitions: HashMap::new(),
             current_struct: None,
             errors: Vec::new(),
-        }
+        };
+        ctx.register_builtin_functions();
+        ctx
+    }
+
+    /// Register built-in mathematical functions
+    ///
+    /// This method registers built-in functions like sqrt, abs, etc.
+    /// These are implemented directly in the solver but need to be
+    /// known to the semantic analyzer for name resolution.
+    fn register_builtin_functions(&mut self) {
+        // Helper to create a dummy span (built-ins don't have source location)
+        let dummy_span = Span {
+            start: LineColumn { line: 0, column: 0 },
+            lines: 0,
+            end_column: 0,
+        };
+
+        // Register sqrt(x: f64) -> f64
+        let sqrt_param = FunctionParam::new(
+            "x",
+            dummy_span,
+            ResolvedType::F64 { span: dummy_span },
+            dummy_span,
+        );
+        let sqrt_def = self.arena.alloc(FunctionDefinition {
+            name: "sqrt",
+            name_span: dummy_span,
+            params: vec![sqrt_param],
+            return_type: ResolvedType::F64 { span: dummy_span },
+            body: vec![],
+            parent_struct: None,
+            span: dummy_span,
+        });
+        self.function_definitions.insert("sqrt", sqrt_def);
+
+        // Register abs(x: i32) -> i32
+        // Note: abs is polymorphic (works for both i32 and f64), but we register it as i32
+        // The solver will handle type coercion as needed
+        let abs_param = FunctionParam::new(
+            "x",
+            dummy_span,
+            ResolvedType::I32 { span: dummy_span },
+            dummy_span,
+        );
+        let abs_def = self.arena.alloc(FunctionDefinition {
+            name: "abs",
+            name_span: dummy_span,
+            params: vec![abs_param],
+            return_type: ResolvedType::I32 { span: dummy_span },
+            body: vec![],
+            parent_struct: None,
+            span: dummy_span,
+        });
+        self.function_definitions.insert("abs", abs_def);
     }
 
     /// Register a struct definition
@@ -346,7 +402,7 @@ mod tests {
 
         assert_eq!(ctx.source, source);
         assert_eq!(ctx.struct_definitions.len(), 0);
-        assert_eq!(ctx.function_definitions.len(), 0);
+        assert_eq!(ctx.function_definitions.len(), 2); // 2 built-ins (sqrt, abs)
         assert_eq!(ctx.errors.len(), 0);
         assert!(!ctx.has_errors());
         assert_eq!(ctx.scope_stack.scope_count(), 1);
@@ -434,7 +490,7 @@ mod tests {
 
         // Register should succeed
         assert!(ctx.register_function("distance", func_def).is_ok());
-        assert_eq!(ctx.function_definitions.len(), 1);
+        assert_eq!(ctx.function_definitions.len(), 3); // 1 user + 2 built-ins (sqrt, abs)
 
         // Lookup should find the function
         let found = ctx.lookup_function("distance");
@@ -477,8 +533,8 @@ mod tests {
         // Second registration fails
         assert!(ctx.register_function("distance", func_def2).is_err());
 
-        // Still only one function registered
-        assert_eq!(ctx.function_definitions.len(), 1);
+        // Still only one user function registered (plus 2 built-ins)
+        assert_eq!(ctx.function_definitions.len(), 3); // 1 user + 2 built-ins (sqrt, abs)
     }
 
     #[test]
@@ -593,7 +649,7 @@ mod tests {
 
         assert!(ctx.register_function("foo", foo).is_ok());
         assert!(ctx.register_function("bar", bar).is_ok());
-        assert_eq!(ctx.function_definitions.len(), 2);
+        assert_eq!(ctx.function_definitions.len(), 4); // 2 user + 2 built-ins (sqrt, abs)
 
         // All lookups should work
         assert!(ctx.lookup_struct("Point").is_some());

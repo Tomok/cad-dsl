@@ -1,0 +1,8 @@
+// Test combined math functions
+let a: f64;
+let b: f64;
+let c: f64;
+
+a == 9.0;
+b == sqrt(a);
+c == abs(b);

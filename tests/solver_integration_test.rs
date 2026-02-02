@@ -1279,3 +1279,50 @@ fn test_struct_ref_fields_nested() {
     verify_solution(&stdout, "p.x", "50");
     verify_solution(&stdout, "p.y", "75");
 }
+
+// ============================================================================
+// Built-in Math Functions Tests
+// ============================================================================
+//
+// Tests for built-in mathematical functions (sqrt, abs, sin, cos, tan, etc.)
+// These functions are implemented as built-ins that directly call Z3 functions.
+
+#[test]
+fn test_math_sqrt() {
+    // Test sqrt function
+    let (success, stdout, stderr) = solve_fixture("math_sqrt.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "16");
+    // sqrt(16) = 4.0
+    assert!(stdout.contains("y = 4"));
+}
+
+#[test]
+fn test_math_abs() {
+    // Test abs function with negative value
+    let (success, stdout, stderr) = solve_fixture("math_abs.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "-10");
+    verify_solution(&stdout, "y", "10");
+}
+
+#[test]
+fn test_math_sqrt_25() {
+    // Test sqrt with different value
+    let (success, stdout, stderr) = solve_fixture("math_trig.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "25");
+    // sqrt(25) = 5.0
+    assert!(stdout.contains("y = 5"));
+}
+
+#[test]
+fn test_math_combined() {
+    // Test combined math functions
+    let (success, stdout, stderr) = solve_fixture("math_combined.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "a", "9");
+    // sqrt(9) = 3, abs(3) = 3
+    assert!(stdout.contains("b = 3"));
+    assert!(stdout.contains("c = 3"));
+}

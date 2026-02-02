@@ -693,7 +693,7 @@ mod tests {
         collect_declarations(&mut ctx, &stmts);
 
         // Should have registered the function
-        assert_eq!(ctx.function_definitions.len(), 1);
+        assert_eq!(ctx.function_definitions.len(), 3); // 1 user function + 2 built-ins (sqrt, abs)
         assert!(!ctx.has_errors());
 
         // Lookup the function
@@ -736,7 +736,7 @@ mod tests {
         collect_declarations(&mut ctx, &stmts);
 
         // Should have only one function registered
-        assert_eq!(ctx.function_definitions.len(), 1);
+        assert_eq!(ctx.function_definitions.len(), 3); // 1 user function + 2 built-ins (sqrt, abs)
 
         // Should have one duplicate definition error
         assert!(ctx.has_errors());
@@ -964,7 +964,7 @@ mod tests {
 
         // Should have registered all declarations
         assert_eq!(ctx.struct_definitions.len(), 1);
-        assert_eq!(ctx.function_definitions.len(), 1);
+        assert_eq!(ctx.function_definitions.len(), 3); // 1 user function + 2 built-ins (sqrt, abs)
         assert!(ctx.scope_stack.lookup_variable("origin").is_some());
         assert!(!ctx.has_errors());
     }
@@ -1015,7 +1015,7 @@ mod tests {
         collect_declarations(&mut ctx, &stmts);
 
         // Should have registered the parameterless function
-        assert_eq!(ctx.function_definitions.len(), 1);
+        assert_eq!(ctx.function_definitions.len(), 3); // 1 user function + 2 built-ins (sqrt, abs)
         assert!(!ctx.has_errors());
 
         let foo = ctx.lookup_function("foo").unwrap();
