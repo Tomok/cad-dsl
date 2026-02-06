@@ -106,7 +106,8 @@ fn report_type_errors(filename: &str, source: &str, errors: Vec<TypeCheckError>)
             | TypeCheckError::WrongNumberOfArguments { span, .. }
             | TypeCheckError::NonNumericOperand { span, .. }
             | TypeCheckError::NonBooleanCondition { span, .. }
-            | TypeCheckError::CannotIndex { span, .. } => *span,
+            | TypeCheckError::CannotIndex { span, .. }
+            | TypeCheckError::Rune { span, .. } => *span,
         };
 
         let offset = calculate_byte_offset(source, span.start.line, span.start.column);

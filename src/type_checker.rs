@@ -175,6 +175,7 @@
 pub mod context;
 pub mod errors;
 pub mod inference;
+pub mod rune_integration;
 pub mod validation;
 
 // ============================================================================

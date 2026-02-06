@@ -51,6 +51,9 @@ pub enum TypeCheckError {
 
     /// Cannot index into a non-array type
     CannotIndex { array_type: String, span: Span },
+
+    /// Rune type checking error
+    Rune { message: String, span: Span },
 }
 
 impl fmt::Display for TypeCheckError {
@@ -132,6 +135,13 @@ impl fmt::Display for TypeCheckError {
                     f,
                     "Cannot index into non-array type '{}' at line {}, column {}",
                     array_type, span.start.line, span.start.column
+                )
+            }
+            TypeCheckError::Rune { message, span } => {
+                write!(
+                    f,
+                    "Rune type checking error at line {}, column {}: {}",
+                    span.start.line, span.start.column, message
                 )
             }
         }
