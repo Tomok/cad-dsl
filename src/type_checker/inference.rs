@@ -396,14 +396,45 @@ pub fn infer_expr_type<'src, 'arena>(
         // ====================================================================
         // Rune Blocks
         // ====================================================================
-        ResolvedExprKind::RuneBlock { return_type, .. } => {
-            // Phase 2: Basic support - return the placeholder type from semantic analysis
-            // Phase 3: Will implement full Rune type checking integration:
-            //   - Compile Rune code with parameter types
-            //   - Infer actual return type from Rune compiler
-            //   - Update return_type in the HIR
-            // For now, just return the type set during semantic analysis
-            Some(**return_type)
+        ResolvedExprKind::RuneBlock {
+            params,
+            body,
+            return_type: _,
+        } => {
+            // Phase 3: Rune type checking integration
+            // Compile Rune code with parameter types and infer return type
+            use super::rune_integration::RuneTypeChecker;
+
+            let rune_checker = match RuneTypeChecker::new() {
+                Ok(checker) => checker,
+                Err(e) => {
+                    ctx.add_error(TypeCheckError::Rune {
+                        message: format!("Failed to create Rune type checker: {}", e),
+                        span: expr.span,
+                    });
+                    return None;
+                }
+            };
+
+            match rune_checker.infer_return_type(body, params, expr.span) {
+                Ok((inferred_type, diagnostics)) => {
+                    // Add any warnings to the context (errors were already handled separately)
+                    if !diagnostics.is_empty() {
+                        ctx.add_warning(format!(
+                            "Rune compilation warnings at line {}, column {}: {:?}",
+                            expr.span.start.line, expr.span.start.column, diagnostics
+                        ));
+                    }
+                    Some(inferred_type)
+                }
+                Err(e) => {
+                    ctx.add_error(TypeCheckError::Rune {
+                        message: e.to_string(),
+                        span: expr.span,
+                    });
+                    None
+                }
+            }
         }
     }
 }
