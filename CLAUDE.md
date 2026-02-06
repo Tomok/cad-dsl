@@ -633,3 +633,4 @@ Planned dependencies (for Rune blocks implementation):
 
 Z3 constraint solver is provided as both a system dependency (via Nix) and a Rust crate dependency for constraint solving implementation.
 - if you find cases that are not handled correctly, create unit or integration tests for them
+- treat everything apart from main.rs as library code, among other good practices this means that code should not print to stdout/stderr
