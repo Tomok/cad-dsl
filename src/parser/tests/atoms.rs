@@ -96,16 +96,20 @@ fn test_expr_simple_int() {
 
 #[test]
 fn test_rune_block_simple() {
-    let result = parse_with_timeout(
+    use super::helpers::parse_with_timeout_and_source;
+    let result = parse_with_timeout_and_source(
         "rune(x) { x + 1 }",
-        |input| expr().parse(input).into_result(),
+        |input, source| expr_with_source(source).parse(input).into_result(),
         Duration::from_secs(2),
     );
     let expr = result.unwrap();
-    assert_matches!(
-        expr,
-        Expr::RuneBlock(ref block) if block.params.len() == 1 && block.params[0].name == "x"
-    );
+    if let Expr::RuneBlock(ref block) = expr {
+        assert_eq!(block.params.len(), 1);
+        assert_eq!(block.params[0].name, "x");
+        assert_eq!(block.body.trim(), "x + 1");
+    } else {
+        panic!("Expected RuneBlock");
+    }
 }
 
 #[test]

@@ -33,6 +33,7 @@ enum PostfixOp<'src> {
 /// Parse a rune block: rune(params) { body }
 fn rune_block<'src>(
     expr: impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone,
+    source: Option<&'src str>,
 ) -> impl Parser<'src, &'src [Token<'src>], Atom<'src>, ParseError<'src>> + Clone {
     // Parse the rune keyword
     select! { Token::Rune(t) => t.position }
@@ -65,18 +66,37 @@ fn rune_block<'src>(
             // Parse the body with bracket counting
             rune_body(),
         )
-        .map_with(|((rune_pos, params), (body, _body_span)), e| {
-            let span_range = e.span();
-            Atom::RuneBlock(Box::new(RuneBlock {
-                params,
-                body,
-                span: Span {
-                    start: rune_pos,
-                    lines: 0,
-                    end_column: span_range.end + 1,
-                },
-            }))
-        })
+        .map_with(
+            move |((rune_pos, params), (placeholder_body, body_span)), e| {
+                let span_range = e.span();
+
+                // Extract actual body text from source if available
+                let body = if let Some(src) = source {
+                    let full_body = extract_source_from_span(src, &body_span);
+                    // Trim the surrounding braces { and }
+                    full_body
+                        .trim()
+                        .strip_prefix('{')
+                        .unwrap_or(full_body)
+                        .trim()
+                        .strip_suffix('}')
+                        .unwrap_or(full_body)
+                        .trim()
+                } else {
+                    placeholder_body // Fall back to placeholder if source not available
+                };
+
+                Atom::RuneBlock(Box::new(RuneBlock {
+                    params,
+                    body,
+                    span: Span {
+                        start: rune_pos,
+                        lines: 0,
+                        end_column: span_range.end + 1,
+                    },
+                }))
+            },
+        )
 }
 
 /// Parse the body of a rune block with bracket counting
@@ -125,18 +145,79 @@ fn rune_body<'src>()
 }
 
 // ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Extract source text from a span by converting line/column positions to byte offsets
+fn extract_source_from_span<'src>(source: &'src str, span: &Span) -> &'src str {
+    // Convert line/column to byte offset
+    let mut byte_offset = 0;
+    let mut current_line = 1;
+    let mut current_column = 1;
+
+    // Find start position
+    let start_line = span.start.line;
+    let start_column = span.start.column;
+    let end_column = span.end_column;
+
+    let chars: Vec<char> = source.chars().collect();
+    let mut start_byte = 0;
+    let mut end_byte = 0;
+
+    for &ch in chars.iter() {
+        // Track position
+        if current_line == start_line && current_column == start_column {
+            start_byte = byte_offset;
+        }
+
+        // For single-line spans, end is on same line
+        if current_line == start_line && current_column == end_column {
+            end_byte = byte_offset;
+            break;
+        }
+
+        // Advance position
+        if ch == '\n' {
+            current_line += 1;
+            current_column = 1;
+        } else {
+            current_column += 1;
+        }
+
+        byte_offset += ch.len_utf8();
+    }
+
+    // Handle end of source
+    if end_byte == 0 {
+        end_byte = source.len();
+    }
+
+    &source[start_byte..end_byte]
+}
+
+// ============================================================================
 // Atomic Parsers (with optional recursion for function calls)
 // ============================================================================
 
 /// Parse an atomic expression (Atom enum)
 /// Takes an expression parser for parsing function call arguments
+/// Takes optional source text for extracting rune block bodies
+#[allow(dead_code)] // Public API, may be used by external parsers
 pub fn atom<'src>(
     expr: impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], Atom<'src>, ParseError<'src>> + Clone {
+    atom_with_source(expr, None)
+}
+
+/// Parse an atomic expression with source text access for rune block body extraction
+pub fn atom_with_source<'src>(
+    expr: impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone,
+    source: Option<&'src str>,
 ) -> impl Parser<'src, &'src [Token<'src>], Atom<'src>, ParseError<'src>> + Clone {
     // First, parse a base atom (literal, variable, or function call)
     let base_atom = choice((
         // Rune block: rune(params) { body }
-        rune_block(expr.clone()),
+        rune_block(expr.clone(), source),
         // Dot-prefixed field access: .identifier(.identifier)*
         // For container field access in with blocks (e.g., .field or .field.x)
         select! { Token::Dot(t) => t.position }

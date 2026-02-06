@@ -12,7 +12,7 @@ use crate::lexer::{Span, Token};
 use chumsky::prelude::*;
 
 use super::ParseError;
-use super::atoms::atom;
+use super::atoms::atom_with_source;
 
 // ============================================================================
 // Helper functions for span management
@@ -51,6 +51,7 @@ fn combine_spans(left: Span, right: Span) -> Span {
 /// Parser for power base (PowLhs<'src>) - atoms, parens, and unary operators
 pub fn pow_lhs_parser<'src, E>(
     expr_rec: E,
+    source: Option<&'src str>,
 ) -> impl Parser<'src, &'src [Token<'src>], PowLhs<'src>, ParseError<'src>> + Clone
 where
     E: Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone + 'src,
@@ -92,7 +93,7 @@ where
                     }
                 }),
             // Atom (base case)
-            atom(expr_rec.clone()).map(Into::into),
+            atom_with_source(expr_rec.clone(), source).map(Into::into),
             // Parenthesized expression
             select! { Token::LeftParen(t) => t.position }
                 .then(expr_rec)

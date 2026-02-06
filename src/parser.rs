@@ -80,8 +80,15 @@ pub type ParseError<'src> = extra::Err<Rich<'src, Token<'src>>>;
 /// (without end-of-input validation - use for subexpressions)
 pub fn expr_inner<'src>()
 -> impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone {
-    recursive(|expr_rec| {
-        let pow_lhs = arithmetic::pow_lhs_parser(expr_rec.clone());
+    expr_inner_with_source(None)
+}
+
+/// Internal expression parser with source text for rune block body extraction
+pub fn expr_inner_with_source<'src>(
+    source: Option<&'src str>,
+) -> impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone {
+    recursive(move |expr_rec| {
+        let pow_lhs = arithmetic::pow_lhs_parser(expr_rec.clone(), source);
         let pow_rhs = arithmetic::pow_rhs_parser(expr_rec.clone(), pow_lhs.clone());
         let mul_rhs = arithmetic::mul_rhs_parser(expr_rec.clone(), pow_rhs.clone());
         let mul_lhs = arithmetic::mul_lhs_parser(expr_rec, mul_rhs.clone(), pow_rhs);
@@ -101,6 +108,14 @@ pub fn expr_inner<'src>()
 pub fn expr<'src>() -> impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone
 {
     expr_inner().then_ignore(end())
+}
+
+/// Parse a complete expression with source text access (for rune block body extraction)
+#[cfg_attr(not(test), allow(dead_code))] // Used in tests
+pub fn expr_with_source<'src>(
+    source: &'src str,
+) -> impl Parser<'src, &'src [Token<'src>], Expr<'src>, ParseError<'src>> + Clone {
+    expr_inner_with_source(Some(source)).then_ignore(end())
 }
 
 // ============================================================================
