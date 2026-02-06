@@ -20,6 +20,7 @@ use super::PartialReason;
 use super::{
     DeferredConstraint, PathComponent, Solution, SolveResult, SolverError, Value, VariablePath,
 };
+use crate::hir::expr::ResolvedExprKind;
 use crate::hir::types::ResolvedType;
 use std::collections::HashMap;
 
@@ -157,6 +158,22 @@ pub enum WithContextInfo<'src, 'arena> {
 }
 
 // ============================================================================
+// Rune Block Execution Tracking
+// ============================================================================
+
+/// Information about a rune block that needs to be executed after constraint solving
+#[derive(Debug)]
+pub struct RuneBlockExecution<'src, 'arena> {
+    /// Path to the variable where the result should be stored
+    pub result_path: VariablePath<'src>,
+
+    /// The rune block to execute
+    pub params: Vec<crate::hir::expr::ResolvedRuneParam<'src, 'arena>>,
+    pub body: &'src str,
+    pub return_type: &'arena crate::hir::types::ResolvedType<'src, 'arena>,
+}
+
+// ============================================================================
 // Solver Context
 // ============================================================================
 
@@ -198,6 +215,9 @@ pub struct SolverContext<'src, 'arena> {
     /// Constraints that have been deferred for later resolution
     deferred_constraints: Vec<DeferredConstraint<'src>>,
 
+    /// Rune blocks that need to be executed after constraint solving
+    rune_blocks: Vec<RuneBlockExecution<'src, 'arena>>,
+
     /// Current iteration number (for diagnostics)
     iteration: usize,
 
@@ -229,6 +249,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             with_stack: Vec::new(),
             function_return_exprs: HashMap::new(),
             deferred_constraints: Vec::new(),
+            rune_blocks: Vec::new(),
             iteration: 0,
             current_solution: None,
             previous_solved_count: 0,
@@ -677,6 +698,22 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         });
     }
 
+    /// Register a rune block for execution after constraint solving
+    pub fn register_rune_block(
+        &mut self,
+        result_path: VariablePath<'src>,
+        params: Vec<crate::hir::expr::ResolvedRuneParam<'src, 'arena>>,
+        body: &'src str,
+        return_type: &'arena crate::hir::types::ResolvedType<'src, 'arena>,
+    ) {
+        self.rune_blocks.push(RuneBlockExecution {
+            result_path,
+            params,
+            body,
+            return_type,
+        });
+    }
+
     /// Get the value of a variable from the current solution
     ///
     /// Note: This method is only usable for variables that match the 'src lifetime.
@@ -848,6 +885,73 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         }
     }
 
+    /// Execute all registered rune blocks and add their results to the solution
+    ///
+    /// This is called after Z3 solving completes successfully. It:
+    /// 1. Extracts parameter values from the Z3 solution
+    /// 2. Executes each rune block with those values
+    /// 3. Adds the results to the solution
+    fn execute_rune_blocks(&self, solution: &mut Solution<'src>) -> Result<(), SolverError> {
+        use crate::solver::rune_executor::RuneExecutor;
+
+        if self.rune_blocks.is_empty() {
+            return Ok(());
+        }
+
+        // Create rune executor
+        let executor = RuneExecutor::new()?;
+
+        // Execute each rune block
+        for rune_block in &self.rune_blocks {
+            // Extract parameter values from solution
+            let param_values: Result<Vec<_>, _> = rune_block
+                .params
+                .iter()
+                .map(|param| {
+                    // Resolve the parameter expression to get its value
+                    // For Phase 4 MVP, parameters should be simple variables
+                    match &param.value.kind {
+                        ResolvedExprKind::Var { definition, .. } => {
+                            // Build path from the variable's identifier
+                            let qualified_name = definition.identifier.to_qualified_name();
+                            let path = VariablePath::from_name(&qualified_name);
+
+                            solution
+                                .assignments
+                                .get(&path)
+                                .cloned()
+                                .ok_or_else(|| {
+                                    SolverError::RuneExecutionError(format!(
+                                        "Rune block parameter '{}' not found in solution",
+                                        qualified_name
+                                    ))
+                                })
+                        }
+                        _ => Err(SolverError::RuneExecutionError(
+                            "Complex parameter expressions in rune blocks not yet supported (Phase 4 MVP)".to_string(),
+                        )),
+                    }
+                })
+                .collect();
+
+            let param_values = param_values?;
+
+            // Execute the rune block
+            let result =
+                executor.execute_block(rune_block.body, &rune_block.params, param_values)?;
+
+            // Convert result back to solver value
+            let solver_value = executor.convert_from_rune_value(result, rune_block.return_type)?;
+
+            // Add result to solution
+            solution
+                .assignments
+                .insert(rune_block.result_path.clone(), solver_value);
+        }
+
+        Ok(())
+    }
+
     // ========================================================================
     // Iterative Solve Loop
     // ========================================================================
@@ -963,7 +1067,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             // Run Z3 solver
             match self.z3_solver.check() {
                 z3::SatResult::Sat => {
-                    let solution = self.extract_solution()?;
+                    let mut solution = self.extract_solution()?;
                     let current_solved_count = solution.resolved_count();
 
                     // Check progress
@@ -973,6 +1077,9 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
 
                     // Return if complete (no deferred constraints)
                     if self.deferred_constraints.is_empty() {
+                        // Execute rune blocks with the solution values
+                        self.execute_rune_blocks(&mut solution)?;
+
                         return Ok(SolveResult::Complete {
                             solution,
                             iterations: self.iteration,
@@ -981,6 +1088,10 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
 
                     // If we have deferred constraints but made no progress, stop
                     if !made_progress && deferred_before > 0 {
+                        // Execute rune blocks even in partial solutions (if parameters are available)
+                        // Errors here are acceptable - we're already in a partial state
+                        let _ = self.execute_rune_blocks(&mut solution);
+
                         return Ok(SolveResult::Partial {
                             solution,
                             deferred: self.deferred_constraints.clone(),

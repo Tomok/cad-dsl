@@ -287,6 +287,9 @@ pub enum SolverError {
 
     /// Z3 model evaluation error
     ModelEvaluationError(String),
+
+    /// Rune execution error
+    RuneExecutionError(String),
 }
 
 impl fmt::Display for SolverError {
@@ -304,6 +307,9 @@ impl fmt::Display for SolverError {
             SolverError::Unknown => write!(f, "Z3 solver returned unknown result"),
             SolverError::ModelEvaluationError(msg) => {
                 write!(f, "Failed to evaluate Z3 model: {}", msg)
+            }
+            SolverError::RuneExecutionError(msg) => {
+                write!(f, "Rune execution error: {}", msg)
             }
         }
     }
@@ -338,6 +344,9 @@ pub mod context;
 
 /// Trait implementations for HIR nodes (expressions and statements)
 pub mod impls;
+
+/// Rune executor for executing imperative code blocks
+pub mod rune_executor;
 
 // ============================================================================
 // Public Re-exports

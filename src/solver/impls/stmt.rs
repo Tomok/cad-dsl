@@ -27,6 +27,21 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                 // This correctly handles all identifier variants including TransformedView
                 let var_path = ctx.build_var_path_from_identifier(var_def.identifier)?;
 
+                // Check if this is a rune block initialization
+                if let Some(init_expr) = init
+                    && let ResolvedExprKind::RuneBlock {
+                        params,
+                        body,
+                        return_type,
+                    } = &init_expr.kind
+                {
+                    // Register the rune block for execution after Z3 solving
+                    ctx.register_rune_block(var_path.clone(), params.clone(), body, return_type);
+
+                    // Don't create a Z3 variable - the value will be computed by rune
+                    return Ok(());
+                }
+
                 // Check if this is a reference alias (let .r = &x or let .r = get_ref())
                 // This now supports type-based alias tracking for function/method returns
                 let target_path = if let Some(init_expr) = init {
