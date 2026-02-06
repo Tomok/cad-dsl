@@ -47,6 +47,8 @@ pub struct TypeCheckContext<'src, 'arena> {
     type_constraints: Vec<TypeConstraint>,
     /// Collected type checking errors
     errors: Vec<TypeCheckError>,
+    /// Collected type checking warnings
+    warnings: Vec<String>,
 }
 
 impl<'src, 'arena> TypeCheckContext<'src, 'arena> {
@@ -57,6 +59,7 @@ impl<'src, 'arena> TypeCheckContext<'src, 'arena> {
             source,
             type_constraints: Vec::new(),
             errors: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -78,6 +81,21 @@ impl<'src, 'arena> TypeCheckContext<'src, 'arena> {
     /// Take all collected errors, leaving the error list empty
     pub fn take_errors(&mut self) -> Vec<TypeCheckError> {
         std::mem::take(&mut self.errors)
+    }
+
+    /// Add a type checking warning to the context
+    pub fn add_warning(&mut self, warning: String) {
+        self.warnings.push(warning);
+    }
+
+    /// Check if any warnings have been collected
+    pub fn has_warnings(&self) -> bool {
+        !self.warnings.is_empty()
+    }
+
+    /// Take all collected warnings, leaving the warning list empty
+    pub fn take_warnings(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.warnings)
     }
 }
 

@@ -231,7 +231,7 @@ use bumpalo::Bump;
 ///
 /// # Returns
 ///
-/// - `Ok(())`: Type checking succeeded, program is well-typed
+/// - `Ok(Vec<String>)`: Type checking succeeded, program is well-typed. Returns any warnings.
 /// - `Err(Vec<TypeCheckError>)`: Type checking failed, returns all errors
 ///
 /// # Example
@@ -280,7 +280,7 @@ pub fn type_check<'src, 'arena>(
     arena: &'arena Bump,
     source: &'src str,
     hir: &[&'arena ResolvedStmt<'src, 'arena>],
-) -> Result<(), Vec<TypeCheckError>> {
+) -> Result<Vec<String>, Vec<TypeCheckError>> {
     // Create type checking context
     let mut ctx = TypeCheckContext::new(arena, source);
 
@@ -293,7 +293,8 @@ pub fn type_check<'src, 'arena>(
     if ctx.has_errors() {
         Err(ctx.take_errors())
     } else {
-        Ok(())
+        // Return any warnings collected
+        Ok(ctx.take_warnings())
     }
 }
 

@@ -118,13 +118,13 @@ impl RuneTypeChecker {
     ///
     /// # Returns
     ///
-    /// The inferred return type, or an error if compilation fails
+    /// The inferred return type and any diagnostics (warnings), or an error if compilation fails
     pub fn infer_return_type<'src, 'arena>(
         &self,
         body: &str,
         params: &[ResolvedRuneParam<'src, 'arena>],
         span: Span,
-    ) -> Result<ResolvedType<'src, 'arena>, RuneTypeCheckError> {
+    ) -> Result<(ResolvedType<'src, 'arena>, Diagnostics), RuneTypeCheckError> {
         // Generate a complete Rune function wrapper
         let rune_code = self.generate_rune_function(body, params)?;
 
@@ -148,8 +148,8 @@ impl RuneTypeChecker {
             .with_diagnostics(&mut diagnostics)
             .build();
 
-        // Check for compilation errors
-        if !diagnostics.is_empty() {
+        // Check for compilation errors (not warnings)
+        if diagnostics.has_error() {
             return Err(RuneTypeCheckError::CompileError { diagnostics });
         }
 
@@ -170,7 +170,8 @@ impl RuneTypeChecker {
         // type extraction from Rune's compiled unit.
         let inferred_type = self.infer_type_from_params(params, span);
 
-        Ok(inferred_type)
+        // Return both the inferred type and any diagnostics (including warnings)
+        Ok((inferred_type, diagnostics))
     }
 
     /// Generate a complete Rune function from a rune block body and parameters

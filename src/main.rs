@@ -233,8 +233,14 @@ fn main() {
 
             // Step 4: Type Checking
             match type_checker::type_check(&arena, &content, &hir[..]) {
-                Ok(()) => {
+                Ok(warnings) => {
                     println!("✓ Type checking successful");
+                    if !warnings.is_empty() {
+                        eprintln!("\nType checking warnings:");
+                        for warning in warnings {
+                            eprintln!("  warning: {}", warning);
+                        }
+                    }
                     println!("\nAll checks passed! Program is well-typed.");
                 }
                 Err(errors) => {
@@ -298,10 +304,22 @@ fn main() {
             };
 
             // Step 4: Type Checking
-            if let Err(errors) = type_checker::type_check(&arena, &content, &hir[..]) {
-                eprintln!("Type errors:");
-                report_type_errors(filename, &content, errors);
-                std::process::exit(1);
+            match type_checker::type_check(&arena, &content, &hir[..]) {
+                Ok(warnings) => {
+                    // Print warnings if any, but continue execution
+                    if !warnings.is_empty() {
+                        eprintln!("Type checking warnings:");
+                        for warning in warnings {
+                            eprintln!("  warning: {}", warning);
+                        }
+                        eprintln!();
+                    }
+                }
+                Err(errors) => {
+                    eprintln!("Type errors:");
+                    report_type_errors(filename, &content, errors);
+                    std::process::exit(1);
+                }
             }
 
             // Step 5: Constraint Solving

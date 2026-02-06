@@ -417,7 +417,16 @@ pub fn infer_expr_type<'src, 'arena>(
             };
 
             match rune_checker.infer_return_type(body, params, expr.span) {
-                Ok(inferred_type) => Some(inferred_type),
+                Ok((inferred_type, diagnostics)) => {
+                    // Add any warnings to the context (errors were already handled separately)
+                    if !diagnostics.is_empty() {
+                        ctx.add_warning(format!(
+                            "Rune compilation warnings at line {}, column {}: {:?}",
+                            expr.span.start.line, expr.span.start.column, diagnostics
+                        ));
+                    }
+                    Some(inferred_type)
+                }
                 Err(e) => {
                     ctx.add_error(TypeCheckError::Rune {
                         message: e.to_string(),
