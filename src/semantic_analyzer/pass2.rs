@@ -1589,40 +1589,13 @@ pub fn resolve_expression<'src, 'arena>(
                     // Parameter with explicit value: rune(x=p.x, y=5)
                     resolve_expression(ctx, expr)?
                 } else {
-                    // Direct parameter: rune(x) - lookup variable x
-                    match ctx.scope_stack.lookup_variable(param.name) {
-                        Some(var_def) => {
-                            // Create a VarRef expression
-                            // Variable must have a type at this point
-                            let ty = match var_def.var_type {
-                                Some(var_type) => ctx.arena.alloc(var_type),
-                                None => {
-                                    // This should not happen in well-formed programs
-                                    ctx.errors.push(SemanticError::UndefinedVariable {
-                                        name: param.name.to_string(),
-                                        span: param.span,
-                                    });
-                                    return None;
-                                }
-                            };
-
-                            ctx.arena.alloc(ResolvedExpr::new(
-                                param.span,
-                                ResolvedExprKind::Var {
-                                    name: param.name,
-                                    definition: var_def,
-                                },
-                                ty,
-                            ))
-                        }
-                        None => {
-                            ctx.errors.push(SemanticError::UndefinedVariable {
-                                name: param.name.to_string(),
-                                span: param.span,
-                            });
-                            return None;
-                        }
-                    }
+                    // Direct parameter: rune(x) - create synthetic Expr::Var and resolve it
+                    // This ensures consistent semantics with rune(x=x) form
+                    let var_expr = Expr::Var {
+                        name: param.name,
+                        span: param.span,
+                    };
+                    resolve_expression(ctx, &var_expr)?
                 };
 
                 resolved_params.push(crate::hir::expr::ResolvedRuneParam {
