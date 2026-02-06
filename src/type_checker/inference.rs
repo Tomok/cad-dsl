@@ -392,6 +392,19 @@ pub fn infer_expr_type<'src, 'arena>(
             });
             None
         }
+
+        // ====================================================================
+        // Rune Blocks
+        // ====================================================================
+        ResolvedExprKind::RuneBlock { return_type, .. } => {
+            // Phase 2: Basic support - return the placeholder type from semantic analysis
+            // Phase 3: Will implement full Rune type checking integration:
+            //   - Compile Rune code with parameter types
+            //   - Infer actual return type from Rune compiler
+            //   - Update return_type in the HIR
+            // For now, just return the type set during semantic analysis
+            Some(**return_type)
+        }
     }
 }
 
