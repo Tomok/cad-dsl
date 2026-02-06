@@ -311,6 +311,43 @@ pub enum ResolvedExprKind<'src, 'arena> {
     Paren {
         inner: &'arena ResolvedExpr<'src, 'arena>,
     },
+
+    /// Rune block: `rune(params) { body }`
+    /// Imperative code block executed after constraint solving
+    RuneBlock {
+        /// Resolved parameters with their values
+        params: Vec<ResolvedRuneParam<'src, 'arena>>,
+        /// Raw Rune code (as string from source)
+        body: &'src str,
+        /// Return type (inferred by type checker, Unknown initially)
+        return_type: &'arena ResolvedType<'src, 'arena>,
+    },
+}
+
+// ============================================================================
+// Rune Block Parameter
+// ============================================================================
+
+/// A resolved parameter in a rune block
+///
+/// Example:
+/// - `rune(x)` -> name: "x", value: VarRef to x
+/// - `rune(x=p.x)` -> name: "x", value: FieldAccess to p.x
+/// - `rune(x=5)` -> name: "x", value: IntLit(5)
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedRuneParam<'src, 'arena> {
+    /// Parameter name in rune code
+    pub name: &'src str,
+    /// Resolved expression that provides the parameter value
+    pub value: &'arena ResolvedExpr<'src, 'arena>,
+    /// Source location
+    pub span: Span,
+}
+
+impl<'src, 'arena> HasSpan for ResolvedRuneParam<'src, 'arena> {
+    fn span(&self) -> Span {
+        self.span
+    }
 }
 
 // ============================================================================

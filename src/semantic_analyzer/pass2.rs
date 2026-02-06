@@ -1579,10 +1579,44 @@ pub fn resolve_expression<'src, 'arena>(
         }
 
         // Rune block
-        Expr::RuneBlock(_block) => {
-            // TODO: Phase 2 - Implement full rune block semantics
-            // For now, just return a placeholder
-            todo!("Rune blocks are not yet supported in semantic analysis (Phase 2+)")
+        Expr::RuneBlock(block) => {
+            // Resolve parameter expressions
+            let mut resolved_params = Vec::new();
+
+            for param in &block.params {
+                // Resolve the parameter value expression
+                let value = if let Some(expr) = &param.value {
+                    // Parameter with explicit value: rune(x=p.x, y=5)
+                    resolve_expression(ctx, expr)?
+                } else {
+                    // Direct parameter: rune(x) - create synthetic Expr::Var and resolve it
+                    // This ensures consistent semantics with rune(x=x) form
+                    let var_expr = Expr::Var {
+                        name: param.name,
+                        span: param.span,
+                    };
+                    resolve_expression(ctx, &var_expr)?
+                };
+
+                resolved_params.push(crate::hir::expr::ResolvedRuneParam {
+                    name: param.name,
+                    value,
+                    span: param.span,
+                });
+            }
+
+            // Return type will be inferred by type checker - use I32 as placeholder
+            // The type checker (Phase 3) will update this with the actual inferred type
+            let return_type = ctx.arena.alloc(ResolvedType::I32 { span: expr.span() });
+
+            let kind = ResolvedExprKind::RuneBlock {
+                params: resolved_params,
+                body: block.body,
+                return_type,
+            };
+
+            // Cast mutable reference to immutable
+            (kind, return_type as &ResolvedType<'src, 'arena>)
         }
 
         // Parentheses
@@ -2297,6 +2331,7 @@ fn should_apply_transform<'src, 'arena>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hir::definitions::{FieldDefinition, StructDefinition};
     use crate::lexer::{LineColumn, Span};
     use assert_matches::assert_matches;
     use bumpalo::Bump;
@@ -4284,5 +4319,260 @@ mod tests {
         assert_eq!(transforms[0].function.name, "__transform__");
         assert_matches!(transforms[0].input_type, ResolvedType::I32 { .. });
         assert_matches!(transforms[0].output_type, ResolvedType::I32 { .. });
+    }
+
+    // ========================================================================
+    // Rune Block Tests (Phase 2)
+    // ========================================================================
+
+    #[test]
+    fn test_resolve_rune_block_simple() {
+        let arena = Bump::new();
+        let source = "rune(x) { x * 2 }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Define variable x
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
+        let var_def = arena.alloc(VarDefinition::new(
+            identifier,
+            "x",
+            make_span(1, 6),
+            Some(ResolvedType::I32 {
+                span: make_span(1, 1),
+            }),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            0,
+            make_span(1, 1),
+        ));
+        ctx.scope_stack.declare_variable("x", var_def);
+
+        // Create rune block AST
+        use crate::ast::expr::RuneBlock;
+        use crate::ast::expr::RuneParam;
+        let rune_block = RuneBlock {
+            params: vec![RuneParam {
+                name: "x",
+                value: None, // Direct parameter
+                span: make_span(1, 6),
+            }],
+            body: "x * 2",
+            span: make_span(1, 1),
+        };
+
+        let expr = Expr::RuneBlock(Box::new(rune_block));
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some(), "Resolution should succeed");
+        assert!(!ctx.has_errors(), "Should not have errors");
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::RuneBlock { .. });
+
+        // Verify the rune block structure
+        if let ResolvedExprKind::RuneBlock {
+            params,
+            body,
+            return_type,
+        } = &resolved.kind
+        {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "x");
+            assert_eq!(*body, "x * 2");
+            assert_matches!(return_type, ResolvedType::I32 { .. });
+        } else {
+            panic!("Expected RuneBlock kind");
+        }
+    }
+
+    #[test]
+    fn test_resolve_rune_block_with_assignment() {
+        let arena = Bump::new();
+        let source = "rune(x=p.x) { x * 2 }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Define struct Point
+        let field_x = arena.alloc(FieldDefinition::new(
+            "x",
+            make_span(1, 9),
+            ResolvedType::I32 {
+                span: make_span(1, 9),
+            },
+            make_span(1, 9),
+        ));
+        let struct_def = arena.alloc(StructDefinition::new(
+            "Point",
+            make_span(1, 1),
+            vec![field_x],
+            vec![],
+            None,
+            make_span(1, 1),
+        ));
+        ctx.register_struct("Point", struct_def).unwrap();
+
+        // Define variable p of type Point
+        let identifier = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("p"));
+        let var_def = arena.alloc(VarDefinition::new(
+            identifier,
+            "p",
+            make_span(1, 8),
+            Some(ResolvedType::UserDefined {
+                name: "Point",
+                definition: struct_def,
+                span: make_span(1, 1),
+            }),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            0,
+            make_span(1, 1),
+        ));
+        ctx.scope_stack.declare_variable("p", var_def);
+
+        // Create rune block AST
+        use crate::ast::expr::RuneBlock;
+        use crate::ast::expr::RuneParam;
+        let rune_block = RuneBlock {
+            params: vec![RuneParam {
+                name: "x",
+                value: Some(Expr::FieldAccess {
+                    receiver: Box::new(Expr::Var {
+                        name: "p",
+                        span: make_span(1, 8),
+                    }),
+                    field: "x",
+                    span: make_span(1, 8),
+                }),
+                span: make_span(1, 6),
+            }],
+            body: "x * 2",
+            span: make_span(1, 1),
+        };
+
+        let expr = Expr::RuneBlock(Box::new(rune_block));
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some(), "Resolution should succeed");
+        assert!(!ctx.has_errors(), "Should not have errors");
+
+        let resolved = resolved.unwrap();
+        assert_matches!(resolved.kind, ResolvedExprKind::RuneBlock { .. });
+
+        // Verify parameter resolution
+        if let ResolvedExprKind::RuneBlock { params, .. } = &resolved.kind {
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0].name, "x");
+            // Parameter value should be a field access expression
+            assert_matches!(params[0].value.kind, ResolvedExprKind::FieldAccess { .. });
+        } else {
+            panic!("Expected RuneBlock kind");
+        }
+    }
+
+    #[test]
+    fn test_resolve_rune_block_undefined_variable() {
+        let arena = Bump::new();
+        let source = "rune(x) { x * 2 }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Don't define variable x
+
+        // Create rune block AST
+        use crate::ast::expr::RuneBlock;
+        use crate::ast::expr::RuneParam;
+        let rune_block = RuneBlock {
+            params: vec![RuneParam {
+                name: "x",
+                value: None, // Direct parameter - should fail because x is not defined
+                span: make_span(1, 6),
+            }],
+            body: "x * 2",
+            span: make_span(1, 1),
+        };
+
+        let expr = Expr::RuneBlock(Box::new(rune_block));
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_none(), "Resolution should fail");
+        assert!(ctx.has_errors(), "Should have errors");
+
+        let errors = ctx.take_errors();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(
+            &errors[0],
+            SemanticError::UndefinedVariable { name, .. } if name == "x"
+        );
+    }
+
+    #[test]
+    fn test_resolve_rune_block_multiple_params() {
+        let arena = Bump::new();
+        let source = "rune(x, y) { x + y }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Define variables x and y
+        let id_x = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("x"));
+        let var_x = arena.alloc(VarDefinition::new(
+            id_x,
+            "x",
+            make_span(1, 6),
+            Some(ResolvedType::I32 {
+                span: make_span(1, 1),
+            }),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            0,
+            make_span(1, 1),
+        ));
+        ctx.scope_stack.declare_variable("x", var_x);
+
+        let id_y = arena.alloc(crate::hir::definitions::VariableIdentifier::Simple("y"));
+        let var_y = arena.alloc(VarDefinition::new(
+            id_y,
+            "y",
+            make_span(1, 9),
+            Some(ResolvedType::F64 {
+                span: make_span(1, 1),
+            }),
+            crate::hir::definitions::VarDefinitionKind::Uninitialized,
+            0,
+            make_span(1, 1),
+        ));
+        ctx.scope_stack.declare_variable("y", var_y);
+
+        // Create rune block AST
+        use crate::ast::expr::RuneBlock;
+        use crate::ast::expr::RuneParam;
+        let rune_block = RuneBlock {
+            params: vec![
+                RuneParam {
+                    name: "x",
+                    value: None,
+                    span: make_span(1, 6),
+                },
+                RuneParam {
+                    name: "y",
+                    value: None,
+                    span: make_span(1, 9),
+                },
+            ],
+            body: "x + y",
+            span: make_span(1, 1),
+        };
+
+        let expr = Expr::RuneBlock(Box::new(rune_block));
+
+        let resolved = resolve_expression(&mut ctx, &expr);
+        assert!(resolved.is_some(), "Resolution should succeed");
+        assert!(!ctx.has_errors(), "Should not have errors");
+
+        let resolved = resolved.unwrap();
+
+        // Verify parameter resolution
+        if let ResolvedExprKind::RuneBlock { params, .. } = &resolved.kind {
+            assert_eq!(params.len(), 2);
+            assert_eq!(params[0].name, "x");
+            assert_eq!(params[1].name, "y");
+            assert_matches!(params[0].value.ty, ResolvedType::I32 { .. });
+            assert_matches!(params[1].value.ty, ResolvedType::F64 { .. });
+        } else {
+            panic!("Expected RuneBlock kind");
+        }
     }
 }
