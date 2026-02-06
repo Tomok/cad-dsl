@@ -15,6 +15,28 @@ impl<'src> std::fmt::Display for StructLitField<'src> {
     }
 }
 
+impl<'src> std::fmt::Display for RuneParam<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.value {
+            Some(expr) => write!(f, "{}={}", self.name, expr),
+            None => write!(f, "{}", self.name),
+        }
+    }
+}
+
+impl<'src> std::fmt::Display for RuneBlock<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "rune(")?;
+        for (i, param) in self.params.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", param)?;
+        }
+        write!(f, ") {{ {} }}", self.body)
+    }
+}
+
 impl<'src> std::fmt::Display for Expr<'src> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -114,6 +136,7 @@ impl<'src> std::fmt::Display for Expr<'src> {
 
                 write!(f, "| {}", body)
             }
+            Expr::RuneBlock(block) => write!(f, "{}", block),
         }
     }
 }
@@ -218,6 +241,7 @@ impl<'src> std::fmt::Display for CmpLhs<'src> {
 
                 write!(f, "| {}", body)
             }
+            CmpLhs::RuneBlock(block) => write!(f, "{}", block),
         }
     }
 }
@@ -314,6 +338,7 @@ impl<'src> std::fmt::Display for CmpRhs<'src> {
 
                 write!(f, "| {}", body)
             }
+            CmpRhs::RuneBlock(block) => write!(f, "{}", block),
         }
     }
 }
@@ -410,6 +435,7 @@ impl<'src> std::fmt::Display for AddLhs<'src> {
 
                 write!(f, "| {}", body)
             }
+            AddLhs::RuneBlock(block) => write!(f, "{}", block),
         }
     }
 }
@@ -504,6 +530,7 @@ impl<'src> std::fmt::Display for AddRhs<'src> {
 
                 write!(f, "| {}", body)
             }
+            AddRhs::RuneBlock(block) => write!(f, "{}", block),
         }
     }
 }
@@ -598,6 +625,7 @@ impl<'src> std::fmt::Display for MulLhs<'src> {
 
                 write!(f, "| {}", body)
             }
+            MulLhs::RuneBlock(block) => write!(f, "{}", block),
         }
     }
 }
@@ -689,6 +717,7 @@ impl<'src> std::fmt::Display for MulRhs<'src> {
 
                 write!(f, "| {}", body)
             }
+            MulRhs::RuneBlock(block) => write!(f, "{}", block),
         }
     }
 }
@@ -779,6 +808,7 @@ impl<'src> std::fmt::Display for PowLhs<'src> {
 
                 write!(f, "| {}", body)
             }
+            PowLhs::RuneBlock(block) => write!(f, "{}", block),
         }
     }
 }
@@ -870,6 +900,7 @@ impl<'src> std::fmt::Display for PowRhs<'src> {
 
                 write!(f, "| {}", body)
             }
+            PowRhs::RuneBlock(block) => write!(f, "{}", block),
         }
     }
 }
@@ -956,6 +987,7 @@ impl<'src> std::fmt::Display for Atom<'src> {
 
                 write!(f, "| {}", body)
             }
+            Atom::RuneBlock(block) => write!(f, "{}", block),
         }
     }
 }

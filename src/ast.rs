@@ -37,5 +37,6 @@ pub use types::{FunctionParam, Stmt, StructField, Type};
 
 // Re-export all expression types
 pub use expr::{
-    AddLhs, AddRhs, Atom, CmpLhs, CmpRhs, Expr, MulLhs, MulRhs, PowLhs, PowRhs, StructLitField,
+    AddLhs, AddRhs, Atom, CmpLhs, CmpRhs, Expr, MulLhs, MulRhs, PowLhs, PowRhs, RuneBlock,
+    RuneParam, StructLitField,
 };

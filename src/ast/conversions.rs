@@ -52,6 +52,7 @@ impl<'src> From<AddLhs<'src>> for CmpRhs<'src> {
             AddLhs::Range { start, end, span } => CmpRhs::Range { start, end, span },
 
             AddLhs::Closure { params, body, span } => CmpRhs::Closure { params, body, span },
+            AddLhs::RuneBlock(block) => CmpRhs::RuneBlock(block),
         }
     }
 }
@@ -104,6 +105,7 @@ impl<'src> From<AddLhs<'src>> for CmpLhs<'src> {
             AddLhs::Range { start, end, span } => CmpLhs::Range { start, end, span },
 
             AddLhs::Closure { params, body, span } => CmpLhs::Closure { params, body, span },
+            AddLhs::RuneBlock(block) => CmpLhs::RuneBlock(block),
         }
     }
 }
@@ -146,6 +148,7 @@ impl<'src> From<Atom<'src>> for MulRhs<'src> {
             Atom::Range { start, end, span } => MulRhs::Range { start, end, span },
 
             Atom::Closure { params, body, span } => MulRhs::Closure { params, body, span },
+            Atom::RuneBlock(block) => MulRhs::RuneBlock(block),
         }
     }
 }
@@ -188,6 +191,7 @@ impl<'src> From<Atom<'src>> for MulLhs<'src> {
             Atom::Range { start, end, span } => MulLhs::Range { start, end, span },
 
             Atom::Closure { params, body, span } => MulLhs::Closure { params, body, span },
+            Atom::RuneBlock(block) => MulLhs::RuneBlock(block),
         }
     }
 }
@@ -238,6 +242,7 @@ impl<'src> From<MulLhs<'src>> for AddRhs<'src> {
             MulLhs::Range { start, end, span } => AddRhs::Range { start, end, span },
 
             MulLhs::Closure { params, body, span } => AddRhs::Closure { params, body, span },
+            MulLhs::RuneBlock(block) => AddRhs::RuneBlock(block),
         }
     }
 }
@@ -288,6 +293,7 @@ impl<'src> From<MulLhs<'src>> for AddLhs<'src> {
             MulLhs::Range { start, end, span } => AddLhs::Range { start, end, span },
 
             MulLhs::Closure { params, body, span } => AddLhs::Closure { params, body, span },
+            MulLhs::RuneBlock(block) => AddLhs::RuneBlock(block),
         }
     }
 }
@@ -330,6 +336,7 @@ impl<'src> From<Atom<'src>> for PowLhs<'src> {
             Atom::Range { start, end, span } => PowLhs::Range { start, end, span },
 
             Atom::Closure { params, body, span } => PowLhs::Closure { params, body, span },
+            Atom::RuneBlock(block) => PowLhs::RuneBlock(block),
         }
     }
 }
@@ -372,6 +379,7 @@ impl<'src> From<Atom<'src>> for PowRhs<'src> {
             Atom::Range { start, end, span } => PowRhs::Range { start, end, span },
 
             Atom::Closure { params, body, span } => PowRhs::Closure { params, body, span },
+            Atom::RuneBlock(block) => PowRhs::RuneBlock(block),
         }
     }
 }
@@ -418,6 +426,7 @@ impl<'src> From<PowLhs<'src>> for PowRhs<'src> {
             PowLhs::Range { start, end, span } => PowRhs::Range { start, end, span },
 
             PowLhs::Closure { params, body, span } => PowRhs::Closure { params, body, span },
+            PowLhs::RuneBlock(block) => PowRhs::RuneBlock(block),
         }
     }
 }
@@ -464,6 +473,7 @@ impl<'src> From<PowLhs<'src>> for MulRhs<'src> {
             PowLhs::Range { start, end, span } => MulRhs::Range { start, end, span },
 
             PowLhs::Closure { params, body, span } => MulRhs::Closure { params, body, span },
+            PowLhs::RuneBlock(block) => MulRhs::RuneBlock(block),
         }
     }
 }
@@ -510,6 +520,7 @@ impl<'src> From<PowLhs<'src>> for MulLhs<'src> {
             PowLhs::Range { start, end, span } => MulLhs::Range { start, end, span },
 
             PowLhs::Closure { params, body, span } => MulLhs::Closure { params, body, span },
+            PowLhs::RuneBlock(block) => MulLhs::RuneBlock(block),
         }
     }
 }

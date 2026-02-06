@@ -2,7 +2,7 @@
 #[allow(unused_imports)]
 pub(super) use super::super::*; // Parser module items
 #[allow(unused_imports)]
-pub(super) use crate::ast::{Stmt, Type};
+pub(super) use crate::ast::{AddLhs, AddRhs, Stmt, Type};
 #[allow(unused_imports)]
 pub(super) use crate::lexer::{self, Token};
 #[allow(unused_imports)]

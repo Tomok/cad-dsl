@@ -212,6 +212,7 @@ where
                 PowRhs::Range { start, end, span } => MulRhs::Range { start, end, span },
 
                 PowRhs::Closure { params, body, span } => MulRhs::Closure { params, body, span },
+                PowRhs::RuneBlock(block) => MulRhs::RuneBlock(block),
             }
         }),
         select! { Token::LeftParen(t) => t.position }
@@ -300,6 +301,7 @@ where
                 PowRhs::Range { start, end, span } => MulLhs::Range { start, end, span },
 
                 PowRhs::Closure { params, body, span } => MulLhs::Closure { params, body, span },
+                PowRhs::RuneBlock(block) => MulLhs::RuneBlock(block),
             }
         }),
         select! { Token::LeftParen(t) => t.position }
