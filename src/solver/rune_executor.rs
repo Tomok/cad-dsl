@@ -118,29 +118,28 @@ impl RuneExecutor {
         })
     }
 
-    /// Execute a rune block with the given parameter values
+    /// Compile a rune block into a Unit (for caching)
     ///
-    /// # Arguments
-    ///
-    /// * `body` - The raw Rune code (as string from source)
-    /// * `params` - The resolved parameters with their types
-    /// * `param_values` - The concrete values for each parameter (from Z3 model)
-    ///
-    /// # Returns
-    ///
-    /// The result value from executing the rune block
-    pub fn execute_block<'src, 'arena>(
+    /// This method compiles the rune code once and returns an Arc<Unit>
+    /// that can be cached and reused for multiple executions with different parameters.
+    pub fn compile_rune_block<'src, 'arena>(
         &self,
         body: &str,
         params: &[ResolvedRuneParam<'src, 'arena>],
+    ) -> Result<Arc<Unit>, RuneExecutionError> {
+        let rune_code = self.generate_rune_code(body, params)?;
+        self.compile_rune_code(&rune_code)
+    }
+
+    /// Execute a pre-compiled rune block with the given parameter values
+    ///
+    /// This method reuses a cached compiled Unit, avoiding recompilation.
+    pub fn execute_compiled_block<'src, 'arena>(
+        &self,
+        compiled_unit: Arc<Unit>,
+        params: &[ResolvedRuneParam<'src, 'arena>],
         param_values: Vec<Value>,
     ) -> Result<RuneValue, RuneExecutionError> {
-        // Generate complete Rune function with parameter values
-        let rune_code = self.generate_rune_code(body, params)?;
-
-        // Compile the Rune code
-        let unit = self.compile_rune_code(&rune_code)?;
-
         // Convert parameter values to Rune values
         let rune_param_values: Result<Vec<_>, _> = params
             .iter()
@@ -149,8 +148,8 @@ impl RuneExecutor {
             .collect();
         let rune_param_values = rune_param_values?;
 
-        // Execute the Rune function
-        let result = self.execute_rune_function(unit, rune_param_values)?;
+        // Execute the Rune function with pre-compiled unit
+        let result = self.execute_rune_function(compiled_unit, rune_param_values)?;
 
         Ok(result)
     }

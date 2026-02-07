@@ -36,7 +36,8 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                     } = &init_expr.kind
                 {
                     // Register the rune block for execution after Z3 solving
-                    ctx.register_rune_block(var_path.clone(), params.clone(), body, return_type);
+                    // This compiles the rune code once and caches it
+                    ctx.register_rune_block(var_path.clone(), params.clone(), body, return_type)?;
 
                     // Don't create a Z3 variable - the value will be computed by rune
                     return Ok(());

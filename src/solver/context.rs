@@ -162,14 +162,18 @@ pub enum WithContextInfo<'src, 'arena> {
 // ============================================================================
 
 /// Information about a rune block that needs to be executed after constraint solving
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RuneBlockExecution<'src, 'arena> {
     /// Path to the variable where the result should be stored
     pub result_path: VariablePath<'src>,
 
-    /// The rune block to execute
+    /// The rune block parameters
     pub params: Vec<crate::hir::expr::ResolvedRuneParam<'src, 'arena>>,
-    pub body: &'src str,
+
+    /// Pre-compiled Rune unit (compiled once, reused for execution)
+    pub compiled_unit: std::sync::Arc<rune::Unit>,
+
+    /// Return type of the rune block
     pub return_type: &'arena crate::hir::types::ResolvedType<'src, 'arena>,
 }
 
@@ -699,19 +703,30 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     }
 
     /// Register a rune block for execution after constraint solving
+    ///
+    /// This compiles the rune code immediately and caches the compiled unit
+    /// to avoid recompilation on every iteration or execution.
     pub fn register_rune_block(
         &mut self,
         result_path: VariablePath<'src>,
         params: Vec<crate::hir::expr::ResolvedRuneParam<'src, 'arena>>,
         body: &'src str,
         return_type: &'arena crate::hir::types::ResolvedType<'src, 'arena>,
-    ) {
+    ) -> Result<(), SolverError> {
+        use crate::solver::rune_executor::RuneExecutor;
+
+        // Compile the rune code once and cache it
+        let executor = RuneExecutor::new()?;
+        let compiled_unit = executor.compile_rune_block(body, &params)?;
+
         self.rune_blocks.push(RuneBlockExecution {
             result_path,
             params,
-            body,
+            compiled_unit,
             return_type,
         });
+
+        Ok(())
     }
 
     /// Get the value of a variable from the current solution
@@ -919,16 +934,12 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                         // variables and transformed views resolve correctly
                         let path = self.build_var_path_from_identifier(definition.identifier)?;
 
-                        solution
-                            .assignments
-                            .get(&path)
-                            .cloned()
-                            .ok_or_else(|| {
-                                SolverError::RuneExecutionError(format!(
-                                    "Rune block parameter '{}' not found in solution",
-                                    path
-                                ))
-                            })?
+                        solution.assignments.get(&path).cloned().ok_or_else(|| {
+                            SolverError::RuneExecutionError(format!(
+                                "Rune block parameter '{}' not found in solution",
+                                path
+                            ))
+                        })?
                     }
                     _ => {
                         return Err(SolverError::RuneExecutionError(
@@ -940,9 +951,12 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                 param_values.push(value);
             }
 
-            // Execute the rune block
-            let result =
-                executor.execute_block(rune_block.body, &rune_block.params, param_values)?;
+            // Execute the rune block with pre-compiled unit (no recompilation)
+            let result = executor.execute_compiled_block(
+                rune_block.compiled_unit.clone(),
+                &rune_block.params,
+                param_values,
+            )?;
 
             // Convert result back to solver value
             let solver_value = executor.convert_from_rune_value(result, rune_block.return_type)?;
