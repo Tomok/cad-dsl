@@ -1279,3 +1279,48 @@ fn test_struct_ref_fields_nested() {
     verify_solution(&stdout, "p.x", "50");
     verify_solution(&stdout, "p.y", "75");
 }
+
+// ============================================================================
+// Rune Blocks
+// ============================================================================
+
+#[test]
+fn test_rune_basic() {
+    // Test basic rune block execution
+    let (success, stdout, stderr) = solve_fixture("rune_basic.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "5");
+    verify_solution(&stdout, "y", "10");
+}
+
+#[test]
+fn test_rune_in_loop() {
+    // Test rune block executed multiple times with different inputs
+    // The same rune block code is compiled once but executed with different parameter values
+    // This ensures execution results are NOT cached (only compilation is cached)
+    let (success, stdout, stderr) = solve_fixture("rune_in_loop.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    // Verify input variables
+    verify_solution(&stdout, "x1", "10");
+    verify_solution(&stdout, "x2", "20");
+    verify_solution(&stdout, "x3", "30");
+
+    // Verify each rune block executed with different values
+    verify_solution(&stdout, "result1", "20"); // 10 * 2
+    verify_solution(&stdout, "result2", "40"); // 20 * 2
+    verify_solution(&stdout, "result3", "60"); // 30 * 2
+}
+
+#[test]
+fn test_rune_in_function() {
+    // Test multiple rune blocks called with different simple variables
+    // This verifies execution works correctly with different parameters
+    let (success, stdout, stderr) = solve_fixture("rune_in_function.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    verify_solution(&stdout, "a", "5");
+    verify_solution(&stdout, "b", "10");
+    verify_solution(&stdout, "result_a", "10"); // 5 * 2 = 10
+    verify_solution(&stdout, "result_b", "20"); // 10 * 2 = 20
+}

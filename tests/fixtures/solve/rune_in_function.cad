@@ -1,0 +1,11 @@
+// Rune blocks called with different simple variables
+// Tests that multiple rune blocks execute correctly
+let a: i32;
+let b: i32;
+
+a == 5;
+b == 10;
+
+// Call rune blocks with different inputs
+let result_a = rune(a) { a * 2 };
+let result_b = rune(b) { b * 2 };

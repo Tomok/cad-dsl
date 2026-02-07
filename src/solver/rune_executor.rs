@@ -172,9 +172,11 @@ impl RuneExecutor {
             code.push_str(param.name);
         }
 
-        code.push_str(") {\n");
+        // Keep body inline to ensure it's treated as an expression
+        // Rune requires the last expression to be on the same line or explicitly returned
+        code.push_str(") { ");
         code.push_str(body);
-        code.push_str("\n}");
+        code.push_str(" }");
 
         Ok(code)
     }

@@ -199,10 +199,11 @@ fn main() {
 
             // Step 2: Parse as either a let statement, function definition, or struct definition
             use chumsky::primitive::choice;
+            let expr = parser::expr_inner_with_source(Some(&content));
             let stmt_parser = choice((
-                parser::struct_def(parser::expr_inner()),
-                parser::function_def(parser::expr_inner()),
-                parser::let_stmt(parser::expr_inner()),
+                parser::struct_def(expr.clone()),
+                parser::function_def(expr.clone()),
+                parser::let_stmt(expr),
             ));
 
             let ast = match stmt_parser.parse(&tokens).into_result() {
@@ -268,16 +269,17 @@ fn main() {
             use chumsky::prelude::recursive;
             use chumsky::primitive::choice;
             let stmt_parser = recursive(|stmt_rec| {
+                let expr = parser::expr_inner_with_source(Some(&content));
                 choice((
-                    parser::struct_def(parser::expr_inner()),
-                    parser::function_def(parser::expr_inner()),
-                    parser::let_stmt(parser::expr_inner()),
-                    parser::assignment_stmt(parser::expr_inner()),
-                    parser::field_assignment_stmt(parser::expr_inner()),
-                    parser::with_stmt(parser::expr_inner(), stmt_rec.clone()),
-                    parser::for_stmt(parser::expr_inner(), stmt_rec.clone()),
-                    parser::if_stmt(parser::expr_inner(), stmt_rec.clone()),
-                    parser::expression_stmt(parser::expr_inner()),
+                    parser::struct_def(expr.clone()),
+                    parser::function_def(expr.clone()),
+                    parser::let_stmt(expr.clone()),
+                    parser::assignment_stmt(expr.clone()),
+                    parser::field_assignment_stmt(expr.clone()),
+                    parser::with_stmt(expr.clone(), stmt_rec.clone()),
+                    parser::for_stmt(expr.clone(), stmt_rec.clone()),
+                    parser::if_stmt(expr.clone(), stmt_rec.clone()),
+                    parser::expression_stmt(expr),
                 ))
             })
             .repeated()
