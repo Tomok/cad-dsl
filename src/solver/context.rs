@@ -162,7 +162,7 @@ pub enum WithContextInfo<'src, 'arena> {
 // ============================================================================
 
 /// Information about a rune block that needs to be executed after constraint solving
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RuneBlockExecution<'src, 'arena> {
     /// Path to the variable where the result should be stored
     pub result_path: VariablePath<'src>,
@@ -891,7 +891,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     /// 1. Extracts parameter values from the Z3 solution
     /// 2. Executes each rune block with those values
     /// 3. Adds the results to the solution
-    fn execute_rune_blocks(&self, solution: &mut Solution<'src>) -> Result<(), SolverError> {
+    fn execute_rune_blocks(&mut self, solution: &mut Solution<'src>) -> Result<(), SolverError> {
         use crate::solver::rune_executor::RuneExecutor;
 
         if self.rune_blocks.is_empty() {
@@ -902,39 +902,43 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         let executor = RuneExecutor::new()?;
 
         // Execute each rune block
-        for rune_block in &self.rune_blocks {
+        // Clone the rune blocks to avoid borrowing issues
+        let rune_blocks = self.rune_blocks.clone();
+
+        for rune_block in &rune_blocks {
             // Extract parameter values from solution
-            let param_values: Result<Vec<_>, _> = rune_block
-                .params
-                .iter()
-                .map(|param| {
-                    // Resolve the parameter expression to get its value
-                    // For Phase 4 MVP, parameters should be simple variables
-                    match &param.value.kind {
-                        ResolvedExprKind::Var { definition, .. } => {
-                            // Build path from the variable's identifier
-                            let qualified_name = definition.identifier.to_qualified_name();
-                            let path = VariablePath::from_name(&qualified_name);
+            let mut param_values = Vec::new();
 
-                            solution
-                                .assignments
-                                .get(&path)
-                                .cloned()
-                                .ok_or_else(|| {
-                                    SolverError::RuneExecutionError(format!(
-                                        "Rune block parameter '{}' not found in solution",
-                                        qualified_name
-                                    ))
-                                })
-                        }
-                        _ => Err(SolverError::RuneExecutionError(
-                            "Complex parameter expressions in rune blocks not yet supported (Phase 4 MVP)".to_string(),
-                        )),
+            for param in &rune_block.params {
+                // Resolve the parameter expression to get its value
+                // For Phase 4 MVP, parameters should be simple variables
+                let value = match &param.value.kind {
+                    ResolvedExprKind::Var { definition, .. } => {
+                        // Build path from the variable's identifier using the same
+                        // identifier-aware builder that declarations use, so container
+                        // variables and transformed views resolve correctly
+                        let path = self.build_var_path_from_identifier(definition.identifier)?;
+
+                        solution
+                            .assignments
+                            .get(&path)
+                            .cloned()
+                            .ok_or_else(|| {
+                                SolverError::RuneExecutionError(format!(
+                                    "Rune block parameter '{}' not found in solution",
+                                    path
+                                ))
+                            })?
                     }
-                })
-                .collect();
+                    _ => {
+                        return Err(SolverError::RuneExecutionError(
+                            "Complex parameter expressions in rune blocks not yet supported (Phase 4 MVP)".to_string(),
+                        ));
+                    }
+                };
 
-            let param_values = param_values?;
+                param_values.push(value);
+            }
 
             // Execute the rune block
             let result =
