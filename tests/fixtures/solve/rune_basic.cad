@@ -1,0 +1,5 @@
+// Basic rune block test
+let x: i32;
+x == 5;
+
+let y = rune(x) { x * 2 };

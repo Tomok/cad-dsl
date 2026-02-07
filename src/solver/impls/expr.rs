@@ -563,6 +563,18 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 })
             }
 
+            // Rune blocks - deferred execution after constraint solving
+            ResolvedExprKind::RuneBlock { .. } => {
+                // Rune blocks cannot be converted to Z3 expressions directly
+                // They must be executed after constraint solving to compute their values
+                // The solver pipeline handles rune blocks separately in post-processing
+                Err(SolverError::UnsupportedExpression(
+                    "Rune blocks must be used in let-statements, not as sub-expressions. \
+                     Use: let result = rune(params) { body };"
+                        .to_string(),
+                ))
+            }
+
             // Unsupported expressions
             _ => Err(SolverError::UnsupportedExpression(format!(
                 "{:?}",
@@ -1089,7 +1101,7 @@ impl<'src, 'arena> ResolvedExpr<'src, 'arena> {
                             })
                         }
                     })
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .collect::<Result<Vec<_>, SolverError>>()?;
 
                 ResolvedExprKind::StructLit {
                     name,
