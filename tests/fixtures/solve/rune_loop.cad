@@ -1,0 +1,11 @@
+// Test rune block with loop
+let n: i32;
+n == 5;
+
+let result = rune(n) {
+    let sum = 0;
+    for i in 0..n {
+        sum += i;
+    }
+    sum
+};

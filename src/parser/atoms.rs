@@ -136,7 +136,7 @@ fn rune_body<'src>()
         .map(|((open_pos, _body_tokens), close_pos)| {
             let body_span = Span {
                 start: open_pos,
-                lines: 0,
+                lines: close_pos.line - open_pos.line,
                 end_column: close_pos.column + 1,
             };
             // Placeholder - actual body will be extracted during semantic analysis
@@ -155,9 +155,10 @@ fn extract_source_from_span<'src>(source: &'src str, span: &Span) -> &'src str {
     let mut current_line = 1;
     let mut current_column = 1;
 
-    // Find start position
+    // Find start and end positions
     let start_line = span.start.line;
     let start_column = span.start.column;
+    let end_line = start_line + span.lines;
     let end_column = span.end_column;
 
     let chars: Vec<char> = source.chars().collect();
@@ -165,13 +166,13 @@ fn extract_source_from_span<'src>(source: &'src str, span: &Span) -> &'src str {
     let mut end_byte = 0;
 
     for &ch in chars.iter() {
-        // Track position
+        // Track start position
         if current_line == start_line && current_column == start_column {
             start_byte = byte_offset;
         }
 
-        // For single-line spans, end is on same line
-        if current_line == start_line && current_column == end_column {
+        // End position is on end_line (same line for single-line spans, different for multi-line)
+        if current_line == end_line && current_column == end_column {
             end_byte = byte_offset;
             break;
         }

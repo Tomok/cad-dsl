@@ -1,0 +1,8 @@
+// Error: attempting to backward-constrain a rune parameter
+let x: i32;
+x > 0;
+
+let y = rune(x) { x * 2 };
+
+// This should fail - y cannot constrain x backward
+y < 100;

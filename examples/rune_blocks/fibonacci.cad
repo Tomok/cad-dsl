@@ -1,0 +1,23 @@
+// Fibonacci Calculation Example
+// Demonstrates rune blocks for iterative algorithms
+//
+// This example computes the nth Fibonacci number using a rune block.
+// The Fibonacci sequence is: 0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, ...
+//
+// Run with: cargo run -- solve examples/rune_blocks/fibonacci.cad
+
+let n: i32;
+n == 15;
+
+// Compute the nth Fibonacci number using an iterative algorithm.
+// After n iterations: a holds fib(n), b holds fib(n+1).
+let fib = rune(n) {
+    let a = 0;
+    let b = 1;
+    for _ in 0..n {
+        let temp = a + b;
+        a = b;
+        b = temp;
+    }
+    a
+};

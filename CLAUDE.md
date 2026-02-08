@@ -275,10 +275,18 @@ The project has comprehensive test suites for each component. All major componen
   - **Container with-statements** (dot-prefix syntax for namespacing)
   - **Transform with-statements**: Automatic coordinate transformations via `__transform__` methods with container and view variables
   - **Struct literals**: Full support in variable initialization and transform return values
+  - **Rune Blocks**: Imperative code blocks for complex calculations
+    - Syntax: `let result = rune(x, y) { /* Rune code */ }`
+    - Parameter assignments: `rune(x=p.x, y, z=100) { ... }`
+    - Executes after constraint solving for parameters
+    - Results can constrain other variables (one-way data flow)
+    - Supports control flow (if/else), loops, mutable variables
+    - Type inference for return values
+    - Compilation caching for performance
+    - See `examples/rune_blocks/` for comprehensive examples
 
 ### ❌ Not Yet Implemented
 
-- **Rune Blocks**: Imperative code blocks for complex calculations (see `docs/RUNE_BLOCKS_IMPLEMENTATION.md`)
 - **Standard Library**: `point()`, `distance()`, math functions
 - **Reference Types**: Full entity vs. reference semantics
 - **Functional Operations**: `map`, `reduce`
@@ -296,31 +304,20 @@ The project has comprehensive test suites for each component. All major componen
 
 ### Recommended Priority Order
 
-1. **Rune Blocks** (High Priority - In Progress)
-   - Imperative code blocks for complex calculations
-   - Enables algorithms difficult to express as constraints (iterative methods, accumulation, complex conditionals)
-   - Syntax: `let result = rune(x, y) { /* Rune code */ }`
-   - Parameter assignments: `rune(x=p.x, y, z=100) { ... }`
-   - Executes after constraint solving for parameters
-   - Results can constrain other variables (one-way data flow)
-   - **Status**: Planning complete, implementation not started
-   - **Plan**: See `docs/RUNE_BLOCKS_IMPLEMENTATION.md` for detailed implementation plan
-   - **Timeline**: 12-16 days estimated
-
-2. **Standard Library** (High Priority - Game Changer)
+1. **Standard Library** (High Priority - Game Changer)
    - Basic constructors: `point(x, y)` for Point creation
    - Geometric functions: `distance(p1, p2)`, `midpoint(p1, p2)`
    - Math functions: `sqrt()`, `sin()`, `cos()`, `tan()`, `abs()`
    - Makes language practically usable for CAD workflows
    - Builds on existing function call infrastructure
 
-3. **Reference Types** (Medium Priority)
+2. **Reference Types** (Medium Priority)
    - Entity vs. reference distinction
    - Reference type validation
    - Important for correct semantics
    - Requires type system enhancements
 
-4. **Field Assignment Syntax** (Low Priority)
+3. **Field Assignment Syntax** (Low Priority)
    - Direct field assignment: `p.x = 5` instead of constraint syntax `p.x == 5`
    - Currently workaround exists (use constraints)
    - Nice-to-have for ergonomics but not critical
@@ -354,6 +351,13 @@ When adding new features to the constraint solver:
   - Container contexts with dot-prefix syntax for namespacing
   - Transform contexts with automatic coordinate transformations via `__transform__` methods
   - See `docs/HIR_TRANSFORM_REPRESENTATION.md` for detailed transform semantics
+- **Rune Blocks**: Imperative code blocks executed after constraint solving
+  - Syntax: `let result = rune(x, y) { /* Rune code */ }`
+  - Parameter assignment syntax: `rune(x=p.x, y, z=100) { ... }`
+  - Supports control flow, loops, mutable variables
+  - One-way data flow (parameters → rune → result)
+  - Results can constrain other variables
+  - See `examples/rune_blocks/` for comprehensive examples
 
 ### Limitations
 
@@ -615,6 +619,49 @@ sketch.origin.z = 0
 
 The `__transform__` method links them via constraints. View variables are filtered from output; only container variables (with full 3D coordinates) are shown. See `docs/HIR_TRANSFORM_REPRESENTATION.md` for complete details.
 
+#### Rune Block Example
+
+**Input file (rune_fibonacci.cad):**
+```
+let n: i32;
+n == 10;
+
+let fib = rune(n) {
+    if n <= 1 {
+        n
+    } else {
+        let mut a = 0;
+        let mut b = 1;
+        for _ in 0..(n - 1) {
+            let temp = a + b;
+            a = b;
+            b = temp;
+        }
+        b
+    }
+};
+```
+
+**Command:**
+```bash
+cargo run -- solve rune_fibonacci.cad
+```
+
+**Output:**
+```
+n = 10
+fib = 55
+```
+
+**How it works:** The rune block executes after Z3 solves the constraint `n == 10`. The Rune code computes the 10th Fibonacci number (55) using an iterative algorithm with mutable variables and a for-loop. The result is stored in the `fib` variable, which can be used in further constraints. Rune blocks enable algorithms that are difficult or impossible to express as pure constraints.
+
+For more examples, see `examples/rune_blocks/` including:
+- Fibonacci calculation
+- Polar to Cartesian conversion
+- Triangle area (Heron's formula)
+- Newton's method for square roots
+- Complex geometric transformations
+
 ## Dependencies
 
 Key dependencies:
@@ -624,12 +671,10 @@ Key dependencies:
 - `chumsky` - Parser combinators
 - `clap` - CLI interface
 - `logos` - Lexical analysis
+- `rune` - Embedded scripting language for imperative code blocks
+- `rune-alloc` - Memory allocation support for Rune
 - `subenum` - Type-safe enum subsets
 - `z3` - Constraint solver integration
-
-Planned dependencies (for Rune blocks implementation):
-- `rune` - Embedded scripting language for imperative code blocks (not yet added)
-- `rune-alloc` - Memory allocation support for Rune (not yet added)
 
 Z3 constraint solver is provided as both a system dependency (via Nix) and a Rust crate dependency for constraint solving implementation.
 - if you find cases that are not handled correctly, create unit or integration tests for them

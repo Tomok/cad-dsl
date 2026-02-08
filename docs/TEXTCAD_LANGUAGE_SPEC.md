@@ -1231,6 +1231,16 @@ let sqrt_10 = rune(x0=initial_guess) {
 };
 ```
 
+### Additional Examples
+
+For more comprehensive examples, see the `examples/rune_blocks/` directory which includes:
+- `fibonacci.cad` - Fibonacci calculation with detailed comments
+- `polar_to_cartesian.cad` - Coordinate transformation
+- `triangle_area.cad` - Heron's formula implementation
+- `newton_method.cad` - Iterative square root calculation
+- `geometric_transform.cad` - Complex multi-step transformations
+- `README.md` - Complete guide to using rune blocks
+
 ### Limitations
 
 Current implementation restrictions:

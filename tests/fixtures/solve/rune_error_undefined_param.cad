@@ -1,0 +1,6 @@
+// Error: undefined variable used as rune parameter
+let x: i32;
+x == 5;
+
+// y is not defined - should cause an error
+let result = rune(y) { y * 2 };

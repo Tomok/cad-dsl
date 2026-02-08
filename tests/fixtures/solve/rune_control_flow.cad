@@ -1,0 +1,11 @@
+// Test rune block with control flow (if-statement)
+let x: i32;
+x == 15;
+
+let result = rune(x) {
+    if x > 10 {
+        x * 2
+    } else {
+        x + 5
+    }
+};

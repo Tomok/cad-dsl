@@ -1,0 +1,11 @@
+// Test rune block with multiple direct parameters
+let x: i32;
+let y: i32;
+let z: i32;
+
+x == 5;
+y == 10;
+z == 100;
+
+// Use direct variable parameters
+let result = rune(x, y, z) { x + y + z };

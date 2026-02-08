@@ -1,0 +1,25 @@
+// Newton's Method Example
+// Demonstrates rune blocks for iterative numerical methods
+//
+// This example uses Newton's method to find the square root of a number.
+// Newton's method: x_{n+1} = (x_n + a/x_n) / 2
+//
+// Run with: cargo run -- solve examples/rune_blocks/newton_method.cad
+
+let target: f64;
+target == 50.0;
+
+// Compute square root using Newton's method (10 iterations)
+let sqrt_result = rune(target) {
+    let mut x = target / 2.0;  // Initial guess
+    for _ in 0..10 {
+        x = (x + target / x) / 2.0;
+    }
+    x
+};
+
+// Verify the result
+let verification: f64;
+verification == rune(sqrt_result) {
+    sqrt_result * sqrt_result
+};

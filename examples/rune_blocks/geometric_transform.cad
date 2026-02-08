@@ -1,0 +1,65 @@
+// Complex Geometric Transformation Example
+// Demonstrates rune blocks for multi-step transformations
+//
+// This example applies a series of geometric transformations:
+// 1. Rotation around origin
+// 2. Scaling
+// 3. Translation
+//
+// Run with: cargo run -- solve examples/rune_blocks/geometric_transform.cad
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+// Original point
+let p: Point;
+p.x == 5.0;
+p.y == 10.0;
+
+// Transformation parameters
+let angle: f64;
+let scale: f64;
+let tx: f64;
+let ty: f64;
+
+angle == 0.785;  // 45 degrees in radians (π/4)
+scale == 2.0;
+tx == 3.0;
+ty == 7.0;
+
+// Apply rotation
+let rotated_x = rune(x=p.x, y=p.y, angle) {
+    x * angle.cos() - y * angle.sin()
+};
+
+let rotated_y = rune(x=p.x, y=p.y, angle) {
+    x * angle.sin() + y * angle.cos()
+};
+
+// Apply scaling
+let scaled_x = rune(rotated_x, scale) {
+    rotated_x * scale
+};
+
+let scaled_y = rune(rotated_y, scale) {
+    rotated_y * scale
+};
+
+// Apply translation
+let final_x = rune(scaled_x, tx) {
+    scaled_x + tx
+};
+
+let final_y = rune(scaled_y, ty) {
+    scaled_y + ty
+};
+
+// Result can be used in constraints
+let distance_moved: f64;
+distance_moved == rune(x1=p.x, y1=p.y, x2=final_x, y2=final_y) {
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    (dx * dx + dy * dy).sqrt()
+};

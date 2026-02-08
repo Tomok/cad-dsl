@@ -1,0 +1,14 @@
+// Test Fibonacci calculation using rune block
+let n: i32;
+n == 10;
+
+let fib = rune(n) {
+    let a = 0;
+    let b = 1;
+    for _ in 0..n {
+        let temp = a + b;
+        a = b;
+        b = temp;
+    }
+    a
+};

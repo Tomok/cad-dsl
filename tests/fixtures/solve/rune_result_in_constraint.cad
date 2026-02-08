@@ -1,0 +1,9 @@
+// Test using rune block result in further computation (via chained rune blocks)
+let x: i32;
+x == 5;
+
+// First rune block: compute x squared
+let y = rune(x) { x * x };
+
+// Second rune block: use the result of the first
+let z = rune(y) { y + 10 };

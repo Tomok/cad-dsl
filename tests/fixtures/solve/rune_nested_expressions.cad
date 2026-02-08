@@ -1,0 +1,11 @@
+// Test rune block with nested expressions
+let a: i32;
+let b: i32;
+
+a == 5;
+b == 3;
+
+// Compute (a + b) * (a - b)
+let result = rune(a, b) {
+    a * a - b * b
+};
