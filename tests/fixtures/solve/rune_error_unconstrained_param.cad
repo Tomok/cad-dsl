@@ -1,0 +1,5 @@
+// Error: rune parameter not fully determined
+let x: i32;
+// x is unconstrained - should cause an error when executing rune
+
+let y = rune(x) { x * 2 };

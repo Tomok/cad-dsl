@@ -1,0 +1,9 @@
+// Test absolute value calculation
+let x: i32;
+let y: i32;
+
+x == -15;
+y == 20;
+
+let abs_x = rune(x) { if x < 0 { -x } else { x } };
+let abs_y = rune(y) { if y < 0 { -y } else { y } };

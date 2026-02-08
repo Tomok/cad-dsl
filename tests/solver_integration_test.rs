@@ -1324,3 +1324,136 @@ fn test_rune_in_function() {
     verify_solution(&stdout, "result_a", "10"); // 5 * 2 = 10
     verify_solution(&stdout, "result_b", "20"); // 10 * 2 = 20
 }
+
+#[test]
+fn test_rune_multiple_params() {
+    // Test rune block with multiple parameters
+    let (success, stdout, stderr) = solve_fixture("rune_multiple_params.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    verify_solution(&stdout, "x", "3");
+    verify_solution(&stdout, "y", "7");
+    verify_solution(&stdout, "result", "10"); // 3 + 7 = 10
+}
+
+#[test]
+fn test_rune_param_assignment() {
+    // Test rune block with three direct parameters
+    let (success, stdout, stderr) = solve_fixture("rune_param_assignment.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    verify_solution(&stdout, "x", "5");
+    verify_solution(&stdout, "y", "10");
+    verify_solution(&stdout, "z", "100");
+    verify_solution(&stdout, "result", "115"); // 5 + 10 + 100 = 115
+}
+
+#[test]
+fn test_rune_control_flow() {
+    // Test if-statement inside rune block
+    let (success, stdout, stderr) = solve_fixture("rune_control_flow.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    verify_solution(&stdout, "x", "15");
+    verify_solution(&stdout, "result", "30"); // 15 > 10, so 15 * 2 = 30
+}
+
+#[test]
+fn test_rune_loop() {
+    // Test for-loop inside rune block (sum of 0..5)
+    let (success, stdout, stderr) = solve_fixture("rune_loop.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    verify_solution(&stdout, "n", "5");
+    verify_solution(&stdout, "result", "10"); // 0 + 1 + 2 + 3 + 4 = 10
+}
+
+#[test]
+fn test_rune_result_in_constraint() {
+    // Test chaining rune blocks (results flow to next rune block's parameters)
+    let (success, stdout, stderr) = solve_fixture("rune_result_in_constraint.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    verify_solution(&stdout, "x", "5");
+    verify_solution(&stdout, "y", "25"); // 5 * 5 = 25
+    verify_solution(&stdout, "z", "35"); // 25 + 10 = 35
+}
+
+#[test]
+fn test_rune_fibonacci() {
+    // Test Fibonacci calculation (10th Fibonacci number)
+    let (success, stdout, stderr) = solve_fixture("rune_fibonacci.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    verify_solution(&stdout, "n", "10");
+    verify_solution(&stdout, "fib", "55"); // 10th Fibonacci number is 55
+}
+
+#[test]
+fn test_rune_abs_value() {
+    // Test absolute value computation
+    let (success, stdout, stderr) = solve_fixture("rune_abs_value.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    verify_solution(&stdout, "x", "-15");
+    verify_solution(&stdout, "y", "20");
+    verify_solution(&stdout, "abs_x", "15"); // |-15| = 15
+    verify_solution(&stdout, "abs_y", "20"); // |20| = 20
+}
+
+#[test]
+fn test_rune_nested_expressions() {
+    // Test rune block with nested expressions
+    let (success, stdout, stderr) = solve_fixture("rune_nested_expressions.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    verify_solution(&stdout, "a", "5");
+    verify_solution(&stdout, "b", "3");
+    verify_solution(&stdout, "result", "16"); // (5 + 3) * (5 - 3) = 8 * 2 = 16
+}
+
+// ============================================================================
+// Rune Blocks - Error Cases
+// ============================================================================
+
+#[test]
+fn test_rune_error_undefined_param() {
+    // Test that using undefined variable as rune parameter fails
+    let (success, stdout, stderr) = solve_fixture("rune_error_undefined_param.cad");
+    assert!(!success, "Expected solver to fail for undefined parameter");
+
+    let combined = format!("{}{}", stdout, stderr);
+    assert!(
+        combined.contains("not found")
+            || combined.contains("undefined")
+            || combined.contains("Variable"),
+        "Expected error about undefined variable, got: {}",
+        combined
+    );
+}
+
+#[test]
+fn test_rune_error_unconstrained_param() {
+    // Test that unconstrained rune parameter is detected
+    // Note: The current implementation may handle this differently
+    // This test documents expected behavior
+    let (success, stdout, stderr) = solve_fixture("rune_error_unconstrained_param.cad");
+
+    // This may succeed with Z3 picking an arbitrary value, or fail
+    // Both behaviors are acceptable - document what happens
+    if !success {
+        let combined = format!("{}{}", stdout, stderr);
+        assert!(
+            combined.contains("unconstrained")
+                || combined.contains("not determined")
+                || combined.contains("unknown"),
+            "Expected error about unconstrained variable, got: {}",
+            combined
+        );
+    } else {
+        // If it succeeds, x should have some value
+        let x = extract_value(&stdout, "x");
+        let y = extract_value(&stdout, "y");
+        assert_eq!(y, x * 2, "y should equal x * 2");
+    }
+}

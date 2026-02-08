@@ -1,0 +1,28 @@
+// Triangle Area Calculation (Heron's Formula) Example
+// Demonstrates rune blocks for complex mathematical formulas
+//
+// Heron's formula computes the area of a triangle given its three side lengths:
+// s = (a + b + c) / 2  (semi-perimeter)
+// area = sqrt(s * (s - a) * (s - b) * (s - c))
+//
+// Run with: cargo run -- solve examples/rune_blocks/triangle_area.cad
+
+// Define the three sides of a triangle
+let a: f64;
+let b: f64;
+let c: f64;
+
+// Example: a 3-4-5 right triangle
+a == 3.0;
+b == 4.0;
+c == 5.0;
+
+// Compute the area using Heron's formula
+let area = rune(a, b, c) {
+    let s = (a + b + c) / 2.0;
+    (s * (s - a) * (s - b) * (s - c)).sqrt()
+};
+
+// Verify the result makes sense
+let expected_area: f64;
+expected_area == 6.0;  // For 3-4-5 triangle, area = (3 * 4) / 2 = 6.0

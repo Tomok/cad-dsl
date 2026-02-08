@@ -1,0 +1,30 @@
+// Polar to Cartesian Conversion Example
+// Demonstrates rune blocks for coordinate transformations
+//
+// This example converts polar coordinates (r, theta) to Cartesian coordinates (x, y).
+// Formula: x = r * cos(theta), y = r * sin(theta)
+//
+// Run with: cargo run -- solve examples/rune_blocks/polar_to_cartesian.cad
+
+// Define polar coordinates
+let r: f64;
+let theta: f64;
+
+r == 10.0;
+theta == 1.047;  // approximately π/3 radians (60 degrees)
+
+// Convert to Cartesian x coordinate
+let x = rune(r, theta) {
+    r * theta.cos()
+};
+
+// Convert to Cartesian y coordinate
+let y = rune(r, theta) {
+    r * theta.sin()
+};
+
+// Results can be used in further constraints
+let distance_from_origin: f64;
+distance_from_origin == rune(x, y) {
+    (x * x + y * y).sqrt()
+};
