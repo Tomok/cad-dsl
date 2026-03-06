@@ -1,0 +1,11 @@
+// Test: let declaration inside if-else branch
+// z is declared in else-branch and constrained to 99 when x <= 5
+
+let x: i32;
+x == 3;
+
+if x > 5 {
+    let y: i32 = 20;
+} else {
+    let z: i32 = 99;
+}

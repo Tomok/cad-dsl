@@ -173,6 +173,31 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                 Ok(())
             }
 
+            // Assignment statement - add as equality constraint (var == value)
+            ResolvedStmtKind::Assignment { var_def, value, .. } => {
+                let qualified_name = var_def.identifier.to_qualified_name();
+                let name_ref: &'static str = Box::leak(qualified_name.into_boxed_str());
+                let path = VariablePath::from_name(name_ref);
+                let z3_var = self.get_variable_z3(ctx, &path)?;
+                let z3_value = value.solve(ctx)?;
+
+                let constraint = match (z3_var, z3_value) {
+                    (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                    (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                    (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                    (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
+                    (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
+                    _ => {
+                        return Err(SolverError::UnsupportedExpression(
+                            "Type mismatch in assignment".to_string(),
+                        ));
+                    }
+                };
+
+                ctx.z3_solver.assert(&constraint);
+                Ok(())
+            }
+
             // StructDef and FunctionDef - skip these, they're definitions not executable statements
             // They've already been processed during semantic analysis
             ResolvedStmtKind::StructDef { .. } | ResolvedStmtKind::FunctionDef { .. } => {
@@ -350,9 +375,44 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                     )),
                 }
             }
-            _ => Err(SolverError::UnsupportedStatement(
-                "Only constraint expressions allowed in loop body".to_string(),
-            )),
+            ResolvedStmtKind::Let { var_def, .. } => {
+                let var_path = ctx.build_var_path_from_identifier(var_def.identifier)?;
+
+                // Declare the variable (only on first iteration; skip if already declared)
+                if ctx.get_variable(&var_path).is_none() {
+                    let var_type = var_def.var_type.as_ref().ok_or_else(|| {
+                        SolverError::ContextError("Variable type not resolved".to_string())
+                    })?;
+                    ctx.declare_variable_at_path(&var_path, var_type)?;
+                }
+
+                // If there's an initializer, add equality constraint with loop var substituted
+                if let VarDefinitionKind::Initialized { init } = &var_def.definition_kind {
+                    let z3_value =
+                        self.solve_expr_with_substitution(ctx, init, loop_var_name, loop_value)?;
+                    let z3_var = self.get_variable_z3(ctx, &var_path)?;
+
+                    let constraint = match (z3_var, z3_value) {
+                        (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                        (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                        (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                        (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
+                        (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
+                        _ => {
+                            return Err(SolverError::UnsupportedExpression(
+                                "Type mismatch in loop let initialization".to_string(),
+                            ));
+                        }
+                    };
+                    ctx.z3_solver.assert(&constraint);
+                }
+
+                Ok(())
+            }
+            _ => Err(SolverError::UnsupportedStatement(format!(
+                "Statement type not supported in for-loop body: {:?}",
+                stmt.kind
+            ))),
         }
     }
 
@@ -1086,12 +1146,41 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                 Ok(())
             }
 
-            // Let statements are not allowed in conditional branches
-            // (they would need scoping semantics we don't support)
-            ResolvedStmtKind::Let { .. } => Err(SolverError::UnsupportedStatement(
-                "Variable declarations (let) are not allowed inside if-statement branches"
-                    .to_string(),
-            )),
+            // Let statement in conditional branch - declare variable and add conditional init
+            ResolvedStmtKind::Let { var_def, .. } => {
+                let var_path = ctx.build_var_path_from_identifier(var_def.identifier)?;
+
+                // Declare the variable unconditionally (it must exist regardless of branch)
+                let var_type = var_def.var_type.as_ref().ok_or_else(|| {
+                    SolverError::ContextError("Variable type not resolved".to_string())
+                })?;
+                ctx.declare_variable_at_path(&var_path, var_type)?;
+
+                // If there's an initializer, add a conditional constraint: condition => var == init
+                if let VarDefinitionKind::Initialized { init } = &var_def.definition_kind {
+                    let z3_value = init.solve(ctx)?;
+                    let z3_var = self.get_variable_z3(ctx, &var_path)?;
+
+                    let equality = match (z3_var, z3_value) {
+                        (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
+                        (Z3Expr::Real(var), Z3Expr::Real(val)) => var.eq(&val),
+                        (Z3Expr::Bool(var), Z3Expr::Bool(val)) => var.eq(&val),
+                        (Z3Expr::Int(var), Z3Expr::Real(val)) => var.to_real().eq(&val),
+                        (Z3Expr::Real(var), Z3Expr::Int(val)) => var.eq(val.to_real()),
+                        _ => {
+                            return Err(SolverError::UnsupportedExpression(
+                                "Type mismatch in conditional let initialization".to_string(),
+                            ));
+                        }
+                    };
+
+                    // Add implication: condition => (var == init_value)
+                    let implication = actual_condition.implies(&equality);
+                    ctx.z3_solver.assert(&implication);
+                }
+
+                Ok(())
+            }
 
             // Other statements are not supported in conditional branches
             _ => Err(SolverError::UnsupportedStatement(format!(
