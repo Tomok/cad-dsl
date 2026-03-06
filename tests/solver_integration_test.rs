@@ -1187,6 +1187,38 @@ if x > 10 {
     let _ = std::fs::remove_file("/tmp/if_statement_deeply_nested.cad");
 }
 
+#[test]
+fn test_if_let_in_then_branch() {
+    // Regression test: let declarations inside if-then branches must be supported.
+    // Previously the solver rejected all let statements inside if-branches with
+    // "Variable declarations (let) are not allowed inside if-statement branches".
+    let (success, stdout, stderr) = solve_fixture("if_let_in_then_branch.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "10");
+    verify_solution(&stdout, "y", "20"); // condition x > 5 is true, so y == 20
+}
+
+#[test]
+fn test_if_let_in_else_branch() {
+    // Regression test: let declarations inside if-else branches must be supported.
+    // When the condition is false the else-branch variable gets its init constraint.
+    let (success, stdout, stderr) = solve_fixture("if_let_in_else_branch.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "3");
+    verify_solution(&stdout, "z", "99"); // else-branch fires since x <= 5
+}
+
+#[test]
+fn test_if_let_uninit_in_branch() {
+    // Regression test: uninitialized let declarations inside if-branches must be supported.
+    // The variable is declared without init inside the branch but constrained by a
+    // separate expression statement.
+    let (success, stdout, stderr) = solve_fixture("if_let_uninit_in_branch.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "7");
+    verify_solution(&stdout, "y", "42");
+}
+
 // ============================================================================
 // Reference Type Alias Tests
 // ============================================================================

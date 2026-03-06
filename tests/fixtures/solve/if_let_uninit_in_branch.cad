@@ -1,0 +1,10 @@
+// Test: let declaration without initializer inside if-branch
+// y is declared inside the if-branch with no init (free variable)
+
+let x: i32;
+x == 7;
+
+if x > 5 {
+    let y: i32;
+    y == 42;
+}

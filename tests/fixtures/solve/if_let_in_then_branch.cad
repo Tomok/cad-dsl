@@ -1,0 +1,10 @@
+// Test: let declaration inside if-then branch
+// y is declared inside the if-branch with init, should be constrained
+// when condition is true
+
+let x: i32;
+x == 10;
+
+if x > 5 {
+    let y: i32 = 20;
+}
