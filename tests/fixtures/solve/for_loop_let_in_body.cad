@@ -1,0 +1,6 @@
+// Test: let declaration inside for-loop body creates per-iteration variables
+// Each x_i should be scoped to its iteration: x_0=0, x_1=2, x_2=4
+
+for i in 0..3 {
+    let x = i * 2;
+}

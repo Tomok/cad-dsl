@@ -1,0 +1,12 @@
+// Test: two separate for-loops that each declare a `let` with the same name
+// should not conflict with each other.
+// First loop: temp_0=0, temp_1=2, temp_2=4
+// Second loop: temp_3=1, temp_4=2, temp_5=3
+
+for i in 0..3 {
+    let temp = i * 2;
+}
+
+for j in 1..4 {
+    let temp = j;
+}

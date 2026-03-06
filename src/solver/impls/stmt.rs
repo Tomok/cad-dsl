@@ -132,16 +132,22 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                     SolverError::UnsupportedExpression("If condition must be boolean".to_string())
                 })?;
 
-                // Process then branch - wrap constraints with condition
+                // Process then branch - wrap constraints with condition.
+                // Snapshot aliases so that scoped `let` variables introduced inside
+                // the branch are removed afterward and not visible outside.
+                let then_snapshot = ctx.alias_map_snapshot();
                 for stmt in then_branch {
                     self.process_conditional_stmt(ctx, stmt, &cond_bool, false)?;
                 }
+                ctx.restore_alias_map(then_snapshot);
 
                 // Process else branch if present
                 if let Some(else_stmts) = else_branch {
+                    let else_snapshot = ctx.alias_map_snapshot();
                     for stmt in else_stmts {
                         self.process_conditional_stmt(ctx, stmt, &cond_bool, true)?;
                     }
+                    ctx.restore_alias_map(else_snapshot);
                 }
 
                 Ok(())
@@ -376,15 +382,24 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                 }
             }
             ResolvedStmtKind::Let { var_def, .. } => {
-                let var_path = ctx.build_var_path_from_identifier(var_def.identifier)?;
+                let base_path = ctx.build_var_path_from_identifier(var_def.identifier)?;
 
-                // Declare the variable (only on first iteration; skip if already declared)
-                if ctx.get_variable(&var_path).is_none() {
-                    let var_type = var_def.var_type.as_ref().ok_or_else(|| {
-                        SolverError::ContextError("Variable type not resolved".to_string())
-                    })?;
-                    ctx.declare_variable_at_path(&var_path, var_type)?;
-                }
+                // Create a globally unique scoped variable using a monotonic counter.
+                // This prevents name collisions across multiple loops or branches that
+                // declare a variable with the same name. E.g., two loops each declaring
+                // "let x" would produce "x_0", "x_1", "x_2" for the first loop and
+                // "x_3", "x_4", "x_5" for the second loop, rather than both producing
+                // "x_0", "x_1", "x_2" which would conflict.
+                let unique_id = ctx.scoped_let_counter;
+                ctx.scoped_let_counter += 1;
+                let iter_name = format!("{}_{}", base_path.to_z3_name(), unique_id);
+                let iter_name_ref: &'static str = Box::leak(iter_name.into_boxed_str());
+                let var_path = VariablePath::from_name(iter_name_ref);
+
+                let var_type = var_def.var_type.as_ref().ok_or_else(|| {
+                    SolverError::ContextError("Variable type not resolved".to_string())
+                })?;
+                ctx.declare_variable_at_path(&var_path, var_type)?;
 
                 // If there's an initializer, add equality constraint with loop var substituted
                 if let VarDefinitionKind::Initialized { init } = &var_def.definition_kind {
@@ -1121,18 +1136,22 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                 // Process then branch: outer_condition => (inner_condition => inner_constraint)
                 // Which is equivalent to: (outer_condition AND inner_condition) => inner_constraint
                 let combined_then_cond = z3::ast::Bool::and(&[&actual_condition, &inner_cond_bool]);
+                let nested_then_snapshot = ctx.alias_map_snapshot();
                 for inner_stmt in then_branch {
                     self.process_conditional_stmt(ctx, inner_stmt, &combined_then_cond, false)?;
                 }
+                ctx.restore_alias_map(nested_then_snapshot);
 
                 // Process else branch: outer_condition => (!inner_condition => inner_constraint)
                 // Which is equivalent to: (outer_condition AND !inner_condition) => inner_constraint
                 if let Some(else_stmts) = else_branch {
                     let combined_else_cond =
                         z3::ast::Bool::and(&[&actual_condition, &inner_cond_bool.not()]);
+                    let nested_else_snapshot = ctx.alias_map_snapshot();
                     for inner_stmt in else_stmts {
                         self.process_conditional_stmt(ctx, inner_stmt, &combined_else_cond, false)?;
                     }
+                    ctx.restore_alias_map(nested_else_snapshot);
                 }
 
                 Ok(())
@@ -1146,20 +1165,34 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                 Ok(())
             }
 
-            // Let statement in conditional branch - declare variable and add conditional init
+            // Let statement in conditional branch - create a uniquely-scoped Z3 variable
+            // and register an alias from the original name so subsequent references
+            // within the same branch resolve correctly.  The alias is removed by the
+            // caller after the branch finishes, so the variable is not visible outside.
             ResolvedStmtKind::Let { var_def, .. } => {
-                let var_path = ctx.build_var_path_from_identifier(var_def.identifier)?;
+                let base_path = ctx.build_var_path_from_identifier(var_def.identifier)?;
 
-                // Declare the variable unconditionally (it must exist regardless of branch)
+                // Unique scoped name (same counter used for for-loop bodies)
+                let unique_id = ctx.scoped_let_counter;
+                ctx.scoped_let_counter += 1;
+                let scoped_name = format!("{}_{}", base_path.to_z3_name(), unique_id);
+                let scoped_name_ref: &'static str = Box::leak(scoped_name.into_boxed_str());
+                let scoped_path = VariablePath::from_name(scoped_name_ref);
+
                 let var_type = var_def.var_type.as_ref().ok_or_else(|| {
                     SolverError::ContextError("Variable type not resolved".to_string())
                 })?;
-                ctx.declare_variable_at_path(&var_path, var_type)?;
+                ctx.declare_variable_at_path(&scoped_path, var_type)?;
 
-                // If there's an initializer, add a conditional constraint: condition => var == init
+                // Alias original name -> scoped name so references inside this branch work
+                ctx.register_alias(base_path, scoped_path.clone());
+
+                // If there's an initializer, add an unconditional equality.
+                // The scoped variable is unique to this branch so there is no
+                // conflict; no implication wrapper is needed.
                 if let VarDefinitionKind::Initialized { init } = &var_def.definition_kind {
                     let z3_value = init.solve(ctx)?;
-                    let z3_var = self.get_variable_z3(ctx, &var_path)?;
+                    let z3_var = self.get_variable_z3(ctx, &scoped_path)?;
 
                     let equality = match (z3_var, z3_value) {
                         (Z3Expr::Int(var), Z3Expr::Int(val)) => var.eq(&val),
@@ -1174,9 +1207,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                         }
                     };
 
-                    // Add implication: condition => (var == init_value)
-                    let implication = actual_condition.implies(&equality);
-                    ctx.z3_solver.assert(&implication);
+                    ctx.z3_solver.assert(&equality);
                 }
 
                 Ok(())

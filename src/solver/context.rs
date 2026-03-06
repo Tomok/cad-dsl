@@ -238,6 +238,13 @@ pub struct SolverContext<'src, 'arena> {
     /// we need the string to outlive the function call. This Vec stores those strings
     /// and we return references to them.
     qualified_name_storage: Vec<String>,
+
+    /// Global counter for uniquely naming scoped let variables
+    ///
+    /// Each `let` declaration inside a scoped block (for-loop body, if-branch, etc.)
+    /// gets a unique suffix derived from this counter, preventing name collisions
+    /// when the same variable name appears in multiple loops or branches.
+    pub scoped_let_counter: usize,
 }
 
 impl<'src, 'arena> SolverContext<'src, 'arena> {
@@ -258,6 +265,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             current_solution: None,
             previous_solved_count: 0,
             qualified_name_storage: Vec::new(),
+            scoped_let_counter: 0,
         }
     }
 
@@ -637,6 +645,23 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     /// This means that `r` is an alias to `x`, and they should share the same Z3 variable.
     pub fn register_alias(&mut self, alias: VariablePath<'src>, target: VariablePath<'src>) {
         self.alias_map.insert(alias, target);
+    }
+
+    /// Take a snapshot of the current alias map keys for branch scope management.
+    ///
+    /// Call this before processing a branch, then pass the result to
+    /// `restore_alias_map` after the branch to remove any aliases that were
+    /// added inside the branch (i.e., scoped let variables).
+    pub fn alias_map_snapshot(&self) -> std::collections::HashSet<VariablePath<'src>> {
+        self.alias_map.keys().cloned().collect()
+    }
+
+    /// Restore the alias map to a previous snapshot.
+    ///
+    /// Removes every alias whose key was not present in the snapshot, effectively
+    /// discarding all scoped aliases created since the snapshot was taken.
+    pub fn restore_alias_map(&mut self, snapshot: std::collections::HashSet<VariablePath<'src>>) {
+        self.alias_map.retain(|k, _| snapshot.contains(k));
     }
 
     /// Resolve an alias to its ultimate target path

@@ -634,6 +634,38 @@ fn test_for_loop_unresolvable_range() {
     }
 }
 
+#[test]
+fn test_for_loop_let_in_body() {
+    // Regression test: let declarations inside for-loop bodies must create
+    // per-iteration scoped variables rather than a single shared variable.
+    // Without scoping, each iteration adds a conflicting equality constraint
+    // (x==0, x==2, x==4...) which makes the system UNSAT.
+    let (success, stdout, stderr) = solve_fixture("for_loop_let_in_body.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x_0", "0");
+    verify_solution(&stdout, "x_1", "2");
+    verify_solution(&stdout, "x_2", "4");
+}
+
+#[test]
+fn test_for_loop_two_loops_same_let_name() {
+    // Regression test: two separate for-loops that each declare a `let` with
+    // the same variable name must not conflict. Without a global counter,
+    // both loops would produce variables named "temp_0", "temp_1", "temp_2",
+    // and the second loop's constraints would collide with the first's,
+    // making the system UNSAT.
+    let (success, stdout, stderr) = solve_fixture("for_loop_two_loops_same_let_name.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    // First loop: temp_0 = 0*2 = 0, temp_1 = 1*2 = 2, temp_2 = 2*2 = 4
+    verify_solution(&stdout, "temp_0", "0");
+    verify_solution(&stdout, "temp_1", "2");
+    verify_solution(&stdout, "temp_2", "4");
+    // Second loop: temp_3 = 1, temp_4 = 2, temp_5 = 3
+    verify_solution(&stdout, "temp_3", "1");
+    verify_solution(&stdout, "temp_4", "2");
+    verify_solution(&stdout, "temp_5", "3");
+}
+
 // ============================================================================
 // Array Tests
 // ============================================================================
@@ -1189,34 +1221,55 @@ if x > 10 {
 
 #[test]
 fn test_if_let_in_then_branch() {
-    // Regression test: let declarations inside if-then branches must be supported.
-    // Previously the solver rejected all let statements inside if-branches with
-    // "Variable declarations (let) are not allowed inside if-statement branches".
+    // Regression test: let declarations inside if-then branches create uniquely-scoped
+    // Z3 variables (y_0, y_1, …) so they do not conflict with variables in other branches
+    // or with each other across separate if-statements.  The scoped name appears in output.
     let (success, stdout, stderr) = solve_fixture("if_let_in_then_branch.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);
     verify_solution(&stdout, "x", "10");
-    verify_solution(&stdout, "y", "20"); // condition x > 5 is true, so y == 20
+    // y declared in then-branch gets a unique scoped name (y_0 for the first let in this run)
+    verify_solution(&stdout, "y_0", "20");
 }
 
 #[test]
 fn test_if_let_in_else_branch() {
     // Regression test: let declarations inside if-else branches must be supported.
-    // When the condition is false the else-branch variable gets its init constraint.
+    // Each branch-scoped let gets a unique counter suffix so they are separate Z3 variables.
     let (success, stdout, stderr) = solve_fixture("if_let_in_else_branch.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);
     verify_solution(&stdout, "x", "3");
-    verify_solution(&stdout, "z", "99"); // else-branch fires since x <= 5
+    // then-branch y → y_0, else-branch z → z_1
+    verify_solution(&stdout, "z_1", "99"); // else-branch fires since x <= 5
 }
 
 #[test]
 fn test_if_let_uninit_in_branch() {
     // Regression test: uninitialized let declarations inside if-branches must be supported.
-    // The variable is declared without init inside the branch but constrained by a
-    // separate expression statement.
+    // The variable is scoped (y_0) and the subsequent constraint inside the branch
+    // is resolved through the alias y → y_0.
     let (success, stdout, stderr) = solve_fixture("if_let_uninit_in_branch.cad");
     assert!(success, "Solver failed: {}{}", stdout, stderr);
     verify_solution(&stdout, "x", "7");
-    verify_solution(&stdout, "y", "42");
+    // y declared without init in the branch → scoped as y_0
+    verify_solution(&stdout, "y_0", "42");
+}
+
+#[test]
+fn test_if_let_same_name_both_branches() {
+    // Core scoping test: the same variable name declared in both branches must
+    // produce two *separate* Z3 variables, not one shared one.
+    // If they shared a variable the constraints "x==7" and "x==9" would conflict
+    // and the system would be UNSAT.
+    let (success, stdout, stderr) = solve_fixture("if_let_same_name_both_branches.cad");
+    assert!(
+        success,
+        "Solver failed (expected SAT): {}{}",
+        stdout, stderr
+    );
+    verify_solution(&stdout, "a", "true");
+    // then-branch x → x_0 = 7, else-branch x → x_1 = 9 (both appear in output)
+    verify_solution(&stdout, "x_0", "7");
+    verify_solution(&stdout, "x_1", "9");
 }
 
 // ============================================================================
