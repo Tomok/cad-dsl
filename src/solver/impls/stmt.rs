@@ -376,15 +376,18 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                 }
             }
             ResolvedStmtKind::Let { var_def, .. } => {
-                let var_path = ctx.build_var_path_from_identifier(var_def.identifier)?;
+                let base_path = ctx.build_var_path_from_identifier(var_def.identifier)?;
 
-                // Declare the variable (only on first iteration; skip if already declared)
-                if ctx.get_variable(&var_path).is_none() {
-                    let var_type = var_def.var_type.as_ref().ok_or_else(|| {
-                        SolverError::ContextError("Variable type not resolved".to_string())
-                    })?;
-                    ctx.declare_variable_at_path(&var_path, var_type)?;
-                }
+                // Create a per-iteration scoped variable to avoid conflicting constraints
+                // across iterations. E.g., "x" in iteration 3 becomes "x_3".
+                let iter_name = format!("{}_{}", base_path.to_z3_name(), loop_value);
+                let iter_name_ref: &'static str = Box::leak(iter_name.into_boxed_str());
+                let var_path = VariablePath::from_name(iter_name_ref);
+
+                let var_type = var_def.var_type.as_ref().ok_or_else(|| {
+                    SolverError::ContextError("Variable type not resolved".to_string())
+                })?;
+                ctx.declare_variable_at_path(&var_path, var_type)?;
 
                 // If there's an initializer, add equality constraint with loop var substituted
                 if let VarDefinitionKind::Initialized { init } = &var_def.definition_kind {

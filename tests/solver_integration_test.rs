@@ -634,6 +634,19 @@ fn test_for_loop_unresolvable_range() {
     }
 }
 
+#[test]
+fn test_for_loop_let_in_body() {
+    // Regression test: let declarations inside for-loop bodies must create
+    // per-iteration scoped variables rather than a single shared variable.
+    // Without scoping, each iteration adds a conflicting equality constraint
+    // (x==0, x==2, x==4...) which makes the system UNSAT.
+    let (success, stdout, stderr) = solve_fixture("for_loop_let_in_body.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x_0", "0");
+    verify_solution(&stdout, "x_1", "2");
+    verify_solution(&stdout, "x_2", "4");
+}
+
 // ============================================================================
 // Array Tests
 // ============================================================================
