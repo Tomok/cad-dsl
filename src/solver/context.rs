@@ -238,6 +238,13 @@ pub struct SolverContext<'src, 'arena> {
     /// we need the string to outlive the function call. This Vec stores those strings
     /// and we return references to them.
     qualified_name_storage: Vec<String>,
+
+    /// Global counter for uniquely naming scoped let variables
+    ///
+    /// Each `let` declaration inside a scoped block (for-loop body, if-branch, etc.)
+    /// gets a unique suffix derived from this counter, preventing name collisions
+    /// when the same variable name appears in multiple loops or branches.
+    pub scoped_let_counter: usize,
 }
 
 impl<'src, 'arena> SolverContext<'src, 'arena> {
@@ -258,6 +265,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             current_solution: None,
             previous_solved_count: 0,
             qualified_name_storage: Vec::new(),
+            scoped_let_counter: 0,
         }
     }
 

@@ -378,9 +378,15 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
             ResolvedStmtKind::Let { var_def, .. } => {
                 let base_path = ctx.build_var_path_from_identifier(var_def.identifier)?;
 
-                // Create a per-iteration scoped variable to avoid conflicting constraints
-                // across iterations. E.g., "x" in iteration 3 becomes "x_3".
-                let iter_name = format!("{}_{}", base_path.to_z3_name(), loop_value);
+                // Create a globally unique scoped variable using a monotonic counter.
+                // This prevents name collisions across multiple loops or branches that
+                // declare a variable with the same name. E.g., two loops each declaring
+                // "let x" would produce "x_0", "x_1", "x_2" for the first loop and
+                // "x_3", "x_4", "x_5" for the second loop, rather than both producing
+                // "x_0", "x_1", "x_2" which would conflict.
+                let unique_id = ctx.scoped_let_counter;
+                ctx.scoped_let_counter += 1;
+                let iter_name = format!("{}_{}", base_path.to_z3_name(), unique_id);
                 let iter_name_ref: &'static str = Box::leak(iter_name.into_boxed_str());
                 let var_path = VariablePath::from_name(iter_name_ref);
 

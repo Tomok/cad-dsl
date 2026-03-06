@@ -647,6 +647,25 @@ fn test_for_loop_let_in_body() {
     verify_solution(&stdout, "x_2", "4");
 }
 
+#[test]
+fn test_for_loop_two_loops_same_let_name() {
+    // Regression test: two separate for-loops that each declare a `let` with
+    // the same variable name must not conflict. Without a global counter,
+    // both loops would produce variables named "temp_0", "temp_1", "temp_2",
+    // and the second loop's constraints would collide with the first's,
+    // making the system UNSAT.
+    let (success, stdout, stderr) = solve_fixture("for_loop_two_loops_same_let_name.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    // First loop: temp_0 = 0*2 = 0, temp_1 = 1*2 = 2, temp_2 = 2*2 = 4
+    verify_solution(&stdout, "temp_0", "0");
+    verify_solution(&stdout, "temp_1", "2");
+    verify_solution(&stdout, "temp_2", "4");
+    // Second loop: temp_3 = 1, temp_4 = 2, temp_5 = 3
+    verify_solution(&stdout, "temp_3", "1");
+    verify_solution(&stdout, "temp_4", "2");
+    verify_solution(&stdout, "temp_5", "3");
+}
+
 // ============================================================================
 // Array Tests
 // ============================================================================
