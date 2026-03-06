@@ -1,0 +1,12 @@
+// Test: let with the same name in both then and else branches
+// Each branch should create a separate scoped Z3 variable so they do not
+// conflict.  a is declared outside and constrains which branch executes.
+
+let a: bool;
+a == true;
+
+if a {
+    let x: i32 = 7;
+} else {
+    let x: i32 = 9;
+}

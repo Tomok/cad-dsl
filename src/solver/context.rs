@@ -647,6 +647,23 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         self.alias_map.insert(alias, target);
     }
 
+    /// Take a snapshot of the current alias map keys for branch scope management.
+    ///
+    /// Call this before processing a branch, then pass the result to
+    /// `restore_alias_map` after the branch to remove any aliases that were
+    /// added inside the branch (i.e., scoped let variables).
+    pub fn alias_map_snapshot(&self) -> std::collections::HashSet<VariablePath<'src>> {
+        self.alias_map.keys().cloned().collect()
+    }
+
+    /// Restore the alias map to a previous snapshot.
+    ///
+    /// Removes every alias whose key was not present in the snapshot, effectively
+    /// discarding all scoped aliases created since the snapshot was taken.
+    pub fn restore_alias_map(&mut self, snapshot: std::collections::HashSet<VariablePath<'src>>) {
+        self.alias_map.retain(|k, _| snapshot.contains(k));
+    }
+
     /// Resolve an alias to its ultimate target path
     ///
     /// Follows the alias chain until we find a path that is not an alias.
