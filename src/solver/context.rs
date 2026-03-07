@@ -298,6 +298,16 @@ pub struct SolverContext<'src, 'arena> {
     /// across outer solver iterations, so `declare_variable_at_path`'s existence
     /// guard can reuse the correct Z3 variable instead of allocating a fresh one.
     scoped_var_cache: HashMap<ScopedVarKey, VariablePath<'src>>,
+
+    /// Whether optimize objectives have already been registered with Z3.
+    ///
+    /// The solve loop replays all statements on every iteration, but the
+    /// `z3::Optimize` instance persists across iterations.  Calling
+    /// `minimize`/`maximize` again would silently append duplicate objectives,
+    /// inflating optimization cost and memory use without changing semantics.
+    /// This flag ensures objectives are registered exactly once (on the first
+    /// iteration).
+    pub objectives_registered: bool,
 }
 
 impl<'src, 'arena> SolverContext<'src, 'arena> {
@@ -325,6 +335,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             scoped_let_counter: 0,
             loop_context_stack: Vec::new(),
             scoped_var_cache: HashMap::new(),
+            objectives_registered: false,
         }
     }
 
@@ -1239,6 +1250,10 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             for stmt in statements {
                 stmt.solve(self)?;
             }
+
+            // After the first full pass all objectives have been registered.
+            // Mark the flag so subsequent iterations skip re-adding them.
+            self.objectives_registered = true;
 
             // Run Z3 optimizer
             match self.z3_optimizer.check(&[]) {
