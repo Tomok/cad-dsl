@@ -619,18 +619,19 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
 
     /// Create Z3 primitive variable
     ///
-    /// STRING ALLOCATION HAPPENS HERE! This is the only place where
-    /// we convert paths to strings for Z3 variable names.
+    /// Uses `fresh_const` with the path as a prefix to guarantee Z3 naming
+    /// conflicts are always prevented, even when the same variable name appears
+    /// in multiple scopes or iterations.
     fn create_z3_primitive(
         &self,
         path: &VariablePath<'src>,
         typ: &ResolvedType<'src, 'arena>,
     ) -> Result<Z3Primitive, SolverError> {
-        let name = path.to_z3_name(); // Only string allocation!
+        let prefix = path.to_z3_name();
         Ok(match typ {
-            ResolvedType::I32 { .. } => Z3Primitive::Int(z3::ast::Int::new_const(name)),
-            ResolvedType::F64 { .. } => Z3Primitive::Real(z3::ast::Real::new_const(name)),
-            ResolvedType::Bool { .. } => Z3Primitive::Bool(z3::ast::Bool::new_const(name)),
+            ResolvedType::I32 { .. } => Z3Primitive::Int(z3::ast::Int::fresh_const(&prefix)),
+            ResolvedType::F64 { .. } => Z3Primitive::Real(z3::ast::Real::fresh_const(&prefix)),
+            ResolvedType::Bool { .. } => Z3Primitive::Bool(z3::ast::Bool::fresh_const(&prefix)),
             _ => return Err(SolverError::NotAPrimitiveType),
         })
     }
