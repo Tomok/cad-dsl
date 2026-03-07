@@ -213,12 +213,14 @@ cm^4 = (1e-2 · m)^4 = 1e-8 · m^4
 
 ### Base Units
 
-Base units are fundamental measurement scales with no conversion factor.
+A base unit introduces a brand-new fundamental dimension that cannot be expressed in terms of any other unit. It is the anchor for an entire family of derived units.
 
 **Syntax:**
 ```rust
 unit <name>;
 ```
+
+Declaring a base unit means: "this dimension has no conversion to anything else; every unit of this dimension must ultimately reference `<name>`." All values of a dimensioned type are stored internally using the base unit for that dimension.
 
 **Standard Base Units:**
 ```rust
@@ -229,20 +231,43 @@ unit rad;    // radian (angle) — dimensionless supplementary unit (rad = m/m =
 unit K;      // kelvin (temperature)
 ```
 
-Base units define the internal representation for all values of their dimension. All `Real<m>` values are stored in meters internally.
+**Defining your own base unit:**
+
+Any `unit <name>;` declaration (without `=`) creates a new dimension. Custom base units can be used as type parameters and combined with derived units just like built-in ones:
+
+```rust
+unit pixel;                          // new dimension: screen pixels
+unit currency;                       // new dimension: abstract monetary unit
+
+let width: Real<pixel> = 1920pixel;
+unit px = 1 * pixel;                 // shorthand alias
+```
 
 **Special case — `rad` is dimensionless:** Following SI convention, `rad` is a supplementary unit equal to 1 (it is the ratio of arc length to radius, both in meters). In the type system this means `rad` cancels in products and quotients: `Real<m> * Real<rad/s>` derives to `Real<m/s>`, and `Real<rad>` is interchangeable with dimensionless `Real` in arithmetic. This allows trigonometric functions to accept `Real<rad>` and return `f64` (dimensionless) without a unit mismatch.
 
 ### Derived Units
 
-Derived units are defined with explicit conversion formulas to base units.
+A derived unit is defined by a conversion expression that relates it to existing units (base units, other derived units, or prefixed variants). Any arithmetic combination of units and numeric constants is valid on the right-hand side.
 
 **Syntax:**
-```rust
-unit <name> = <expression> * <base_unit>;
+```
+unit <name> = <unit-expr> ;
+
+unit-expr  ::= numeric-literal
+             | unit-name
+             | unit-expr '*' unit-expr
+             | unit-expr '/' unit-expr
+             | unit-expr '^' integer-literal
+             | '(' unit-expr ')'
 ```
 
-**Simple Scalar Conversions:**
+- `numeric-literal` — any integer or floating-point constant, including named constants such as `PI`
+- `unit-name` — any previously declared base unit, derived unit, or prefixed unit (e.g. `cm`, `km`)
+- Operator precedence: `^` binds tightest, then `*` and `/` left-to-right, then parentheses for grouping
+
+The compiler recursively resolves the right-hand side to base units, so derived units can freely reference other derived units; there is no requirement that the immediate right-hand side be a base unit.
+
+**Scale-factor conversions** (numeric × base unit):
 ```rust
 unit inch = 0.0254 * m;
 unit ft = 0.3048 * m;
@@ -255,16 +280,24 @@ unit day = 86400 * s;
 unit deg = (PI / 180.0) * rad;
 ```
 
-**Conversions Referencing Other Units:**
+**Division-based conversions:**
+```rust
+unit arcmin = deg / 60.0;      // 1 arcminute = 1/60 degree
+unit arcsec = deg / 3600.0;    // 1 arcsecond = 1/3600 degree
+```
 
-Derived units can reference other derived units:
+**Derived-from-derived conversions** (chaining):
 ```rust
 unit ft = 12 * inch;        // foot = 12 inches
 unit yard = 3 * ft;         // yard = 3 feet
 unit mile = 5280 * ft;      // mile = 5280 feet
 ```
 
-The compiler recursively resolves these to base units.
+**Compound-unit right-hand sides:**
+```rust
+unit liter = 1000 * cm³;       // volume unit via prefixed+exponentiated unit
+unit gallon = 3785.41 * cm³;
+```
 
 ### Automatic Unit Derivation
 
