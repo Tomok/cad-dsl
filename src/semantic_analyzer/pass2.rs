@@ -220,7 +220,13 @@ pub fn resolve_statement<'src, 'arena>(
 
         Stmt::Expression { expr, span } => resolve_expression_statement(ctx, expr, *span),
 
-        Stmt::Optimize { directives, span } => resolve_optimize_statement(ctx, directives, *span),
+        Stmt::Optimize { directives, span } => {
+            if ctx.scope_stack.current_scope_level() != 0 {
+                ctx.add_error(SemanticError::NestedOptimizeBlock { span: *span });
+                return None;
+            }
+            resolve_optimize_statement(ctx, directives, *span)
+        }
     }
 }
 
@@ -4609,5 +4615,140 @@ mod tests {
         } else {
             panic!("Expected RuneBlock kind");
         }
+    }
+
+    // ========================================================================
+    // Nested optimize block rejection tests
+    // ========================================================================
+
+    /// Helper to build a `Stmt::Optimize` with a single `minimize 1` directive.
+    /// Using an integer literal avoids the need to pre-declare any variables.
+    fn make_optimize_stmt(span: Span) -> Stmt<'static> {
+        use crate::ast::{OptimizeDirective, OptimizeDirectiveKind};
+        Stmt::Optimize {
+            directives: vec![OptimizeDirective {
+                kind: OptimizeDirectiveKind::Minimize,
+                expr: Expr::IntLit { value: 1, span },
+                span,
+            }],
+            span,
+        }
+    }
+
+    #[test]
+    fn test_optimize_allowed_at_top_level() {
+        let arena = Bump::new();
+        let source = "optimize { minimize 1; }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        assert_eq!(ctx.scope_stack.current_scope_level(), 0);
+        let stmt = make_optimize_stmt(make_span(1, 1));
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_some(), "optimize at top level should succeed");
+        assert!(!ctx.has_errors());
+    }
+
+    #[test]
+    fn test_optimize_rejected_inside_if_branch() {
+        let arena = Bump::new();
+        let source = "if true { optimize { minimize 1; } }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Simulate being inside an if-branch by pushing a scope.
+        ctx.scope_stack.push_scope();
+        assert_eq!(ctx.scope_stack.current_scope_level(), 1);
+
+        let stmt = make_optimize_stmt(make_span(1, 11));
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_none(), "optimize inside if should fail");
+        assert!(ctx.has_errors());
+
+        let errors = ctx.take_errors();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(&errors[0], SemanticError::NestedOptimizeBlock { .. });
+    }
+
+    #[test]
+    fn test_optimize_rejected_inside_for_body() {
+        let arena = Bump::new();
+        let source = "for i in 0..1 { optimize { minimize 1; } }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Simulate being inside a for-body by pushing a scope.
+        ctx.scope_stack.push_scope();
+        assert_eq!(ctx.scope_stack.current_scope_level(), 1);
+
+        let stmt = make_optimize_stmt(make_span(1, 17));
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_none(), "optimize inside for should fail");
+        assert!(ctx.has_errors());
+
+        let errors = ctx.take_errors();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(&errors[0], SemanticError::NestedOptimizeBlock { .. });
+    }
+
+    #[test]
+    fn test_optimize_rejected_inside_with_block() {
+        let arena = Bump::new();
+        let source = "with s { optimize { minimize 1; } }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // with-contexts also push a scope (scope level > 0).
+        ctx.scope_stack.push_scope();
+        assert_eq!(ctx.scope_stack.current_scope_level(), 1);
+
+        let stmt = make_optimize_stmt(make_span(1, 10));
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_none(), "optimize inside with should fail");
+        assert!(ctx.has_errors());
+
+        let errors = ctx.take_errors();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(&errors[0], SemanticError::NestedOptimizeBlock { .. });
+    }
+
+    #[test]
+    fn test_optimize_rejected_inside_function_body() {
+        let arena = Bump::new();
+        let source = "fn f() { optimize { minimize 1; } }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Function bodies push a scope.
+        ctx.scope_stack.push_scope();
+        assert_eq!(ctx.scope_stack.current_scope_level(), 1);
+
+        let stmt = make_optimize_stmt(make_span(1, 10));
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(
+            resolved.is_none(),
+            "optimize inside function body should fail"
+        );
+        assert!(ctx.has_errors());
+
+        let errors = ctx.take_errors();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(&errors[0], SemanticError::NestedOptimizeBlock { .. });
+    }
+
+    #[test]
+    fn test_optimize_rejected_at_deeply_nested_scope() {
+        let arena = Bump::new();
+        let source = "fn f() { if true { optimize { minimize 1; } } }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Two levels deep (e.g., function body → if branch).
+        ctx.scope_stack.push_scope();
+        ctx.scope_stack.push_scope();
+        assert_eq!(ctx.scope_stack.current_scope_level(), 2);
+
+        let stmt = make_optimize_stmt(make_span(1, 20));
+        let resolved = resolve_statement(&mut ctx, &stmt);
+        assert!(resolved.is_none());
+        assert!(ctx.has_errors());
+
+        let errors = ctx.take_errors();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(&errors[0], SemanticError::NestedOptimizeBlock { .. });
     }
 }

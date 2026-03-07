@@ -74,7 +74,8 @@ fn report_semantic_errors(filename: &str, source: &str, errors: Vec<SemanticErro
             | SemanticError::NotInWithContext { span }
             | SemanticError::NoContainerField { span, .. }
             | SemanticError::InvalidDotPrefix { span }
-            | SemanticError::InvalidTransformSignature { span, .. } => span,
+            | SemanticError::InvalidTransformSignature { span, .. }
+            | SemanticError::NestedOptimizeBlock { span } => span,
             SemanticError::DuplicateDefinition { second_span, .. }
             | SemanticError::AmbiguousTransform { second_span, .. } => second_span,
         };
