@@ -97,8 +97,12 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                 // Try to evaluate the range
                 match self.evaluate_range(iterator, ctx) {
                     Ok((start, end)) => {
-                        // Range is known - unroll the loop immediately
-                        self.unroll_loop(ctx, loop_var_def.name(), start, end, body)?;
+                        // Range is known - unroll the loop immediately.
+                        // Pass the raw pointer of this for-loop's HIR node as a
+                        // stable identity for LoopFrame; arena-allocated nodes
+                        // never move so the address is valid for the solve lifetime.
+                        let for_stmt_ptr = self as *const ResolvedStmt as usize;
+                        self.unroll_loop(ctx, for_stmt_ptr, loop_var_def.name(), start, end, body)?;
                         Ok(())
                     }
                     Err(SolverError::UndefinedVariable(var_name)) => {
@@ -323,32 +327,43 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
     /// Unroll a for loop with known range bounds
     ///
     /// Creates constraints for each iteration of the loop.
+    ///
+    /// `for_stmt_ptr` is the raw address of the HIR `ResolvedStmt` node for
+    /// this for-loop. It is used as the stable identity component of the
+    /// `LoopFrame` that is pushed onto `ctx.loop_context_stack` for each
+    /// iteration, ensuring that scoped `let` variables declared in the body
+    /// receive a context-aware cache key (see `get_or_create_scoped_var_path`).
     fn unroll_loop(
         &self,
         ctx: &mut SolverContext<'src, 'arena>,
+        for_stmt_ptr: usize,
         loop_var_name: &'src str,
         start: i64,
         end: i64,
         body: &[&'arena ResolvedStmt<'src, 'arena>],
     ) -> Result<(), SolverError> {
-        // Unroll the loop
+        use crate::solver::context::LoopFrame;
+
         for i in start..end {
-            // For each iteration, we need to substitute the loop variable
-            // with the current iteration value in the body
+            // Push this iteration's frame before processing the body.
+            // Any scoped `let` declarations inside the body will snapshot
+            // the stack (including this frame) to form their `ScopedVarKey`.
+            ctx.push_loop_frame(LoopFrame {
+                for_stmt_ptr,
+                iteration_value: i,
+            });
 
-            // For now, we'll create constraints assuming the loop variable
-            // is used in a simple way. This is a simplified implementation
-            // that handles common cases.
+            // Process body statements inside a closure so the frame is
+            // always popped regardless of whether an error occurs.
+            let body_result: Result<(), SolverError> = (|| {
+                for stmt in body {
+                    self.process_loop_body_stmt(ctx, stmt, loop_var_name, i)?;
+                }
+                Ok(())
+            })();
 
-            // TODO: Full implementation would need to:
-            // 1. Create a temporary variable for the loop iteration
-            // 2. Substitute it in all expressions in the body
-            // 3. Process the modified body statements
-
-            for stmt in body {
-                // Process statements, substituting loop variable with current value
-                self.process_loop_body_stmt(ctx, stmt, loop_var_name, i)?;
-            }
+            ctx.pop_loop_frame();
+            body_result?;
         }
 
         Ok(())
@@ -384,17 +399,21 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
             ResolvedStmtKind::Let { var_def, .. } => {
                 let base_path = ctx.build_var_path_from_identifier(var_def.identifier)?;
 
-                // Create a globally unique scoped variable using a monotonic counter.
-                // This prevents name collisions across multiple loops or branches that
-                // declare a variable with the same name. E.g., two loops each declaring
-                // "let x" would produce "x_0", "x_1", "x_2" for the first loop and
-                // "x_3", "x_4", "x_5" for the second loop, rather than both producing
-                // "x_0", "x_1", "x_2" which would conflict.
-                let unique_id = ctx.scoped_let_counter;
-                ctx.scoped_let_counter += 1;
-                let iter_name = format!("{}_{}", base_path.to_z3_name(), unique_id);
-                let iter_name_ref: &'static str = Box::leak(iter_name.into_boxed_str());
-                let var_path = VariablePath::from_name(iter_name_ref);
+                // Obtain a stable, context-aware path for this scoped variable.
+                //
+                // `get_or_create_scoped_var_path` keys on the raw address of this
+                // HIR `let` node plus a snapshot of the full loop-context stack, so:
+                //
+                // - The same HIR node under the same loop values (across outer solver
+                //   iterations) always returns the same path → `declare_variable_at_path`'s
+                //   existence guard then reuses the correct Z3 variable.
+                // - The same HIR node under different outer-loop values (e.g. i=0 vs i=1
+                //   in a nested loop) returns different paths → no variable aliasing.
+                // - Two distinct HIR nodes with the same variable name (two different loops
+                //   both declaring `let x`) return different paths → no collision.
+                let let_stmt_ptr = stmt as *const ResolvedStmt as usize;
+                let var_path =
+                    ctx.get_or_create_scoped_var_path(let_stmt_ptr, &base_path.to_z3_name());
 
                 let var_type = var_def.var_type.as_ref().ok_or_else(|| {
                     SolverError::ContextError("Variable type not resolved".to_string())

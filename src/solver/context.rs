@@ -178,6 +178,41 @@ pub struct RuneBlockExecution<'src, 'arena> {
 }
 
 // ============================================================================
+// Loop Context Tracking
+// ============================================================================
+
+/// One level of an active for-loop's execution context.
+///
+/// Identified by the raw arena address of the HIR `ResolvedStmt` node for the
+/// for-loop and the concrete loop-variable value for this iteration. Because HIR
+/// nodes are arena-allocated and never moved, the pointer is stable for the
+/// entire lifetime of a `SolverContext`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LoopFrame {
+    /// Raw address of the HIR `ResolvedStmt` node for this for-loop.
+    pub for_stmt_ptr: usize,
+    /// Concrete loop variable value for this iteration.
+    pub iteration_value: i64,
+}
+
+/// Cache key for a scoped variable declared inside one or more loop bodies.
+///
+/// Uniquely identifies the combination of:
+/// - which `let` HIR node declared the variable (`let_stmt_ptr`)
+/// - the exact nesting of loop iterations active at declaration time (`loop_stack`)
+///
+/// This is necessary because the same `let` HIR node can be reached under
+/// different outer-loop values (e.g. `i=0, j=1` vs `i=1, j=1`), and each
+/// combination must produce a distinct Z3 variable.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ScopedVarKey {
+    /// Raw address of the HIR `ResolvedStmt` node for the `let` statement.
+    pub let_stmt_ptr: usize,
+    /// Full loop-context stack at declaration time, outermost frame first.
+    pub loop_stack: Vec<LoopFrame>,
+}
+
+// ============================================================================
 // Solver Context
 // ============================================================================
 
@@ -239,12 +274,30 @@ pub struct SolverContext<'src, 'arena> {
     /// and we return references to them.
     qualified_name_storage: Vec<String>,
 
-    /// Global counter for uniquely naming scoped let variables
+    /// Global counter for uniquely naming scoped let variables.
     ///
     /// Each `let` declaration inside a scoped block (for-loop body, if-branch, etc.)
     /// gets a unique suffix derived from this counter, preventing name collisions
     /// when the same variable name appears in multiple loops or branches.
+    /// The counter only ever increases; reuse across solver iterations is achieved
+    /// via `scoped_var_cache`, not by resetting this counter.
     pub scoped_let_counter: usize,
+
+    /// Active for-loop nesting at the current point during statement solving.
+    ///
+    /// `unroll_loop` pushes a `LoopFrame` before processing each iteration's body
+    /// and pops it afterwards. `process_loop_body_stmt` snapshots this stack when
+    /// constructing a `ScopedVarKey` so that different outer-loop values produce
+    /// distinct cache entries even for the same inner `let` HIR node.
+    loop_context_stack: Vec<LoopFrame>,
+
+    /// Maps `(let-stmt identity, full loop context at declaration)` to the
+    /// generated `VariablePath`.
+    ///
+    /// Ensures the same `let` statement in a loop always maps to the same path
+    /// across outer solver iterations, so `declare_variable_at_path`'s existence
+    /// guard can reuse the correct Z3 variable instead of allocating a fresh one.
+    scoped_var_cache: HashMap<ScopedVarKey, VariablePath<'src>>,
 }
 
 impl<'src, 'arena> SolverContext<'src, 'arena> {
@@ -266,6 +319,8 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             previous_solved_count: 0,
             qualified_name_storage: Vec::new(),
             scoped_let_counter: 0,
+            loop_context_stack: Vec::new(),
+            scoped_var_cache: HashMap::new(),
         }
     }
 
@@ -486,6 +541,17 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         path: &VariablePath<'src>,
         typ: &'arena ResolvedType<'src, 'arena>,
     ) -> Result<(), SolverError> {
+        // Reuse the existing Z3 variable if this path was already declared.
+        //
+        // The outer solve() loop re-processes every statement on each iteration
+        // (required for deferred constraint resolution). Without this guard,
+        // `build_variable_tree` would call `fresh_const` each time and produce a
+        // new Z3 symbol, orphaning constraints from prior iterations on the old
+        // symbol while `extract_solution` reads only the new one.
+        if self.get_variable(path).is_some() {
+            return Ok(());
+        }
+
         // Build the variable tree for this type
         let node = self.build_variable_tree(path, typ)?;
 
@@ -726,6 +792,68 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             dependencies,
             description,
         });
+    }
+
+    // ========================================================================
+    // Loop Context Management
+    // ========================================================================
+
+    /// Push a loop frame onto the active loop-context stack.
+    ///
+    /// Called by `unroll_loop` before processing each iteration's body so that
+    /// any scoped `let` declarations inside the body see the full nesting context
+    /// when their `ScopedVarKey` is constructed.
+    pub fn push_loop_frame(&mut self, frame: LoopFrame) {
+        self.loop_context_stack.push(frame);
+    }
+
+    /// Pop the innermost loop frame from the active loop-context stack.
+    ///
+    /// Must be called once per `push_loop_frame` after the iteration's body has
+    /// been processed.
+    pub fn pop_loop_frame(&mut self) {
+        self.loop_context_stack.pop();
+    }
+
+    /// Return or create the `VariablePath` for a scoped `let` variable.
+    ///
+    /// Uses the raw pointer of the HIR `let` statement node together with a
+    /// snapshot of the current loop-context stack as the cache key. This
+    /// guarantees:
+    ///
+    /// - **Across outer solver iterations**: the same `let` node in the same
+    ///   loop-nesting context always yields the same path, allowing
+    ///   `declare_variable_at_path`'s existence guard to reuse the Z3 variable.
+    /// - **Across different loop values**: `i=0, j=1` and `i=1, j=1` produce
+    ///   distinct keys and therefore distinct paths, even for the same HIR node.
+    /// - **Across different sibling loops**: two loops with distinct HIR addresses
+    ///   that both declare `let x` receive different paths, preventing collisions.
+    ///
+    /// When no cached path exists a fresh one is minted using `scoped_let_counter`
+    /// (which is never reset) and stored for future lookups.
+    pub fn get_or_create_scoped_var_path(
+        &mut self,
+        let_stmt_ptr: usize,
+        base_name: &str,
+    ) -> VariablePath<'src> {
+        let key = ScopedVarKey {
+            let_stmt_ptr,
+            loop_stack: self.loop_context_stack.clone(),
+        };
+
+        if let Some(cached) = self.scoped_var_cache.get(&key) {
+            return cached.clone();
+        }
+
+        let unique_id = self.scoped_let_counter;
+        self.scoped_let_counter += 1;
+        let name = format!("{}_{}", base_name, unique_id);
+        // Leak to obtain a &'static str; the SolverContext owns the allocation
+        // for its entire lifetime, so no memory is actually lost.
+        let name_ref: &'static str = Box::leak(name.into_boxed_str());
+        let path = VariablePath::from_name(name_ref);
+        self.scoped_var_cache.insert(key, path.clone());
+        path
     }
 
     /// Register a rune block for execution after constraint solving
