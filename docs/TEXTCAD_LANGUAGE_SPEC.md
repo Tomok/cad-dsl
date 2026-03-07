@@ -2117,7 +2117,7 @@ fn point(x: Real<m>, y: Real<m>) -> Point {
 }
 
 fn point() -> Point {
-    Point { x: Real<m>, y: Real<m> }  // Unconstrained
+    Point {}  // All fields unconstrained (partial struct literal with no fields specified)
 }
 
 // Distance function
