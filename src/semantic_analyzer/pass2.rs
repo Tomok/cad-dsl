@@ -940,11 +940,19 @@ fn resolve_if_statement<'src, 'arena>(
     // Resolve the condition
     let condition_expr = resolve_expression(ctx, condition)?;
 
-    // Resolve then branch
+    // Resolve then branch in its own scope so that nested-optimize detection
+    // (which checks scope_level != 0) fires correctly inside if-branches.
+    ctx.scope_stack.push_scope();
     let resolved_then = resolve_statements(ctx, then_branch);
+    ctx.scope_stack.pop_scope();
 
-    // Resolve else branch if present
-    let resolved_else = else_branch.map(|stmts| resolve_statements(ctx, stmts));
+    // Resolve else branch in its own scope for the same reason.
+    let resolved_else = else_branch.map(|stmts| {
+        ctx.scope_stack.push_scope();
+        let stmts = resolve_statements(ctx, stmts);
+        ctx.scope_stack.pop_scope();
+        stmts
+    });
 
     // Create the HIR statement
     let stmt = ctx.arena.alloc(ResolvedStmt::new(
@@ -4750,5 +4758,84 @@ mod tests {
         let errors = ctx.take_errors();
         assert_eq!(errors.len(), 1);
         assert_matches!(&errors[0], SemanticError::NestedOptimizeBlock { .. });
+    }
+
+    // ========================================================================
+    // End-to-end tests: verify that resolve_if_statement itself rejects nested
+    // optimize blocks without relying on manually pushed scopes.
+    // These tests exercise the actual code path that real programs follow.
+    // ========================================================================
+
+    #[test]
+    fn test_optimize_rejected_inside_if_then_branch_end_to_end() {
+        let arena = Bump::new();
+        let source = "if true { optimize { minimize 1; } }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        // Build: if true { optimize { minimize 1; } }
+        // No manual scope push — resolve_if_statement must push scopes itself.
+        let opt_span = make_span(1, 11);
+        let if_stmt = Stmt::If {
+            condition: Expr::BoolLit {
+                value: true,
+                span: make_span(1, 4),
+            },
+            then_branch: vec![make_optimize_stmt(opt_span)],
+            else_branch: None,
+            span: make_span(1, 1),
+        };
+
+        assert_eq!(
+            ctx.scope_stack.current_scope_level(),
+            0,
+            "starting at top-level scope"
+        );
+
+        // resolve_if_statement itself succeeds (condition is valid) but records
+        // a NestedOptimizeBlock error for the optimize block in the body.
+        let _resolved = resolve_statement(&mut ctx, &if_stmt);
+        assert!(
+            ctx.has_errors(),
+            "optimize inside if-then should produce a semantic error"
+        );
+
+        let errors = ctx.take_errors();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(&errors[0], SemanticError::NestedOptimizeBlock { .. });
+
+        // Scope stack must be back to top level after the call returns.
+        assert_eq!(ctx.scope_stack.current_scope_level(), 0);
+    }
+
+    #[test]
+    fn test_optimize_rejected_inside_if_else_branch_end_to_end() {
+        let arena = Bump::new();
+        let source = "if true { } else { optimize { minimize 1; } }";
+        let mut ctx = AnalyzerContext::new(&arena, source);
+
+        let opt_span = make_span(1, 20);
+        let if_stmt = Stmt::If {
+            condition: Expr::BoolLit {
+                value: true,
+                span: make_span(1, 4),
+            },
+            then_branch: vec![],
+            else_branch: Some(vec![make_optimize_stmt(opt_span)]),
+            span: make_span(1, 1),
+        };
+
+        assert_eq!(ctx.scope_stack.current_scope_level(), 0);
+
+        let _resolved = resolve_statement(&mut ctx, &if_stmt);
+        assert!(
+            ctx.has_errors(),
+            "optimize inside if-else should produce a semantic error"
+        );
+
+        let errors = ctx.take_errors();
+        assert_eq!(errors.len(), 1);
+        assert_matches!(&errors[0], SemanticError::NestedOptimizeBlock { .. });
+
+        assert_eq!(ctx.scope_stack.current_scope_level(), 0);
     }
 }
