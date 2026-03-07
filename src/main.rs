@@ -74,7 +74,8 @@ fn report_semantic_errors(filename: &str, source: &str, errors: Vec<SemanticErro
             | SemanticError::NotInWithContext { span }
             | SemanticError::NoContainerField { span, .. }
             | SemanticError::InvalidDotPrefix { span }
-            | SemanticError::InvalidTransformSignature { span, .. } => span,
+            | SemanticError::InvalidTransformSignature { span, .. }
+            | SemanticError::NestedOptimizeBlock { span } => span,
             SemanticError::DuplicateDefinition { second_span, .. }
             | SemanticError::AmbiguousTransform { second_span, .. } => second_span,
         };
@@ -279,6 +280,7 @@ fn main() {
                     parser::with_stmt(expr.clone(), stmt_rec.clone()),
                     parser::for_stmt(expr.clone(), stmt_rec.clone()),
                     parser::if_stmt(expr.clone(), stmt_rec.clone()),
+                    parser::optimize_stmt(expr.clone()),
                     parser::expression_stmt(expr),
                 ))
             })

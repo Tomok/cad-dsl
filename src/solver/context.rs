@@ -223,8 +223,8 @@ pub struct SolverContext<'src, 'arena> {
     /// Z3 context (persistent across scopes)
     pub z3_ctx: z3::Context,
 
-    /// Z3 solver (persistent, constraints accumulate)
-    pub z3_solver: z3::Solver,
+    /// Z3 optimizer (persistent, constraints accumulate; also supports minimize/maximize)
+    pub z3_optimizer: z3::Optimize,
 
     /// Arena allocator for creating new HIR nodes during function inlining
     pub arena: &'arena bumpalo::Bump,
@@ -302,10 +302,14 @@ pub struct SolverContext<'src, 'arena> {
 
 impl<'src, 'arena> SolverContext<'src, 'arena> {
     /// Create a new solver context
-    pub fn new(z3_ctx: z3::Context, z3_solver: z3::Solver, arena: &'arena bumpalo::Bump) -> Self {
+    pub fn new(
+        z3_ctx: z3::Context,
+        z3_optimizer: z3::Optimize,
+        arena: &'arena bumpalo::Bump,
+    ) -> Self {
         Self {
             z3_ctx,
-            z3_solver,
+            z3_optimizer,
             arena,
             variables: HashMap::new(),
             alias_map: HashMap::new(),
@@ -913,7 +917,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     pub fn extract_solution(&self) -> Result<Solution<'src>, SolverError> {
         // Get the Z3 model (only available after SAT result)
         let model = self
-            .z3_solver
+            .z3_optimizer
             .get_model()
             .ok_or_else(|| SolverError::ModelEvaluationError("No model available".to_string()))?;
 
@@ -1236,8 +1240,8 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                 stmt.solve(self)?;
             }
 
-            // Run Z3 solver
-            match self.z3_solver.check() {
+            // Run Z3 optimizer
+            match self.z3_optimizer.check(&[]) {
                 z3::SatResult::Sat => {
                     let mut solution = self.extract_solution()?;
                     let current_solved_count = solution.resolved_count();

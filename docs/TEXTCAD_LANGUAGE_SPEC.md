@@ -16,11 +16,12 @@
 12. [Functions](#functions)
 13. [Control Flow](#control-flow)
 14. [Rune Blocks](#rune-blocks)
-15. [Functional Operations](#functional-operations)
-16. [Units](#units)
-17. [Comments](#comments)
-18. [Standard Library](#standard-library)
-19. [Complete Examples](#complete-examples)
+15. [Optimize Block](#optimize-block)
+16. [Functional Operations](#functional-operations)
+17. [Units](#units)
+18. [Comments](#comments)
+19. [Standard Library](#standard-library)
+20. [Complete Examples](#complete-examples)
 
 ---
 
@@ -930,6 +931,10 @@ if condition {
 }
 ```
 
+### Deferred Context Restriction
+
+The `optimize { }` block (see [Optimize Block](#optimize-block)) is restricted to the top level of a program and cannot appear inside `for` loops, `if` statements, `with` blocks, or function bodies. Placing an `optimize { }` block in any deferred context is a semantic error.
+
 ### For Loops
 
 For loops iterate over ranges or arrays to apply constraints to multiple elements.
@@ -1270,6 +1275,245 @@ let y = rune(x) {
 // Step 3: Use y in further constraints
 let z: f64;
 z == y / 2.0;
+```
+
+---
+
+## Optimize Block
+
+### Overview
+
+The `optimize { }` block instructs the solver to find an optimal solution rather than any satisfying solution. It uses Z3's optimization mode to minimize or maximize numeric expressions subject to the constraints declared in the rest of the program.
+
+Without an `optimize { }` block, the solver finds any assignment of variables that satisfies all constraints. With an `optimize { }` block, the solver finds the assignment that satisfies all constraints **and** is optimal with respect to the declared objectives.
+
+### Syntax
+
+An `optimize { }` block contains one or more ordered `minimize` and `maximize` directives:
+
+```rust
+optimize {
+    minimize <expr>;
+    maximize <expr>;
+}
+```
+
+Each directive consists of the keyword `minimize` or `maximize`, followed by a numeric expression, followed by a semicolon. The expression must evaluate to a numeric type (`i32` or `f64`).
+
+```rust
+let x: i32;
+x > 0;
+x < 100;
+
+optimize {
+    minimize x;
+}
+// Solver finds x = 1 (smallest value satisfying x > 0 and x < 100)
+```
+
+### Semantics
+
+#### Lexicographic Ordering
+
+The order of directives inside an `optimize { }` block is **intentionally significant**. This is a deliberate exception to the otherwise fully declarative, order-independent nature of the language, made explicit by the dedicated block syntax.
+
+Directives are optimized in **lexicographic priority order**: the first directive is the primary objective and is optimized first. Subsequent directives are only optimized when the primary objective is tied (i.e., among all solutions that achieve the optimal value for the primary objective, the solver then optimizes for the secondary objective, and so on).
+
+```rust
+let x: i32;
+let y: i32;
+x >= 0;
+y >= 0;
+x + y == 10;
+
+optimize {
+    minimize x;   // Primary: minimize x first
+    maximize y;   // Secondary: among ties for minimum x, maximize y
+}
+// Solver finds x = 0, y = 10
+// (x is minimized to 0; with x fixed at 0, y is maximized to 10)
+```
+
+#### Multiple optimize Blocks
+
+Multiple `optimize { }` blocks are valid. The optimizer processes all directives in source order across all blocks, extending the same lexicographic priority list. For clarity, using at most one `optimize { }` block per program is recommended, but multiple blocks are permitted.
+
+```rust
+optimize {
+    minimize x;  // Priority 1
+}
+
+optimize {
+    maximize y;  // Priority 2 (same priority list, extended)
+}
+```
+
+#### Interaction with Constraints
+
+All constraints declared outside the `optimize { }` block remain in force. The solver finds the optimal solution from among all solutions that satisfy the full constraint system. If the constraint system is unsatisfiable, optimization is not attempted and the solver reports UNSAT.
+
+### Type Restrictions
+
+The expression inside each `minimize` or `maximize` directive must evaluate to a numeric type:
+
+- `i32` — integer optimization
+- `f64` — floating-point optimization
+
+The following types are **not** allowed as optimization objectives:
+
+- `bool` — boolean values cannot be minimized or maximized
+- Struct types — structs have no total numeric order
+- Array types — arrays have no total numeric order
+
+```rust
+// VALID: numeric expressions
+optimize {
+    minimize x;           // i32 or f64 variable
+    minimize x + y;       // arithmetic expression
+    maximize x * 2.0;     // scaled expression
+}
+
+// INVALID: non-numeric expressions
+optimize {
+    minimize flag;        // Error: bool type
+    minimize p;           // Error: struct type
+    minimize arr;         // Error: array type
+}
+```
+
+### Top-Level Restriction
+
+`optimize { }` blocks are only allowed at the **top level** of a program. They cannot appear inside:
+
+- `for` loops
+- `if` statements
+- `with` blocks
+- Function bodies
+
+Placing an `optimize { }` block in any of these deferred or nested contexts is a semantic error. This restriction exists because the optimizer must have access to the complete constraint system before solving, and deferred contexts (such as loop iterations or conditional branches) would make the set of active objectives ambiguous.
+
+```rust
+// VALID: top-level optimize block
+let x: i32;
+x > 0;
+
+optimize {
+    minimize x;
+}
+
+// INVALID: optimize inside a for loop
+for i in 0..5 {
+    optimize {        // Error: not allowed in for loop
+        minimize x;
+    }
+}
+
+// INVALID: optimize inside an if statement
+if x > 10 {
+    optimize {        // Error: not allowed in if statement
+        minimize x;
+    }
+}
+
+// INVALID: optimize inside a with block
+with sketch {
+    optimize {        // Error: not allowed in with block
+        minimize x;
+    }
+}
+```
+
+### Implementation Status
+
+`optimize { }` blocks are **fully implemented**. The solver activates Z3's built-in optimization mode when one or more `optimize { }` blocks are present in the program.
+
+### Examples
+
+#### Simple Minimization
+
+Find the smallest positive integer satisfying a constraint:
+
+```rust
+let x: i32;
+x > 0;
+x < 100;
+
+optimize {
+    minimize x;
+}
+// Output: x = 1
+```
+
+#### Simple Maximization with Constraints
+
+Maximize a value within a constrained region:
+
+```rust
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+let p: Point;
+p.x >= 0;
+p.y >= 0;
+p.x + p.y <= 20;
+
+optimize {
+    maximize p.x + p.y;
+}
+// Output: p.x + p.y = 20 (solver finds one such solution, e.g. p.x = 20, p.y = 0)
+```
+
+#### Minimizing Wire Length in a Sketch
+
+Find a point placement that minimizes the total connection distance:
+
+```rust
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+let a: Point;
+let b: Point;
+let midpoint: Point;
+
+// Fixed anchor points
+a.x == 0.0;
+a.y == 0.0;
+b.x == 10.0;
+b.y == 0.0;
+
+// Midpoint must lie on or above the x-axis
+midpoint.y >= 0.0;
+
+optimize {
+    // Minimize total wire length from a → midpoint → b
+    minimize (midpoint.x - a.x) * (midpoint.x - a.x) + (midpoint.y - a.y) * (midpoint.y - a.y)
+           + (b.x - midpoint.x) * (b.x - midpoint.x) + (b.y - midpoint.y) * (b.y - midpoint.y);
+}
+// Solver finds midpoint.y = 0, midpoint.x = 5 (shortest path along x-axis)
+```
+
+#### Multi-Objective Lexicographic Optimization
+
+Optimize two objectives with defined priority:
+
+```rust
+let cost: f64;
+let weight: f64;
+
+cost >= 0.0;
+weight >= 0.0;
+cost + weight == 100.0;
+
+optimize {
+    minimize cost;    // Primary objective: minimize cost first
+    minimize weight;  // Secondary: among min-cost solutions, minimize weight
+}
+// Primary objective drives the solution: cost = 0, weight = 100
+// (If cost had multiple solutions at 0, weight would further discriminate)
 ```
 
 ---
@@ -1863,7 +2107,7 @@ with sketch_plane {
 
 The following keywords are reserved and cannot be used as identifiers:
 
-`struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`, `rune`
+`struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`, `rune`, `optimize`, `minimize`, `maximize`
 
 ---
 
@@ -1874,9 +2118,9 @@ The following keywords are reserved and cannot be used as identifiers:
 These are built into the language itself:
 
 - **Types**: `Point`, `Length`, `Angle`, `Area`, `bool`, `i32`, `f64`, `Real`, `Algebraic`
-- **Keywords**: `struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`, `rune`
-- **Syntax**: Struct definitions, function definitions, with statements, for loops, dot prefix notation
-- **Semantics**: Constraint-based assignment, entity vs reference distinction, container semantics, transform pattern
+- **Keywords**: `struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`, `rune`, `optimize`, `minimize`, `maximize`
+- **Syntax**: Struct definitions, function definitions, with statements, for loops, dot prefix notation, optimize blocks
+- **Semantics**: Constraint-based assignment, entity vs reference distinction, container semantics, transform pattern, lexicographic multi-objective optimization
 
 ### Standard Library Components
 

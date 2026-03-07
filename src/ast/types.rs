@@ -249,6 +249,33 @@ pub enum Stmt<'src> {
         else_branch: Option<Vec<Stmt<'src>>>,
         span: Span,
     },
+
+    /// Optimize block with minimize/maximize directives
+    /// Examples:
+    ///   optimize { minimize x; }
+    ///   optimize { maximize area; minimize perimeter; }
+    ///
+    /// Directives are applied in lexicographic priority order.
+    /// Only valid at the top level of a program.
+    Optimize {
+        directives: Vec<OptimizeDirective<'src>>,
+        span: Span,
+    },
+}
+
+/// A single directive inside an optimize block
+#[derive(Debug, Clone, PartialEq)]
+pub struct OptimizeDirective<'src> {
+    pub kind: OptimizeDirectiveKind,
+    pub expr: Expr<'src>,
+    pub span: Span,
+}
+
+/// Whether the directive minimizes or maximizes the expression
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OptimizeDirectiveKind {
+    Minimize,
+    Maximize,
 }
 
 impl<'src> HasSpan for Stmt<'src> {
@@ -265,6 +292,7 @@ impl<'src> HasSpan for Stmt<'src> {
             Stmt::Block { span, .. } => *span,
             Stmt::With { span, .. } => *span,
             Stmt::If { span, .. } => *span,
+            Stmt::Optimize { span, .. } => *span,
         }
     }
 }

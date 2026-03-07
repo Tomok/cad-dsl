@@ -1185,3 +1185,75 @@ fn test_with_stmt_with_block() {
         other => panic!("Expected Stmt::With, got {:?}", other),
     }
 }
+
+// ============================================================================
+// Optimize Block Tests
+// ============================================================================
+
+#[test]
+fn test_optimize_minimize() {
+    let input = "optimize { minimize x; }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| optimize_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Optimize { directives, .. } => {
+            assert_eq!(directives.len(), 1);
+            assert_matches!(
+                directives[0].kind,
+                crate::ast::OptimizeDirectiveKind::Minimize
+            );
+            assert_matches!(directives[0].expr, crate::ast::Expr::Var { name, .. } if name == "x");
+        }
+        other => panic!("Expected Stmt::Optimize, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_optimize_maximize() {
+    let input = "optimize { maximize area; }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| optimize_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Optimize { directives, .. } => {
+            assert_eq!(directives.len(), 1);
+            assert_matches!(
+                directives[0].kind,
+                crate::ast::OptimizeDirectiveKind::Maximize
+            );
+        }
+        other => panic!("Expected Stmt::Optimize, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_optimize_multiple_directives() {
+    let input = "optimize { minimize x; maximize y; }";
+    let result = parse_with_timeout(
+        input,
+        |tokens| optimize_stmt(expr_inner()).parse(tokens).into_result(),
+        Duration::from_secs(2),
+    );
+
+    match result.unwrap() {
+        Stmt::Optimize { directives, .. } => {
+            assert_eq!(directives.len(), 2);
+            assert_matches!(
+                directives[0].kind,
+                crate::ast::OptimizeDirectiveKind::Minimize
+            );
+            assert_matches!(
+                directives[1].kind,
+                crate::ast::OptimizeDirectiveKind::Maximize
+            );
+        }
+        other => panic!("Expected Stmt::Optimize, got {:?}", other),
+    }
+}

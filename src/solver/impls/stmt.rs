@@ -78,7 +78,7 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                     Z3Expr::Bool(constraint) => {
                         #[cfg(feature = "solver-debug")]
                         eprintln!("[SOLVER-DEBUG]   Constraint: {}", constraint);
-                        ctx.z3_solver.assert(&constraint);
+                        ctx.z3_optimizer.assert(&constraint);
                         Ok(())
                     }
                     _ => Err(SolverError::UnsupportedStatement(
@@ -204,7 +204,7 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                     }
                 };
 
-                ctx.z3_solver.assert(&constraint);
+                ctx.z3_optimizer.assert(&constraint);
                 Ok(())
             }
 
@@ -212,6 +212,38 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
             // They've already been processed during semantic analysis
             ResolvedStmtKind::StructDef { .. } | ResolvedStmtKind::FunctionDef { .. } => {
                 // Skip definitions - they don't contribute constraints
+                Ok(())
+            }
+
+            // Optimize block - register minimize/maximize objectives
+            ResolvedStmtKind::Optimize { directives, .. } => {
+                use crate::hir::expr::ResolvedOptimizeDirectiveKind;
+
+                for directive in directives {
+                    let z3_expr = directive.expr.solve(ctx)?;
+
+                    match directive.kind {
+                        ResolvedOptimizeDirectiveKind::Minimize => match &z3_expr {
+                            Z3Expr::Int(z3_int) => ctx.z3_optimizer.minimize(z3_int),
+                            Z3Expr::Real(z3_real) => ctx.z3_optimizer.minimize(z3_real),
+                            Z3Expr::Bool(_) => {
+                                return Err(SolverError::UnsupportedStatement(
+                                    "Cannot minimize a boolean expression".to_string(),
+                                ));
+                            }
+                        },
+                        ResolvedOptimizeDirectiveKind::Maximize => match &z3_expr {
+                            Z3Expr::Int(z3_int) => ctx.z3_optimizer.maximize(z3_int),
+                            Z3Expr::Real(z3_real) => ctx.z3_optimizer.maximize(z3_real),
+                            Z3Expr::Bool(_) => {
+                                return Err(SolverError::UnsupportedStatement(
+                                    "Cannot maximize a boolean expression".to_string(),
+                                ));
+                            }
+                        },
+                    }
+                }
+
                 Ok(())
             }
 
@@ -388,7 +420,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                 // Add as constraint
                 match z3_expr {
                     Z3Expr::Bool(constraint) => {
-                        ctx.z3_solver.assert(&constraint);
+                        ctx.z3_optimizer.assert(&constraint);
                         Ok(())
                     }
                     _ => Err(SolverError::UnsupportedStatement(
@@ -438,7 +470,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                             ));
                         }
                     };
-                    ctx.z3_solver.assert(&constraint);
+                    ctx.z3_optimizer.assert(&constraint);
                 }
 
                 Ok(())
@@ -1076,7 +1108,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
 
                 // Add implication: condition => constraint
                 let implication = actual_condition.implies(&constraint_bool);
-                ctx.z3_solver.assert(&implication);
+                ctx.z3_optimizer.assert(&implication);
                 Ok(())
             }
 
@@ -1106,7 +1138,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
 
                 // Add implication: condition => (var = value)
                 let implication = actual_condition.implies(&equality);
-                ctx.z3_solver.assert(&implication);
+                ctx.z3_optimizer.assert(&implication);
                 Ok(())
             }
 
@@ -1133,7 +1165,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
 
                 // Add implication: condition => (field = value)
                 let implication = actual_condition.implies(&equality);
-                ctx.z3_solver.assert(&implication);
+                ctx.z3_optimizer.assert(&implication);
                 Ok(())
             }
 
@@ -1226,7 +1258,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                         }
                     };
 
-                    ctx.z3_solver.assert(&equality);
+                    ctx.z3_optimizer.assert(&equality);
                 }
 
                 Ok(())
@@ -1463,7 +1495,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                             }
                         };
 
-                        ctx.z3_solver.assert(&constraint);
+                        ctx.z3_optimizer.assert(&constraint);
                     }
                 }
                 ResolvedStructLitField::ComputedProperty { .. } => {
@@ -1544,7 +1576,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                         }
                     };
 
-                    ctx.z3_solver.assert(&constraint);
+                    ctx.z3_optimizer.assert(&constraint);
                 }
 
                 Ok(())
@@ -1632,7 +1664,7 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
                         }
                     };
 
-                    ctx.z3_solver.assert(&constraint);
+                    ctx.z3_optimizer.assert(&constraint);
                 }
 
                 Ok(())

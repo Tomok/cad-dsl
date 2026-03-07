@@ -69,6 +69,9 @@ pub enum SemanticError {
         reason: String,
         span: Span,
     },
+
+    /// optimize block used outside of the top-level scope
+    NestedOptimizeBlock { span: Span },
 }
 
 impl fmt::Display for SemanticError {
@@ -202,6 +205,14 @@ impl fmt::Display for SemanticError {
                     f,
                     "Invalid signature for transform method '{}' at line {}, column {}: {}",
                     method_name, span.start.line, span.start.column, reason
+                )
+            }
+            SemanticError::NestedOptimizeBlock { span } => {
+                write!(
+                    f,
+                    "'optimize' block is only allowed at the top level, not inside if/for/with \
+                     or function bodies at line {}, column {}",
+                    span.start.line, span.start.column
                 )
             }
         }

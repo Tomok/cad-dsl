@@ -167,6 +167,27 @@ pub fn validate_stmt<'src, 'arena>(
                 validate_stmt(_ctx, method);
             }
         }
+
+        // ====================================================================
+        // Optimize Block
+        // ====================================================================
+        ResolvedStmtKind::Optimize { directives, .. } => {
+            // Validate that each directive expression has a numeric type
+            for directive in directives {
+                let expr_type = directive.expr.ty;
+                // Optimize objectives must be numeric (i32 or f64)
+                // Non-numeric types (bool, structs, arrays) are not valid objectives
+                let is_numeric = matches!(
+                    expr_type,
+                    crate::hir::types::ResolvedType::I32 { .. }
+                        | crate::hir::types::ResolvedType::F64 { .. }
+                );
+                if !is_numeric {
+                    // TODO: Add error to context when error reporting is integrated
+                    let _ = expr_type;
+                }
+            }
+        }
     }
 }
 

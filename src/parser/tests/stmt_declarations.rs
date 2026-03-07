@@ -36,6 +36,7 @@ fn test_let_with_type_and_init() {
         Stmt::Block { .. } => panic!("Expected Stmt::Let, got Block"),
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
+        Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
     }
 }
 
@@ -71,6 +72,7 @@ fn test_let_with_type_only() {
         Stmt::Block { .. } => panic!("Expected Stmt::Let, got Block"),
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
+        Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
     }
 }
 
@@ -106,6 +108,7 @@ fn test_let_with_init_only() {
         Stmt::Block { .. } => panic!("Expected Stmt::Let, got Block"),
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
+        Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
     }
 }
 
@@ -141,6 +144,7 @@ fn test_let_no_type_no_init() {
         Stmt::Block { .. } => panic!("Expected Stmt::Let, got Block"),
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
+        Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
     }
 }
 
@@ -192,6 +196,7 @@ fn test_let_with_expression() {
         Stmt::Block { .. } => panic!("Expected Stmt::Let, got Block"),
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
+        Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
     }
 }
 
@@ -232,6 +237,7 @@ fn test_let_container_field_simple() {
         Stmt::Block { .. } => panic!("Expected Stmt::Let, got Block"),
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
+        Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
     }
 }
 
@@ -272,6 +278,7 @@ fn test_let_container_field_nested() {
         Stmt::Block { .. } => panic!("Expected Stmt::Let, got Block"),
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
+        Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
     }
 }
 
@@ -308,6 +315,7 @@ fn test_let_container_field_with_expression() {
         Stmt::Block { .. } => panic!("Expected Stmt::Let, got Block"),
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
+        Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
     }
 }
 
@@ -344,6 +352,7 @@ fn test_let_container_field_no_type() {
         Stmt::Block { .. } => panic!("Expected Stmt::Let, got Block"),
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
+        Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
     }
 }
 
@@ -383,6 +392,7 @@ fn test_let_container_field_deeply_nested() {
         Stmt::Block { .. } => panic!("Expected Stmt::Let, got Block"),
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
+        Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
     }
 }
 
@@ -428,6 +438,7 @@ fn test_let_container_field_span_tracking() {
         Stmt::Block { .. } => panic!("Expected Stmt::Let, got Block"),
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
+        Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
     }
 }
 

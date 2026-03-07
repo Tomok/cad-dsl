@@ -599,6 +599,35 @@ pub enum ResolvedStmtKind<'src, 'arena> {
         /// Span for the entire statement
         span: Span,
     },
+
+    /// Optimize block with minimize/maximize objectives
+    ///
+    /// Example: `optimize { minimize x; maximize y; }`
+    Optimize {
+        /// The optimization directives, in priority order
+        directives: Vec<ResolvedOptimizeDirective<'src, 'arena>>,
+        /// Span for the entire statement
+        span: Span,
+    },
+}
+
+// ============================================================================
+// Optimize Directive
+// ============================================================================
+
+/// A resolved optimization directive inside an optimize block
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedOptimizeDirective<'src, 'arena> {
+    pub kind: ResolvedOptimizeDirectiveKind,
+    pub expr: &'arena ResolvedExpr<'src, 'arena>,
+    pub span: Span,
+}
+
+/// Whether the directive minimizes or maximizes the expression
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolvedOptimizeDirectiveKind {
+    Minimize,
+    Maximize,
 }
 
 // ============================================================================

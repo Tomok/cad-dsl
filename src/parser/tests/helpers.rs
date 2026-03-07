@@ -10,7 +10,7 @@ pub(super) use crate::parser::atoms;
 #[allow(unused_imports)]
 pub(super) use crate::parser::stmt::{
     assignment_stmt, block_stmt, field_assignment_stmt, for_stmt, function_def, if_stmt, let_stmt,
-    return_stmt, struct_def, type_annotation, with_stmt,
+    optimize_stmt, return_stmt, struct_def, type_annotation, with_stmt,
 };
 #[allow(unused_imports)]
 pub(super) use crate::parser::{ParseError, expr, expr_inner, expr_with_source};

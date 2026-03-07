@@ -1,0 +1,10 @@
+let x: i32;
+let y: i32;
+x >= 0;
+y >= 0;
+x + y == 10;
+
+optimize {
+    minimize x;
+    maximize y;
+}

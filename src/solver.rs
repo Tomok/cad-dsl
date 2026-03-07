@@ -389,16 +389,16 @@ pub fn solve<'src, 'arena>(
         return Ok(String::new());
     }
 
-    // Create Z3 solver (which contains its own context)
-    let z3_solver = z3::Solver::new();
+    // Create Z3 optimizer (which contains its own context)
+    let z3_optimizer = z3::Optimize::new();
 
-    // Get the context from the solver
+    // Get the context from the optimizer
     // We need to clone the context to satisfy ownership requirements
-    // The solver internally keeps its own context reference
-    let z3_ctx = z3_solver.get_context().clone();
+    // The optimizer internally keeps its own context reference
+    let z3_ctx = z3_optimizer.get_context().clone();
 
     // Create solver context (takes ownership of both and arena reference)
-    let mut ctx = SolverContext::new(z3_ctx, z3_solver, arena);
+    let mut ctx = SolverContext::new(z3_ctx, z3_optimizer, arena);
 
     // Run iterative solver
     let result = ctx.solve(statements)?;
