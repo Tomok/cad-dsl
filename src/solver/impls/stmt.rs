@@ -219,6 +219,13 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
             ResolvedStmtKind::Optimize { directives, .. } => {
                 use crate::hir::expr::ResolvedOptimizeDirectiveKind;
 
+                // Objectives are registered with the persistent z3::Optimize instance.
+                // The solve loop replays all statements on every iteration, so we must
+                // guard against appending duplicate objectives on subsequent passes.
+                if ctx.objectives_registered {
+                    return Ok(());
+                }
+
                 for directive in directives {
                     let z3_expr = directive.expr.solve(ctx)?;
 
