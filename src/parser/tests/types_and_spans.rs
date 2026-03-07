@@ -289,6 +289,7 @@ fn test_span_let_statement() {
         Stmt::Block { .. } => panic!("Expected Stmt::Let, got Block"),
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
+        Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
     }
 }
 

@@ -1,0 +1,12 @@
+// Minimize a variable subject to constraints
+// This finds the smallest integer satisfying all constraints
+
+let x: i32;
+x > 0;
+x < 100;
+
+optimize {
+    minimize x;
+}
+
+// Expected output: x = 1

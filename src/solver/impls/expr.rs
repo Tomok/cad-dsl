@@ -1145,9 +1145,9 @@ mod tests {
         // This is a basic compilation test to ensure context creation works correctly
         // Full functional tests will be in the integration test suite
         let arena = bumpalo::Bump::new();
-        let z3_solver = z3::Solver::new();
-        let z3_ctx = z3_solver.get_context().clone();
-        let _ctx = SolverContext::new(z3_ctx, z3_solver, &arena);
+        let z3_optimizer = z3::Optimize::new();
+        let z3_ctx = z3_optimizer.get_context().clone();
+        let _ctx = SolverContext::new(z3_ctx, z3_optimizer, &arena);
 
         // Context creation successful
     }

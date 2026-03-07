@@ -1075,3 +1075,79 @@ pub fn if_stmt<'src>(
     )
     .labelled("if statement")
 }
+
+// ============================================================================
+// Optimize Block Parser
+// ============================================================================
+
+/// Parse an optimize block
+///
+/// Syntax:
+///   optimize { minimize <expr>; }
+///   optimize { maximize <expr>; minimize <expr>; }
+///
+/// Examples:
+///   optimize { minimize x; }
+///   optimize { minimize perimeter; maximize area; }
+///
+/// Directives are evaluated in lexicographic priority order.
+/// Only valid at the top level of a program.
+pub fn optimize_stmt<'src>(
+    expr_parser: impl Parser<'src, &'src [Token<'src>], crate::ast::Expr<'src>, ParseError<'src>>
+    + Clone,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::ast::{OptimizeDirective, OptimizeDirectiveKind};
+    use crate::lexer::Span;
+
+    let left_brace = select! { Token::LeftBrace(_) => () };
+    let right_brace = select! { Token::RightBrace(t) => t.position };
+
+    // Parse a single directive: (minimize | maximize) <expr>;
+    let directive = choice((
+        select! { Token::Minimize(t) => (OptimizeDirectiveKind::Minimize, t.position) },
+        select! { Token::Maximize(t) => (OptimizeDirectiveKind::Maximize, t.position) },
+    ))
+    .then(expr_parser.labelled("objective expression"))
+    .then(select! { Token::SemiColon(t) => t.position })
+    .map(|(((kind, kw_pos), expr), semi_pos)| {
+        use crate::ast::span::HasSpan;
+        let expr_span = expr.span();
+        let span = if kw_pos.line == semi_pos.line {
+            Span {
+                start: kw_pos,
+                lines: 0,
+                end_column: semi_pos.column + 1,
+            }
+        } else {
+            Span {
+                start: kw_pos,
+                lines: semi_pos.line - kw_pos.line,
+                end_column: semi_pos.column + 1,
+            }
+        };
+        let _ = expr_span;
+        OptimizeDirective { kind, expr, span }
+    });
+
+    select! { Token::Optimize(t) => t.position }
+        .then_ignore(left_brace)
+        .then(directive.repeated().at_least(1).collect::<Vec<_>>())
+        .then(right_brace)
+        .map(|((opt_pos, directives), brace_pos)| {
+            let span = if opt_pos.line == brace_pos.line {
+                Span {
+                    start: opt_pos,
+                    lines: 0,
+                    end_column: brace_pos.column + 1,
+                }
+            } else {
+                Span {
+                    start: opt_pos,
+                    lines: brace_pos.line - opt_pos.line,
+                    end_column: brace_pos.column + 1,
+                }
+            };
+            Stmt::Optimize { directives, span }
+        })
+        .labelled("optimize block")
+}

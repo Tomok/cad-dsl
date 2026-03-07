@@ -121,6 +121,9 @@ fixed_token!(TokenTrue, True, "true");
 fixed_token!(TokenFalse, False, "false");
 fixed_token!(TokenSelf, SelfKw, "self");
 fixed_token!(TokenRune, Rune, "rune");
+fixed_token!(TokenOptimize, Optimize, "optimize");
+fixed_token!(TokenMinimize, Minimize, "minimize");
+fixed_token!(TokenMaximize, Maximize, "maximize");
 
 // ============================================================================
 // Operator Tokens
@@ -338,6 +341,12 @@ pub enum Token<'src> {
     SelfKw(TokenSelf),
     #[token("rune", TokenRune::from_lexer)]
     Rune(TokenRune),
+    #[token("optimize", TokenOptimize::from_lexer)]
+    Optimize(TokenOptimize),
+    #[token("minimize", TokenMinimize::from_lexer)]
+    Minimize(TokenMinimize),
+    #[token("maximize", TokenMaximize::from_lexer)]
+    Maximize(TokenMaximize),
 
     // Operators
     #[token("=", TokenEquals::from_lexer)]
@@ -438,6 +447,9 @@ impl<'src> TokenTrait for Token<'src> {
             Token::False(t) => t.position(),
             Token::SelfKw(t) => t.position(),
             Token::Rune(t) => t.position(),
+            Token::Optimize(t) => t.position(),
+            Token::Minimize(t) => t.position(),
+            Token::Maximize(t) => t.position(),
             Token::Equals(t) => t.position(),
             Token::EqualsEquals(t) => t.position(),
             Token::NotEquals(t) => t.position(),
@@ -494,6 +506,9 @@ impl<'src> TokenTrait for Token<'src> {
             Token::False(t) => t.value_str(),
             Token::SelfKw(t) => t.value_str(),
             Token::Rune(t) => t.value_str(),
+            Token::Optimize(t) => t.value_str(),
+            Token::Minimize(t) => t.value_str(),
+            Token::Maximize(t) => t.value_str(),
             Token::Equals(t) => t.value_str(),
             Token::EqualsEquals(t) => t.value_str(),
             Token::NotEquals(t) => t.value_str(),
@@ -601,6 +616,17 @@ pub fn tokenize<'src>(input: &'src str) -> Result<Vec<Token<'src>>, String> {
 mod tests {
     use super::*;
     use assert_matches::assert_matches;
+
+    #[test]
+    fn test_optimize_keywords() {
+        let input = "optimize minimize maximize";
+        let tokens = tokenize(input).unwrap();
+        assert_eq!(tokens.len(), 3);
+
+        assert_matches!(tokens[0], Token::Optimize(_));
+        assert_matches!(tokens[1], Token::Minimize(_));
+        assert_matches!(tokens[2], Token::Maximize(_));
+    }
 
     #[test]
     fn test_keywords() {

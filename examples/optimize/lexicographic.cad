@@ -1,0 +1,16 @@
+// Lexicographic optimization: minimize x first, then maximize y
+// The order of directives determines priority
+
+let x: i32;
+let y: i32;
+x >= 0;
+y >= 0;
+x + y == 10;
+
+optimize {
+    minimize x;   // Primary: minimize x first
+    maximize y;   // Secondary: among ties for minimum x, maximize y
+}
+
+// Expected output: x = 0, y = 10
+// (x is minimized to 0; with x fixed at 0, y is maximized to 10)

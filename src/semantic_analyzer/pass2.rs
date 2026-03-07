@@ -44,7 +44,8 @@ use crate::ast::{Expr, Stmt, StructLitField as AstStructLitField};
 use crate::hir::context::{TransformMethod, WithContext};
 use crate::hir::definitions::{ScopeLevel, VarDefinition};
 use crate::hir::expr::{
-    ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind, ResolvedStructLitField,
+    ResolvedExpr, ResolvedExprKind, ResolvedOptimizeDirective, ResolvedOptimizeDirectiveKind,
+    ResolvedStmt, ResolvedStmtKind, ResolvedStructLitField,
 };
 use crate::hir::types::ResolvedType;
 use crate::lexer::Span;
@@ -218,6 +219,8 @@ pub fn resolve_statement<'src, 'arena>(
         Stmt::Return { value, span } => resolve_return_statement(ctx, value.as_ref(), *span),
 
         Stmt::Expression { expr, span } => resolve_expression_statement(ctx, expr, *span),
+
+        Stmt::Optimize { directives, span } => resolve_optimize_statement(ctx, directives, *span),
     }
 }
 
@@ -1013,6 +1016,38 @@ fn resolve_expression_statement<'src, 'arena>(
         span,
         ResolvedStmtKind::Expression {
             expr: resolved_expr,
+            span,
+        },
+    ));
+
+    Some(stmt)
+}
+
+/// Resolve an optimize block statement
+fn resolve_optimize_statement<'src, 'arena>(
+    ctx: &mut AnalyzerContext<'src, 'arena>,
+    directives: &[crate::ast::OptimizeDirective<'src>],
+    span: Span,
+) -> Option<&'arena ResolvedStmt<'src, 'arena>> {
+    let mut resolved_directives = Vec::new();
+
+    for directive in directives {
+        let resolved_expr = resolve_expression(ctx, &directive.expr)?;
+        let kind = match directive.kind {
+            crate::ast::OptimizeDirectiveKind::Minimize => ResolvedOptimizeDirectiveKind::Minimize,
+            crate::ast::OptimizeDirectiveKind::Maximize => ResolvedOptimizeDirectiveKind::Maximize,
+        };
+        resolved_directives.push(ResolvedOptimizeDirective {
+            kind,
+            expr: resolved_expr,
+            span: directive.span,
+        });
+    }
+
+    let stmt = ctx.arena.alloc(ResolvedStmt::new(
+        span,
+        ResolvedStmtKind::Optimize {
+            directives: resolved_directives,
             span,
         },
     ));

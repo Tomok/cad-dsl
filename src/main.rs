@@ -279,6 +279,7 @@ fn main() {
                     parser::with_stmt(expr.clone(), stmt_rec.clone()),
                     parser::for_stmt(expr.clone(), stmt_rec.clone()),
                     parser::if_stmt(expr.clone(), stmt_rec.clone()),
+                    parser::optimize_stmt(expr.clone()),
                     parser::expression_stmt(expr),
                 ))
             })

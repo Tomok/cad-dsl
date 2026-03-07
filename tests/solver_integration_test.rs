@@ -1542,3 +1542,33 @@ fn test_rune_error_unconstrained_param() {
         assert_eq!(y, x * 2, "y should equal x * 2");
     }
 }
+
+// ============================================================================
+// Optimize Block Tests
+// ============================================================================
+
+#[test]
+fn test_optimize_minimize_simple() {
+    let (success, stdout, stderr) = solve_fixture("optimize_minimize_simple.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    // x should be minimized: smallest integer > 0 is 1
+    verify_solution(&stdout, "x", "1");
+}
+
+#[test]
+fn test_optimize_maximize_simple() {
+    let (success, stdout, stderr) = solve_fixture("optimize_maximize_simple.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    // x should be maximized: largest integer < 100 is 99
+    verify_solution(&stdout, "x", "99");
+}
+
+#[test]
+fn test_optimize_lexicographic() {
+    let (success, stdout, stderr) = solve_fixture("optimize_lexicographic.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    // Primary: minimize x -> x = 0
+    // Secondary: maximize y (with x=0 and x+y=10) -> y = 10
+    verify_solution(&stdout, "x", "0");
+    verify_solution(&stdout, "y", "10");
+}

@@ -308,7 +308,8 @@ pub use definitions::{
 
 #[allow(unused_imports)]
 pub use expr::{
-    ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind, ResolvedStructLitField,
+    ResolvedExpr, ResolvedExprKind, ResolvedOptimizeDirective, ResolvedOptimizeDirectiveKind,
+    ResolvedStmt, ResolvedStmtKind, ResolvedStructLitField,
 };
 
 #[allow(unused_imports)]
