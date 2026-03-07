@@ -225,11 +225,13 @@ unit <name>;
 unit m;      // meter (length)
 unit s;      // second (time)
 unit g;      // gram (mass)
-unit rad;    // radian (angle)
+unit rad;    // radian (angle) — dimensionless supplementary unit (rad = m/m = 1)
 unit K;      // kelvin (temperature)
 ```
 
 Base units define the internal representation for all values of their dimension. All `Real<m>` values are stored in meters internally.
+
+**Special case — `rad` is dimensionless:** Following SI convention, `rad` is a supplementary unit equal to 1 (it is the ratio of arc length to radius, both in meters). In the type system this means `rad` cancels in products and quotients: `Real<m> * Real<rad/s>` derives to `Real<m/s>`, and `Real<rad>` is interchangeable with dimensionless `Real` in arithmetic. This allows trigonometric functions to accept `Real<rad>` and return `f64` (dimensionless) without a unit mismatch.
 
 ### Derived Units
 
@@ -328,11 +330,11 @@ The compiler automatically inserts conversions between compatible units.
 
 **Implicit Conversion in Constraints:**
 ```rust
-let d1: Real<m> = 5m;
+let d1: Real<m>;        // Unconstrained
 let d2: Real<mm> = 300mm;
 
 d1 = d2;  // Constraint with automatic conversion
-          // Solver ensures: d1 = 0.3m or d2 = 5000mm
+          // Solver ensures: d1 = 0.3m
 ```
 
 **Conversion in Arithmetic:**
@@ -367,7 +369,7 @@ let scaled: Real<m> = original * scale;  // 15m
 **Trigonometric Functions:**
 ```rust
 let angle: Real<rad> = PI / 4 * rad;
-let sine_value: Real = sin(angle);  // 0.707... (dimensionless)
+let sine_value: f64 = sin(angle);  // 0.707... (f64, matches sin() -> f64 signature)
 ```
 
 ---
