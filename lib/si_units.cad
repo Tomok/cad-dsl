@@ -1,0 +1,121 @@
+// SI Units Standard Library for CAD-DSL
+//
+// Usage: include "lib/si_units.cad";
+//
+// Provides SI prefixes and base/derived units for use in typed Real values.
+// Example:
+//   let length: Real<mm>;
+//   length == 10mm;
+
+// ============================================================================
+// SI Prefixes
+// ============================================================================
+
+unit_prefix Y = 1e24;    // yotta
+unit_prefix Z = 1e21;    // zetta
+unit_prefix E = 1e18;    // exa
+unit_prefix P = 1e15;    // peta
+unit_prefix T = 1e12;    // tera
+unit_prefix G = 1e9;     // giga
+unit_prefix M = 1e6;     // mega
+unit_prefix k = 1e3;     // kilo
+unit_prefix h = 1e2;     // hecto
+unit_prefix da = 1e1;    // deca
+unit_prefix d = 1e-1;    // deci
+unit_prefix c = 1e-2;    // centi
+unit_prefix m = 1e-3;    // milli
+unit_prefix u = 1e-6;    // micro
+unit_prefix n = 1e-9;    // nano
+unit_prefix p = 1e-12;   // pico
+unit_prefix f = 1e-15;   // femto
+unit_prefix a = 1e-18;   // atto
+unit_prefix z = 1e-21;   // zepto
+unit_prefix y = 1e-24;   // yocto
+
+// ============================================================================
+// SI Base Units
+// ============================================================================
+
+unit m;       // metre (length)
+unit kg;      // kilogram (mass)
+unit s;       // second (time)
+unit A;       // ampere (electric current)
+unit K;       // kelvin (thermodynamic temperature)
+unit mol;     // mole (amount of substance)
+unit cd;      // candela (luminous intensity)
+
+// ============================================================================
+// Derived Length Units
+// ============================================================================
+
+unit mm = 1e-3 * m;      // millimetre
+unit cm = 1e-2 * m;      // centimetre
+unit km = 1e3 * m;       // kilometre
+unit um = 1e-6 * m;      // micrometre
+unit nm = 1e-9 * m;      // nanometre
+
+// ============================================================================
+// Imperial Length Units
+// ============================================================================
+
+unit inch = 0.0254 * m;  // international inch
+unit ft = 0.3048 * m;    // international foot
+unit yd = 0.9144 * m;    // international yard
+unit mi = 1609.344 * m;  // international mile
+
+// ============================================================================
+// Angle Units
+// ============================================================================
+
+unit rad;                        // radian (base angle unit)
+unit deg = 0.017453292519943 * rad;  // degree (pi/180)
+unit turn = 6.283185307179586 * rad; // full turn (2*pi)
+
+// ============================================================================
+// Time Units
+// ============================================================================
+
+unit ms = 1e-3 * s;    // millisecond
+unit us = 1e-6 * s;    // microsecond
+unit ns = 1e-9 * s;    // nanosecond
+unit min = 60.0 * s;   // minute
+unit hr = 3600.0 * s;  // hour
+
+// ============================================================================
+// Area Units (derived)
+// ============================================================================
+
+unit m2 = m * m;       // square metre
+unit cm2 = cm * cm;    // square centimetre
+unit mm2 = mm * mm;    // square millimetre
+
+// ============================================================================
+// Volume Units (derived)
+// ============================================================================
+
+unit m3 = m * m * m;   // cubic metre
+unit cm3 = cm * cm * cm; // cubic centimetre (= 1 mL)
+unit mm3 = mm * mm * mm; // cubic millimetre
+unit L = 1e-3 * m3;    // litre
+
+// ============================================================================
+// Velocity Units (derived)
+// ============================================================================
+
+unit mps = m / s;      // metres per second
+
+// ============================================================================
+// Force Units (derived)
+// ============================================================================
+
+unit N = kg * m / (s * s);   // newton
+unit kN = 1e3 * N;           // kilonewton
+
+// ============================================================================
+// Pressure Units (derived)
+// ============================================================================
+
+unit Pa = N / m2;      // pascal
+unit kPa = 1e3 * Pa;   // kilopascal
+unit MPa = 1e6 * Pa;   // megapascal
+unit bar = 1e5 * Pa;   // bar

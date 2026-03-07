@@ -1,8 +1,8 @@
 //! Statement and type annotation parsers
 
 use crate::ast::span::HasSpan;
-use crate::ast::{FunctionParam, Stmt, StructField, Type};
-use crate::lexer::Token;
+use crate::ast::{FunctionParam, Stmt, StructField, Type, UnitExpr, UnitTypeExpr};
+use crate::lexer::{Span, Token};
 use crate::parser::ParseError;
 use chumsky::prelude::*;
 
@@ -10,11 +10,183 @@ use chumsky::prelude::*;
 // Type Annotation Parser
 // ============================================================================
 
+// ============================================================================
+// Unit Type Expression Parser
+// ============================================================================
+
+/// Parse a unit type expression (used inside `Real<...>`)
+///
+/// Syntax:
+///   unit_type_expr ::= unit_type_term (("*" | "/") unit_type_term)*
+///   unit_type_term ::= unit_type_factor ("^" INT_LITERAL)?
+///   unit_type_factor ::= IDENT | "(" unit_type_expr ")"
+fn unit_type_expr<'src>()
+-> impl Parser<'src, &'src [Token<'src>], UnitTypeExpr<'src>, ParseError<'src>> + Clone {
+    recursive(|unit_type_expr_rec| {
+        let factor = choice((
+            // Parenthesised group: (unit_type_expr)
+            unit_type_expr_rec.clone().delimited_by(
+                select! { Token::LeftParen(_) => () },
+                select! { Token::RightParen(_) => () },
+            ),
+            // Named unit (identifier)
+            select! { Token::Identifier(t) => UnitTypeExpr::Name { name: t.name, span: t.span } },
+        ));
+
+        // term = factor ("^" int)?
+        let term = factor
+            .then(
+                select! { Token::Power(_) => () }
+                    .ignore_then(select! { Token::IntLiteral(t) => t.value })
+                    .or_not(),
+            )
+            .map(|(base, exp_opt)| {
+                if let Some(exp) = exp_opt {
+                    let base_span = base.span();
+                    UnitTypeExpr::Pow {
+                        span: base_span,
+                        base: Box::new(base),
+                        exp,
+                    }
+                } else {
+                    base
+                }
+            });
+
+        // expr = term (("*" | "/") term)*
+        term.clone().foldl(
+            choice((
+                select! { Token::Multiply(_) => true },
+                select! { Token::Divide(_) => false },
+            ))
+            .then(term)
+            .repeated(),
+            |lhs, (is_mul, rhs)| {
+                let lhs_span = lhs.span();
+                let rhs_span = rhs.span();
+                let span = Span {
+                    start: lhs_span.start,
+                    lines: 0,
+                    end_column: rhs_span.end_column,
+                };
+                if is_mul {
+                    UnitTypeExpr::Mul {
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                        span,
+                    }
+                } else {
+                    UnitTypeExpr::Div {
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                        span,
+                    }
+                }
+            },
+        )
+    })
+    .labelled("unit type expression")
+}
+
+// ============================================================================
+// Unit Expression Parser (for unit declarations)
+// ============================================================================
+
+/// Parse a unit expression (used on RHS of `unit name = <expr>`)
+///
+/// Same as UnitTypeExpr but also allows numeric literal scale factors.
+/// Syntax:
+///   unit_expr ::= unit_term (("*" | "/") unit_term)*
+///   unit_term ::= unit_factor ("^" INT_LITERAL)?
+///   unit_factor ::= FLOAT_LITERAL | INT_LITERAL | IDENT | "(" unit_expr ")"
+fn unit_expr_parser<'src>()
+-> impl Parser<'src, &'src [Token<'src>], UnitExpr<'src>, ParseError<'src>> + Clone {
+    recursive(|unit_expr_rec| {
+        let factor = choice((
+            // Parenthesised group
+            unit_expr_rec.clone().delimited_by(
+                select! { Token::LeftParen(_) => () },
+                select! { Token::RightParen(_) => () },
+            ),
+            // Float literal scale factor
+            select! {
+                Token::FloatLiteral(t) => UnitExpr::Literal { value: t.value, span: t.span },
+            },
+            // Int literal scale factor (cast to f64)
+            select! {
+                Token::IntLiteral(t) => UnitExpr::Literal {
+                    value: t.value as f64,
+                    span: t.span,
+                },
+            },
+            // Named unit
+            select! {
+                Token::Identifier(t) => UnitExpr::Name { name: t.name, span: t.span },
+            },
+        ));
+
+        // term = factor ("^" int)?
+        let term = factor
+            .then(
+                select! { Token::Power(_) => () }
+                    .ignore_then(select! { Token::IntLiteral(t) => t.value })
+                    .or_not(),
+            )
+            .map(|(base, exp_opt)| {
+                if let Some(exp) = exp_opt {
+                    let base_span = base.span();
+                    UnitExpr::Pow {
+                        span: base_span,
+                        base: Box::new(base),
+                        exp,
+                    }
+                } else {
+                    base
+                }
+            });
+
+        // expr = term (("*" | "/") term)*
+        term.clone().foldl(
+            choice((
+                select! { Token::Multiply(_) => true },
+                select! { Token::Divide(_) => false },
+            ))
+            .then(term)
+            .repeated(),
+            |lhs, (is_mul, rhs)| {
+                let lhs_span = lhs.span();
+                let rhs_span = rhs.span();
+                let span = Span {
+                    start: lhs_span.start,
+                    lines: 0,
+                    end_column: rhs_span.end_column,
+                };
+                if is_mul {
+                    UnitExpr::Mul {
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                        span,
+                    }
+                } else {
+                    UnitExpr::Div {
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                        span,
+                    }
+                }
+            },
+        )
+    })
+    .labelled("unit expression")
+}
+
+// ============================================================================
+// Type Annotation Parser
+// ============================================================================
+
 /// Parse type annotations (bool, i32, f64, Real, Algebraic, [T; N], &Type, UserType)
 pub fn type_annotation<'src>()
--> impl Parser<'src, &'src [Token<'src>], Type, ParseError<'src>> + Clone {
-    use crate::lexer::Span;
-
+-> impl Parser<'src, &'src [Token<'src>], Type<'src>, ParseError<'src>> + Clone {
     recursive(|type_annotation| {
         let base_type = choice((
             select! {
@@ -32,11 +204,30 @@ pub fn type_annotation<'src>()
                     span: Span { start: t.position, lines: 0, end_column: t.position.column + 3 }
                 },
             },
+            // Real<unit_type_expr> or plain Real
             select! {
-                Token::RealType(t) => Type::Real {
-                    span: Span { start: t.position, lines: 0, end_column: t.position.column + 4 }
-                },
-            },
+                Token::RealType(t) => t.position,
+            }
+            .then(
+                select! { Token::LessThan(_) => () }
+                    .ignore_then(unit_type_expr())
+                    .then(select! { Token::GreaterThan(t) => t.position })
+                    .or_not(),
+            )
+            .map(|(real_pos, unit_opt)| {
+                let end_col = match &unit_opt {
+                    Some((_, gt_pos)) => gt_pos.column + 1,
+                    None => real_pos.column + 4,
+                };
+                Type::Real {
+                    unit: unit_opt.map(|(u, _)| Box::new(u)),
+                    span: Span {
+                        start: real_pos,
+                        lines: 0,
+                        end_column: end_col,
+                    },
+                }
+            }),
             select! {
                 Token::AlgebraicType(t) => Type::Algebraic {
                     span: Span { start: t.position, lines: 0, end_column: t.position.column + 9 }
@@ -587,7 +778,7 @@ pub fn expression_stmt<'src>(
 
 /// Parse a function parameter: name: Type
 pub fn function_param<'src>()
--> impl Parser<'src, &'src [Token<'src>], FunctionParam, ParseError<'src>> + Clone {
+-> impl Parser<'src, &'src [Token<'src>], FunctionParam<'src>, ParseError<'src>> + Clone {
     use crate::lexer::Span;
 
     let colon = select! { Token::Colon(_) => () };
@@ -730,7 +921,7 @@ pub fn function_def<'src>(
 
 /// Parse a struct field: name: Type
 fn struct_field<'src>()
--> impl Parser<'src, &'src [Token<'src>], StructField, ParseError<'src>> + Clone {
+-> impl Parser<'src, &'src [Token<'src>], StructField<'src>, ParseError<'src>> + Clone {
     use crate::lexer::Span;
 
     let colon = select! { Token::Colon(_) => () };
@@ -878,7 +1069,7 @@ pub fn struct_def<'src>(
 // Helper enum for parsing struct members
 enum MemberItem<'src> {
     Container((String, crate::lexer::Span)),
-    Field(StructField),
+    Field(StructField<'src>),
     Method(Stmt<'src>),
 }
 
@@ -1150,4 +1341,120 @@ pub fn optimize_stmt<'src>(
             Stmt::Optimize { directives, span }
         })
         .labelled("optimize block")
+}
+
+// ============================================================================
+// Unit Declaration Parsers
+// ============================================================================
+
+/// Parse a base unit declaration: `unit <name>;`
+/// or a derived unit definition: `unit <name> = <unit_expr>;`
+///
+/// Examples:
+///   unit m;
+///   unit inch = 0.0254 * m;
+pub fn unit_stmt<'src>()
+-> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    select! { Token::Unit(t) => t.position }
+        .then(select! { Token::Identifier(t) => (t.name, t.span) }.labelled("unit name"))
+        .then(
+            select! { Token::Equals(_) => () }
+                .ignore_then(unit_expr_parser())
+                .or_not(),
+        )
+        .then(select! { Token::SemiColon(t) => t.position })
+        .map(|(((unit_pos, (name, name_span)), def_opt), semi_pos)| {
+            let span = Span {
+                start: unit_pos,
+                lines: if unit_pos.line == semi_pos.line {
+                    0
+                } else {
+                    semi_pos.line - unit_pos.line
+                },
+                end_column: semi_pos.column + 1,
+            };
+            match def_opt {
+                None => Stmt::UnitDecl {
+                    name,
+                    name_span,
+                    span,
+                },
+                Some(definition) => Stmt::UnitDef {
+                    name,
+                    name_span,
+                    definition,
+                    span,
+                },
+            }
+        })
+        .labelled("unit declaration")
+}
+
+/// Parse a unit prefix declaration: `unit_prefix <name> = <factor>;`
+///
+/// Examples:
+///   unit_prefix m = 1e-3;
+///   unit_prefix k = 1e3;
+pub fn unit_prefix_stmt<'src>()
+-> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    select! { Token::UnitPrefix(t) => t.position }
+        .then(select! { Token::Identifier(t) => (t.name, t.span) }.labelled("prefix name"))
+        .then_ignore(select! { Token::Equals(_) => () })
+        .then(
+            // Accept either a float literal or integer literal as the factor
+            choice((
+                select! { Token::FloatLiteral(t) => t.value },
+                select! { Token::IntLiteral(t) => t.value as f64 },
+            ))
+            .labelled("prefix factor"),
+        )
+        .then(select! { Token::SemiColon(t) => t.position })
+        .map(
+            |(((unit_prefix_pos, (prefix, prefix_span)), factor), semi_pos)| {
+                let span = Span {
+                    start: unit_prefix_pos,
+                    lines: if unit_prefix_pos.line == semi_pos.line {
+                        0
+                    } else {
+                        semi_pos.line - unit_prefix_pos.line
+                    },
+                    end_column: semi_pos.column + 1,
+                };
+                Stmt::UnitPrefixDecl {
+                    prefix,
+                    prefix_span,
+                    factor,
+                    span,
+                }
+            },
+        )
+        .labelled("unit prefix declaration")
+}
+
+// ============================================================================
+// Include Directive Parser
+// ============================================================================
+
+/// Parse an include directive: `include "path";`
+///
+/// Examples:
+///   include "lib/si_units.cad";
+pub fn include_stmt<'src>()
+-> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    select! { Token::Include(t) => t.position }
+        .then(select! { Token::StringLiteral(t) => (t.value, t.span) }.labelled("include path"))
+        .then(select! { Token::SemiColon(t) => t.position })
+        .map(|((include_pos, (path, _path_span)), semi_pos)| {
+            let span = Span {
+                start: include_pos,
+                lines: if include_pos.line == semi_pos.line {
+                    0
+                } else {
+                    semi_pos.line - include_pos.line
+                },
+                end_column: semi_pos.column + 1,
+            };
+            Stmt::Include { path, span }
+        })
+        .labelled("include directive")
 }

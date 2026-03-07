@@ -37,6 +37,10 @@ fn test_let_with_type_and_init() {
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
         Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
+        Stmt::UnitDecl { .. }
+        | Stmt::UnitDef { .. }
+        | Stmt::UnitPrefixDecl { .. }
+        | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
     }
 }
 
@@ -73,6 +77,10 @@ fn test_let_with_type_only() {
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
         Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
+        Stmt::UnitDecl { .. }
+        | Stmt::UnitDef { .. }
+        | Stmt::UnitPrefixDecl { .. }
+        | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
     }
 }
 
@@ -109,6 +117,10 @@ fn test_let_with_init_only() {
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
         Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
+        Stmt::UnitDecl { .. }
+        | Stmt::UnitDef { .. }
+        | Stmt::UnitPrefixDecl { .. }
+        | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
     }
 }
 
@@ -145,6 +157,10 @@ fn test_let_no_type_no_init() {
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
         Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
+        Stmt::UnitDecl { .. }
+        | Stmt::UnitDef { .. }
+        | Stmt::UnitPrefixDecl { .. }
+        | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
     }
 }
 
@@ -197,6 +213,10 @@ fn test_let_with_expression() {
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
         Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
+        Stmt::UnitDecl { .. }
+        | Stmt::UnitDef { .. }
+        | Stmt::UnitPrefixDecl { .. }
+        | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
     }
 }
 
@@ -238,6 +258,10 @@ fn test_let_container_field_simple() {
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
         Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
+        Stmt::UnitDecl { .. }
+        | Stmt::UnitDef { .. }
+        | Stmt::UnitPrefixDecl { .. }
+        | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
     }
 }
 
@@ -279,6 +303,10 @@ fn test_let_container_field_nested() {
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
         Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
+        Stmt::UnitDecl { .. }
+        | Stmt::UnitDef { .. }
+        | Stmt::UnitPrefixDecl { .. }
+        | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
     }
 }
 
@@ -316,6 +344,10 @@ fn test_let_container_field_with_expression() {
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
         Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
+        Stmt::UnitDecl { .. }
+        | Stmt::UnitDef { .. }
+        | Stmt::UnitPrefixDecl { .. }
+        | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
     }
 }
 
@@ -353,6 +385,10 @@ fn test_let_container_field_no_type() {
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
         Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
+        Stmt::UnitDecl { .. }
+        | Stmt::UnitDef { .. }
+        | Stmt::UnitPrefixDecl { .. }
+        | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
     }
 }
 
@@ -393,6 +429,10 @@ fn test_let_container_field_deeply_nested() {
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
         Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
+        Stmt::UnitDecl { .. }
+        | Stmt::UnitDef { .. }
+        | Stmt::UnitPrefixDecl { .. }
+        | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
     }
 }
 
@@ -439,6 +479,10 @@ fn test_let_container_field_span_tracking() {
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
         Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
+        Stmt::UnitDecl { .. }
+        | Stmt::UnitDef { .. }
+        | Stmt::UnitPrefixDecl { .. }
+        | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
     }
 }
 

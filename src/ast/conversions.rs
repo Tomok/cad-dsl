@@ -53,6 +53,15 @@ impl<'src> From<AddLhs<'src>> for CmpRhs<'src> {
 
             AddLhs::Closure { params, body, span } => CmpRhs::Closure { params, body, span },
             AddLhs::RuneBlock(block) => CmpRhs::RuneBlock(block),
+            AddLhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            } => CmpRhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            },
         }
     }
 }
@@ -106,6 +115,15 @@ impl<'src> From<AddLhs<'src>> for CmpLhs<'src> {
 
             AddLhs::Closure { params, body, span } => CmpLhs::Closure { params, body, span },
             AddLhs::RuneBlock(block) => CmpLhs::RuneBlock(block),
+            AddLhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            } => CmpLhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            },
         }
     }
 }
@@ -149,6 +167,15 @@ impl<'src> From<Atom<'src>> for MulRhs<'src> {
 
             Atom::Closure { params, body, span } => MulRhs::Closure { params, body, span },
             Atom::RuneBlock(block) => MulRhs::RuneBlock(block),
+            Atom::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            } => MulRhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            },
         }
     }
 }
@@ -192,6 +219,15 @@ impl<'src> From<Atom<'src>> for MulLhs<'src> {
 
             Atom::Closure { params, body, span } => MulLhs::Closure { params, body, span },
             Atom::RuneBlock(block) => MulLhs::RuneBlock(block),
+            Atom::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            } => MulLhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            },
         }
     }
 }
@@ -243,6 +279,15 @@ impl<'src> From<MulLhs<'src>> for AddRhs<'src> {
 
             MulLhs::Closure { params, body, span } => AddRhs::Closure { params, body, span },
             MulLhs::RuneBlock(block) => AddRhs::RuneBlock(block),
+            MulLhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            } => AddRhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            },
         }
     }
 }
@@ -294,6 +339,15 @@ impl<'src> From<MulLhs<'src>> for AddLhs<'src> {
 
             MulLhs::Closure { params, body, span } => AddLhs::Closure { params, body, span },
             MulLhs::RuneBlock(block) => AddLhs::RuneBlock(block),
+            MulLhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            } => AddLhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            },
         }
     }
 }
@@ -337,6 +391,15 @@ impl<'src> From<Atom<'src>> for PowLhs<'src> {
 
             Atom::Closure { params, body, span } => PowLhs::Closure { params, body, span },
             Atom::RuneBlock(block) => PowLhs::RuneBlock(block),
+            Atom::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            } => PowLhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            },
         }
     }
 }
@@ -380,6 +443,15 @@ impl<'src> From<Atom<'src>> for PowRhs<'src> {
 
             Atom::Closure { params, body, span } => PowRhs::Closure { params, body, span },
             Atom::RuneBlock(block) => PowRhs::RuneBlock(block),
+            Atom::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            } => PowRhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            },
         }
     }
 }
@@ -427,6 +499,15 @@ impl<'src> From<PowLhs<'src>> for PowRhs<'src> {
 
             PowLhs::Closure { params, body, span } => PowRhs::Closure { params, body, span },
             PowLhs::RuneBlock(block) => PowRhs::RuneBlock(block),
+            PowLhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            } => PowRhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            },
         }
     }
 }
@@ -474,6 +555,15 @@ impl<'src> From<PowLhs<'src>> for MulRhs<'src> {
 
             PowLhs::Closure { params, body, span } => MulRhs::Closure { params, body, span },
             PowLhs::RuneBlock(block) => MulRhs::RuneBlock(block),
+            PowLhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            } => MulRhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            },
         }
     }
 }
@@ -521,6 +611,15 @@ impl<'src> From<PowLhs<'src>> for MulLhs<'src> {
 
             PowLhs::Closure { params, body, span } => MulLhs::Closure { params, body, span },
             PowLhs::RuneBlock(block) => MulLhs::RuneBlock(block),
+            PowLhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            } => MulLhs::UnitLit {
+                value,
+                unit_suffix,
+                span,
+            },
         }
     }
 }

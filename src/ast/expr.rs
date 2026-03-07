@@ -266,6 +266,15 @@ pub enum Expr<'src> {
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
     BoolLit { value: bool, span: Span },
 
+    // Unit literal: a numeric value with a unit suffix (e.g., `10mm`, `45deg`, `1.5m`)
+    // The unit_suffix is the raw identifier string; it is resolved during semantic analysis.
+    #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
+    UnitLit {
+        value: f64,
+        unit_suffix: &'src str,
+        span: Span,
+    },
+
     // Function call - in all levels (high precedence like atoms)
     #[subenum(CmpLhs, CmpRhs, AddLhs, AddRhs, MulLhs, MulRhs, PowLhs, PowRhs, Atom)]
     Call {
@@ -375,6 +384,7 @@ impl<'src> HasSpan for Expr<'src> {
             Expr::IntLit { span, .. } => *span,
             Expr::FloatLit { span, .. } => *span,
             Expr::BoolLit { span, .. } => *span,
+            Expr::UnitLit { span, .. } => *span,
             Expr::Call { span, .. } => *span,
             Expr::MethodCall { span, .. } => *span,
             Expr::FieldAccess { span, .. } => *span,
@@ -415,6 +425,7 @@ impl<'src> HasSpan for CmpLhs<'src> {
             CmpLhs::IntLit { span, .. } => *span,
             CmpLhs::FloatLit { span, .. } => *span,
             CmpLhs::BoolLit { span, .. } => *span,
+            CmpLhs::UnitLit { span, .. } => *span,
             CmpLhs::Call { span, .. } => *span,
             CmpLhs::MethodCall { span, .. } => *span,
             CmpLhs::FieldAccess { span, .. } => *span,
@@ -447,6 +458,7 @@ impl<'src> HasSpan for CmpRhs<'src> {
             CmpRhs::IntLit { span, .. } => *span,
             CmpRhs::FloatLit { span, .. } => *span,
             CmpRhs::BoolLit { span, .. } => *span,
+            CmpRhs::UnitLit { span, .. } => *span,
             CmpRhs::Call { span, .. } => *span,
             CmpRhs::MethodCall { span, .. } => *span,
             CmpRhs::FieldAccess { span, .. } => *span,
@@ -479,6 +491,7 @@ impl<'src> HasSpan for AddLhs<'src> {
             AddLhs::IntLit { span, .. } => *span,
             AddLhs::FloatLit { span, .. } => *span,
             AddLhs::BoolLit { span, .. } => *span,
+            AddLhs::UnitLit { span, .. } => *span,
             AddLhs::Call { span, .. } => *span,
             AddLhs::MethodCall { span, .. } => *span,
             AddLhs::FieldAccess { span, .. } => *span,
@@ -509,6 +522,7 @@ impl<'src> HasSpan for AddRhs<'src> {
             AddRhs::IntLit { span, .. } => *span,
             AddRhs::FloatLit { span, .. } => *span,
             AddRhs::BoolLit { span, .. } => *span,
+            AddRhs::UnitLit { span, .. } => *span,
             AddRhs::Call { span, .. } => *span,
             AddRhs::MethodCall { span, .. } => *span,
             AddRhs::FieldAccess { span, .. } => *span,
@@ -539,6 +553,7 @@ impl<'src> HasSpan for MulLhs<'src> {
             MulLhs::IntLit { span, .. } => *span,
             MulLhs::FloatLit { span, .. } => *span,
             MulLhs::BoolLit { span, .. } => *span,
+            MulLhs::UnitLit { span, .. } => *span,
             MulLhs::Call { span, .. } => *span,
             MulLhs::MethodCall { span, .. } => *span,
             MulLhs::FieldAccess { span, .. } => *span,
@@ -566,6 +581,7 @@ impl<'src> HasSpan for MulRhs<'src> {
             MulRhs::IntLit { span, .. } => *span,
             MulRhs::FloatLit { span, .. } => *span,
             MulRhs::BoolLit { span, .. } => *span,
+            MulRhs::UnitLit { span, .. } => *span,
             MulRhs::Call { span, .. } => *span,
             MulRhs::MethodCall { span, .. } => *span,
             MulRhs::FieldAccess { span, .. } => *span,
@@ -592,6 +608,7 @@ impl<'src> HasSpan for PowLhs<'src> {
             PowLhs::IntLit { span, .. } => *span,
             PowLhs::FloatLit { span, .. } => *span,
             PowLhs::BoolLit { span, .. } => *span,
+            PowLhs::UnitLit { span, .. } => *span,
             PowLhs::Call { span, .. } => *span,
             PowLhs::MethodCall { span, .. } => *span,
             PowLhs::FieldAccess { span, .. } => *span,
@@ -619,6 +636,7 @@ impl<'src> HasSpan for PowRhs<'src> {
             PowRhs::IntLit { span, .. } => *span,
             PowRhs::FloatLit { span, .. } => *span,
             PowRhs::BoolLit { span, .. } => *span,
+            PowRhs::UnitLit { span, .. } => *span,
             PowRhs::Call { span, .. } => *span,
             PowRhs::MethodCall { span, .. } => *span,
             PowRhs::FieldAccess { span, .. } => *span,
@@ -641,6 +659,7 @@ impl<'src> HasSpan for Atom<'src> {
             Atom::IntLit { span, .. } => *span,
             Atom::FloatLit { span, .. } => *span,
             Atom::BoolLit { span, .. } => *span,
+            Atom::UnitLit { span, .. } => *span,
             Atom::Call { span, .. } => *span,
             Atom::MethodCall { span, .. } => *span,
             Atom::FieldAccess { span, .. } => *span,

@@ -62,6 +62,9 @@ impl<'src> std::fmt::Display for Expr<'src> {
             Expr::IntLit { value, .. } => write!(f, "{}", value),
             Expr::FloatLit { value, .. } => write!(f, "{}", value),
             Expr::BoolLit { value, .. } => write!(f, "{}", value),
+            Expr::UnitLit {
+                value, unit_suffix, ..
+            } => write!(f, "{}{}", value, unit_suffix),
             Expr::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -166,6 +169,9 @@ impl<'src> std::fmt::Display for CmpLhs<'src> {
             CmpLhs::IntLit { value, .. } => write!(f, "{}", value),
             CmpLhs::FloatLit { value, .. } => write!(f, "{}", value),
             CmpLhs::BoolLit { value, .. } => write!(f, "{}", value),
+            CmpLhs::UnitLit {
+                value, unit_suffix, ..
+            } => write!(f, "{}{}", value, unit_suffix),
             CmpLhs::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -263,6 +269,9 @@ impl<'src> std::fmt::Display for CmpRhs<'src> {
             CmpRhs::IntLit { value, .. } => write!(f, "{}", value),
             CmpRhs::FloatLit { value, .. } => write!(f, "{}", value),
             CmpRhs::BoolLit { value, .. } => write!(f, "{}", value),
+            CmpRhs::UnitLit {
+                value, unit_suffix, ..
+            } => write!(f, "{}{}", value, unit_suffix),
             CmpRhs::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -360,6 +369,9 @@ impl<'src> std::fmt::Display for AddLhs<'src> {
             AddLhs::IntLit { value, .. } => write!(f, "{}", value),
             AddLhs::FloatLit { value, .. } => write!(f, "{}", value),
             AddLhs::BoolLit { value, .. } => write!(f, "{}", value),
+            AddLhs::UnitLit {
+                value, unit_suffix, ..
+            } => write!(f, "{}{}", value, unit_suffix),
             AddLhs::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -455,6 +467,9 @@ impl<'src> std::fmt::Display for AddRhs<'src> {
             AddRhs::IntLit { value, .. } => write!(f, "{}", value),
             AddRhs::FloatLit { value, .. } => write!(f, "{}", value),
             AddRhs::BoolLit { value, .. } => write!(f, "{}", value),
+            AddRhs::UnitLit {
+                value, unit_suffix, ..
+            } => write!(f, "{}{}", value, unit_suffix),
             AddRhs::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -550,6 +565,9 @@ impl<'src> std::fmt::Display for MulLhs<'src> {
             MulLhs::IntLit { value, .. } => write!(f, "{}", value),
             MulLhs::FloatLit { value, .. } => write!(f, "{}", value),
             MulLhs::BoolLit { value, .. } => write!(f, "{}", value),
+            MulLhs::UnitLit {
+                value, unit_suffix, ..
+            } => write!(f, "{}{}", value, unit_suffix),
             MulLhs::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -642,6 +660,9 @@ impl<'src> std::fmt::Display for MulRhs<'src> {
             MulRhs::IntLit { value, .. } => write!(f, "{}", value),
             MulRhs::FloatLit { value, .. } => write!(f, "{}", value),
             MulRhs::BoolLit { value, .. } => write!(f, "{}", value),
+            MulRhs::UnitLit {
+                value, unit_suffix, ..
+            } => write!(f, "{}{}", value, unit_suffix),
             MulRhs::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -733,6 +754,9 @@ impl<'src> std::fmt::Display for PowLhs<'src> {
             PowLhs::IntLit { value, .. } => write!(f, "{}", value),
             PowLhs::FloatLit { value, .. } => write!(f, "{}", value),
             PowLhs::BoolLit { value, .. } => write!(f, "{}", value),
+            PowLhs::UnitLit {
+                value, unit_suffix, ..
+            } => write!(f, "{}{}", value, unit_suffix),
             PowLhs::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -825,6 +849,9 @@ impl<'src> std::fmt::Display for PowRhs<'src> {
             PowRhs::IntLit { value, .. } => write!(f, "{}", value),
             PowRhs::FloatLit { value, .. } => write!(f, "{}", value),
             PowRhs::BoolLit { value, .. } => write!(f, "{}", value),
+            PowRhs::UnitLit {
+                value, unit_suffix, ..
+            } => write!(f, "{}{}", value, unit_suffix),
             PowRhs::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
                 for (i, arg) in args.iter().enumerate() {
@@ -912,6 +939,9 @@ impl<'src> std::fmt::Display for Atom<'src> {
             Atom::IntLit { value, .. } => write!(f, "{}", value),
             Atom::FloatLit { value, .. } => write!(f, "{}", value),
             Atom::BoolLit { value, .. } => write!(f, "{}", value),
+            Atom::UnitLit {
+                value, unit_suffix, ..
+            } => write!(f, "{}{}", value, unit_suffix),
             Atom::Call { name, args, .. } => {
                 write!(f, "{}(", name)?;
                 for (i, arg) in args.iter().enumerate() {

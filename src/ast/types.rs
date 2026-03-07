@@ -3,41 +3,133 @@ use crate::ast::span::HasSpan;
 use crate::lexer::Span;
 
 // ============================================================================
+// Unit Type Expressions
+// ============================================================================
+
+/// A unit type expression used as the parameter to `Real<...>`.
+///
+/// # Examples
+/// - `Real<m>` → `UnitTypeExpr::Name { name: "m" }`
+/// - `Real<m/s>` → `UnitTypeExpr::Div { ... }`
+/// - `Real<m^2>` → `UnitTypeExpr::Pow { ... }`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnitTypeExpr<'src> {
+    /// A named unit (base or previously declared derived unit), e.g. `m`, `mm`, `deg`
+    Name { name: &'src str, span: Span },
+    /// Product of two unit expressions, e.g. `m*s`
+    Mul {
+        lhs: Box<UnitTypeExpr<'src>>,
+        rhs: Box<UnitTypeExpr<'src>>,
+        span: Span,
+    },
+    /// Quotient of two unit expressions, e.g. `m/s`
+    Div {
+        lhs: Box<UnitTypeExpr<'src>>,
+        rhs: Box<UnitTypeExpr<'src>>,
+        span: Span,
+    },
+    /// Unit raised to an integer power, e.g. `m^2`
+    Pow {
+        base: Box<UnitTypeExpr<'src>>,
+        exp: i32,
+        span: Span,
+    },
+}
+
+impl<'src> HasSpan for UnitTypeExpr<'src> {
+    fn span(&self) -> Span {
+        match self {
+            UnitTypeExpr::Name { span, .. } => *span,
+            UnitTypeExpr::Mul { span, .. } => *span,
+            UnitTypeExpr::Div { span, .. } => *span,
+            UnitTypeExpr::Pow { span, .. } => *span,
+        }
+    }
+}
+
+/// A unit expression used on the right-hand side of a `unit name = <expr>;` declaration.
+///
+/// This is a superset of `UnitTypeExpr` that also allows numeric literal factors,
+/// e.g. `unit inch = 0.0254 * m;`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnitExpr<'src> {
+    /// Numeric literal scale factor, e.g. `0.0254`
+    Literal { value: f64, span: Span },
+    /// A named unit (base or previously declared), e.g. `m`, `mm`
+    Name { name: &'src str, span: Span },
+    /// Product, e.g. `0.0254 * m`
+    Mul {
+        lhs: Box<UnitExpr<'src>>,
+        rhs: Box<UnitExpr<'src>>,
+        span: Span,
+    },
+    /// Quotient, e.g. `deg / 60.0`
+    Div {
+        lhs: Box<UnitExpr<'src>>,
+        rhs: Box<UnitExpr<'src>>,
+        span: Span,
+    },
+    /// Power with integer exponent
+    Pow {
+        base: Box<UnitExpr<'src>>,
+        exp: i32,
+        span: Span,
+    },
+}
+
+impl<'src> HasSpan for UnitExpr<'src> {
+    fn span(&self) -> Span {
+        match self {
+            UnitExpr::Literal { span, .. } => *span,
+            UnitExpr::Name { span, .. } => *span,
+            UnitExpr::Mul { span, .. } => *span,
+            UnitExpr::Div { span, .. } => *span,
+            UnitExpr::Pow { span, .. } => *span,
+        }
+    }
+}
+
+// ============================================================================
 // Type Annotations
 // ============================================================================
 
 /// Type annotations for variable declarations and function parameters
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Type {
+#[derive(Debug, Clone, PartialEq)]
+pub enum Type<'src> {
     /// Boolean type
     Bool { span: Span },
     /// 32-bit integer type
     I32 { span: Span },
     /// 64-bit floating point type
     F64 { span: Span },
-    /// Mathematical real number with exact precision
-    Real { span: Span },
+    /// Mathematical real number, optionally with a unit parameter.
+    /// `Real` (no unit) = dimensionless real.
+    /// `Real<m>` = real value in meters.
+    Real {
+        unit: Option<Box<UnitTypeExpr<'src>>>,
+        span: Span,
+    },
     /// Algebraic number (roots of polynomials with integer coefficients)
     Algebraic { span: Span },
     /// Reference type (e.g., &Point)
-    Reference { inner: Box<Type>, span: Span },
+    Reference { inner: Box<Type<'src>>, span: Span },
     /// User-defined type (e.g., Point, Circle)
     UserDefined { name: String, span: Span },
     /// Fixed-size array type (e.g., [i32; 5], [Point; 3])
     Array {
-        element_type: Box<Type>,
+        element_type: Box<Type<'src>>,
         size: usize,
         span: Span,
     },
 }
 
-impl HasSpan for Type {
+impl<'src> HasSpan for Type<'src> {
     fn span(&self) -> Span {
         match self {
             Type::Bool { span } => *span,
             Type::I32 { span } => *span,
             Type::F64 { span } => *span,
-            Type::Real { span } => *span,
+            Type::Real { span, .. } => *span,
             Type::Algebraic { span } => *span,
             Type::Reference { span, .. } => *span,
             Type::UserDefined { span, .. } => *span,
@@ -51,15 +143,15 @@ impl HasSpan for Type {
 // ============================================================================
 
 /// Function parameter with name and type
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FunctionParam {
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionParam<'src> {
     pub name: String,
     pub name_span: Span,
-    pub type_annotation: Type,
+    pub type_annotation: Type<'src>,
     pub span: Span,
 }
 
-impl HasSpan for FunctionParam {
+impl<'src> HasSpan for FunctionParam<'src> {
     fn span(&self) -> Span {
         self.span
     }
@@ -70,15 +162,15 @@ impl HasSpan for FunctionParam {
 // ============================================================================
 
 /// Struct field with name and type
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StructField {
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructField<'src> {
     pub name: String,
     pub name_span: Span,
-    pub type_annotation: Type,
+    pub type_annotation: Type<'src>,
     pub span: Span,
 }
 
-impl HasSpan for StructField {
+impl<'src> HasSpan for StructField<'src> {
     fn span(&self) -> Span {
         self.span
     }
@@ -110,7 +202,7 @@ pub enum Stmt<'src> {
         /// - Nested: `let a.b.c` -> vec![("a", span1), ("b", span2), ("c", span3)]
         /// - Dot prefix: `let .field` -> vec![("field", span)]
         name_path: Vec<(&'src str, Span)>,
-        type_annotation: Option<Type>,
+        type_annotation: Option<Type<'src>>,
         init: Option<Expr<'src>>,
         span: Span,
     },
@@ -174,8 +266,8 @@ pub enum Stmt<'src> {
     FunctionDef {
         name: String,
         name_span: Span,
-        params: Vec<FunctionParam>,
-        return_type: Type,
+        params: Vec<FunctionParam<'src>>,
+        return_type: Type<'src>,
         body: Vec<Stmt<'src>>,
         return_expr: Option<Expr<'src>>,
         span: Span,
@@ -191,7 +283,7 @@ pub enum Stmt<'src> {
         name_span: Span,
         /// Optional container field name
         container: Option<(String, Span)>,
-        fields: Vec<StructField>,
+        fields: Vec<StructField<'src>>,
         methods: Vec<Stmt<'src>>,
         span: Span,
     },
@@ -261,6 +353,36 @@ pub enum Stmt<'src> {
         directives: Vec<OptimizeDirective<'src>>,
         span: Span,
     },
+
+    /// Base unit declaration: `unit <name>;`
+    /// Introduces a new fundamental dimension.
+    UnitDecl {
+        name: &'src str,
+        name_span: Span,
+        span: Span,
+    },
+
+    /// Derived unit declaration: `unit <name> = <expr>;`
+    /// Defines a unit in terms of existing units.
+    UnitDef {
+        name: &'src str,
+        name_span: Span,
+        definition: UnitExpr<'src>,
+        span: Span,
+    },
+
+    /// Unit prefix declaration: `unit_prefix <name> = <factor>;`
+    /// Defines a multiplicative prefix (e.g., `unit_prefix m = 1e-3;` for milli).
+    UnitPrefixDecl {
+        prefix: &'src str,
+        prefix_span: Span,
+        factor: f64,
+        span: Span,
+    },
+
+    /// Include directive: `include "<path>";`
+    /// Loads and splices another .cad file into the current program.
+    Include { path: &'src str, span: Span },
 }
 
 /// A single directive inside an optimize block
@@ -293,6 +415,10 @@ impl<'src> HasSpan for Stmt<'src> {
             Stmt::With { span, .. } => *span,
             Stmt::If { span, .. } => *span,
             Stmt::Optimize { span, .. } => *span,
+            Stmt::UnitDecl { span, .. } => *span,
+            Stmt::UnitDef { span, .. } => *span,
+            Stmt::UnitPrefixDecl { span, .. } => *span,
+            Stmt::Include { span, .. } => *span,
         }
     }
 }
