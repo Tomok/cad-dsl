@@ -1,24 +1,27 @@
 # TextCAD Domain-Specific Language Specification
 
+**Version:** 2.1
+**Status:** Draft
+
 ## Table of Contents
 
 1. [Introduction](#introduction)
 2. [Core Concepts](#core-concepts)
 3. [Type System](#type-system)
-4. [Variable Declaration and Scoping](#variable-declaration-and-scoping)
-5. [Assignment Semantics](#assignment-semantics)
-6. [Entities vs References](#entities-vs-references)
-7. [Structs](#structs)
-8. [Container Structs](#container-structs)
-9. [Transform Pattern](#transform-pattern)
-10. [With Statements](#with-statements)
-11. [Arrays](#arrays)
-12. [Functions](#functions)
-13. [Control Flow](#control-flow)
-14. [Rune Blocks](#rune-blocks)
-15. [Optimize Block](#optimize-block)
-16. [Functional Operations](#functional-operations)
-17. [Units](#units)
+4. [Unit System](#unit-system)
+5. [Variable Declaration and Scoping](#variable-declaration-and-scoping)
+6. [Assignment Semantics](#assignment-semantics)
+7. [Entities vs References](#entities-vs-references)
+8. [Structs](#structs)
+9. [Container Structs](#container-structs)
+10. [Transform Pattern](#transform-pattern)
+11. [With Statements](#with-statements)
+12. [Arrays](#arrays)
+13. [Functions](#functions)
+14. [Control Flow](#control-flow)
+15. [Rune Blocks](#rune-blocks)
+16. [Optimize Block](#optimize-block)
+17. [Functional Operations](#functional-operations)
 18. [Comments](#comments)
 19. [Standard Library](#standard-library)
 20. [Complete Examples](#complete-examples)
@@ -63,27 +66,17 @@ Constraints are equations or inequalities that must be satisfied by the final so
 
 The language provides several fundamental types that cannot be user-defined.
 
-**Point** represents a position in 2D space with x and y coordinates expressed as lengths.
-
-**Length** represents a distance measurement in SI base units (meters), with support for convenient constructors for millimeters and centimeters.
-
-**Angle** represents a rotation measurement in SI base units (radians), with support for degree-based constructors.
-
-**Area** represents a derived unit from length multiplication.
-
 **bool** represents boolean values for logical constraints.
 
 **i32** represents integer values used for counting and indexing.
 
 **f64** represents floating-point numbers for scale factors and ratios.
 
-**Real** represents mathematical real numbers with exact precision for geometric calculations and constraint solving.
+**Real** represents mathematical real numbers with exact precision for geometric calculations and constraint solving. Real can be parameterized with units to create dimensioned quantities (see [Unit System](#unit-system)).
 
 **Algebraic** represents algebraic numbers (roots of polynomials with integer coefficients) for exact geometric constructions involving square roots and trigonometric values.
 
 #### Type Characteristics and Performance
-
-**Length, Angle, Area** are built on the Real type, providing exact arithmetic without rounding errors. Linear operations are efficiently solved using dual simplex algorithms. However, nonlinear operations (multiplication between unknowns) are computationally expensive and may result in undecidable constraint systems.
 
 **bool** constraints are efficiently handled by Z3's boolean satisfiability algorithms with minimal performance overhead.
 
@@ -91,9 +84,23 @@ The language provides several fundamental types that cannot be user-defined.
 
 **f64** provides machine floating-point arithmetic for approximate calculations where exact precision is unnecessary. Should be avoided for constraint variables due to rounding error accumulation.
 
-**Real** offers exact mathematical precision ideal for geometric measurements and constraints. Linear real arithmetic is efficiently solvable, but nonlinear real arithmetic can be very expensive and Z3 is not complete for such formulas.
+**Real** offers exact mathematical precision ideal for geometric measurements and constraints. Linear real arithmetic is efficiently solvable, but nonlinear real arithmetic can be very expensive and Z3 is not complete for such formulas. When parameterized with units (e.g., `Real<m>`, `Real<m/s>`), the compiler performs compile-time dimensional analysis.
 
 **Algebraic** enables exact representation of irrational solutions from polynomial constraints. Z3 represents these numbers precisely internally while displaying decimal approximations for readability. Suitable for geometric constructions requiring exact roots and trigonometric values.
+
+### Dimensioned Real Types
+
+Real values can be parameterized with units to create dimensioned quantities:
+
+```rust
+let distance: Real<m> = 5m;           // Length in meters
+let time: Real<s> = 10s;              // Time in seconds
+let angle: Real<rad> = 1.57rad;       // Angle in radians
+let speed: Real<m/s> = 50m/s;         // Derived unit
+let area: Real<m²> = 100m²;           // Squared unit
+```
+
+The unit system is fully defined in the standard library, not built into the language. See [Unit System](#unit-system) for complete details.
 
 ### User-Defined Types
 
@@ -102,13 +109,13 @@ Users can define custom struct types to encapsulate related geometric entities a
 ```rust
 struct Circle {
     center: Point,
-    radius: Length,
+    radius: Real<m>,
 
-    fn diameter() -> Length {
+    fn diameter() -> Real<m> {
         self.radius * 2.0
     }
 
-    fn area() -> Area {
+    fn area() -> Real<m²> {
         PI * self.radius * self.radius
     }
 }
@@ -124,6 +131,247 @@ let center_ref: &Point = circle.get_center();
 
 ---
 
+## Unit System
+
+TextCAD provides a comprehensive unit system with compile-time dimensional analysis. Unlike traditional approaches, all units are defined in the standard library rather than being built into the language.
+
+### Design Principles
+
+The unit system provides:
+- **Compile-time checking**: Unit mismatches are detected during parsing and type checking
+- **Automatic conversion**: The solver handles conversions between compatible units
+- **Extensibility**: Users can define custom units without language modifications
+- **Prefix system**: Standard SI prefixes automatically generate unit variants
+- **Natural syntax**: Values written as `10mm`, `45deg`, `2.5h` using suffix notation
+
+### Units as Type Parameters
+
+Units are parameters to the `Real` type, enabling flexible composition:
+
+```rust
+struct Point2D {
+    x: Real<m>,
+    y: Real<m>,
+}
+
+struct Velocity2D {
+    vx: Real<m/s>,
+    vy: Real<m/s>,
+}
+```
+
+### Unit Prefixes
+
+Unit prefixes are multiplicative factors that combine with base units to form scaled variants.
+
+**Syntax:**
+```rust
+unit_prefix <char> = <factor>;
+```
+
+**Standard SI Prefixes:**
+```rust
+unit_prefix m = 1e-3;   // milli
+unit_prefix c = 1e-2;   // centi
+unit_prefix k = 1e3;    // kilo
+unit_prefix M = 1e6;    // mega
+unit_prefix G = 1e9;    // giga
+```
+
+**Prefix Application:**
+
+Prefixes combine with base units automatically:
+```rust
+unit m;  // Define meter as base unit
+
+// Automatically available through prefix:
+// mm = m (prefix) + m (unit) = 1e-3 * meter
+// cm = c (prefix) + m (unit) = 1e-2 * meter
+// km = k (prefix) + m (unit) = 1e3 * meter
+```
+
+**Parsing Rules:**
+
+When the parser encounters a unit token:
+1. Check if the complete token is a defined unit (longest match)
+2. If not found, attempt to split into prefix + unit
+3. Prefix match succeeds only if the remainder is a valid unit
+
+Examples:
+- `mm` → prefix `m` + unit `m` = millimeter ✓
+- `min` → NOT prefix `m` + unit `in` (because `in` is not defined)
+- `min` → direct unit match for "minute" ✓
+
+**Prefix with Powers:**
+
+When a prefixed unit is raised to a power, the prefix factor is also raised:
+```rust
+mm² = (1e-3 · m)² = 1e-6 · m²
+km³ = (1e3 · m)³ = 1e9 · m³
+cm^4 = (1e-2 · m)^4 = 1e-8 · m^4
+```
+
+### Base Units
+
+Base units are fundamental measurement scales with no conversion factor.
+
+**Syntax:**
+```rust
+unit <name>;
+```
+
+**Standard Base Units:**
+```rust
+unit m;      // meter (length)
+unit s;      // second (time)
+unit g;      // gram (mass)
+unit rad;    // radian (angle)
+unit K;      // kelvin (temperature)
+```
+
+Base units define the internal representation for all values of their dimension. All `Real<m>` values are stored in meters internally.
+
+### Derived Units
+
+Derived units are defined with explicit conversion formulas to base units.
+
+**Syntax:**
+```rust
+unit <name> = <expression> * <base_unit>;
+```
+
+**Simple Scalar Conversions:**
+```rust
+unit inch = 0.0254 * m;
+unit ft = 0.3048 * m;
+unit mile = 1609.34 * m;
+
+unit min = 60 * s;
+unit h = 3600 * s;
+unit day = 86400 * s;
+
+unit deg = (PI / 180.0) * rad;
+```
+
+**Conversions Referencing Other Units:**
+
+Derived units can reference other derived units:
+```rust
+unit ft = 12 * inch;        // foot = 12 inches
+unit yard = 3 * ft;         // yard = 3 feet
+unit mile = 5280 * ft;      // mile = 5280 feet
+```
+
+The compiler recursively resolves these to base units.
+
+### Automatic Unit Derivation
+
+The compiler automatically derives compound units from arithmetic operations.
+
+**Multiplication:**
+```rust
+let width: Real<m> = 10m;
+let height: Real<m> = 5m;
+let area = width * height;  // Type: Real<m²>
+```
+
+**Division:**
+```rust
+let distance: Real<m> = 100m;
+let time: Real<s> = 10s;
+let speed = distance / time;  // Type: Real<m/s>
+```
+
+**Exponentiation:**
+```rust
+let side: Real<m> = 5m;
+let area = side^2;      // Type: Real<m²>
+let volume = side^3;    // Type: Real<m³>
+```
+
+**Unit Cancellation:**
+```rust
+let d1: Real<m> = 100m;
+let d2: Real<m> = 50m;
+let ratio = d1 / d2;    // Type: Real (dimensionless), Value: 2.0
+```
+
+### Power Notation
+
+TextCAD supports two equivalent notations for unit powers.
+
+**Unicode Superscripts:**
+```rust
+let area: Real<m²> = 100m²;
+let volume: Real<m³> = 1000m³;
+```
+
+Supported: `²` (U+00B2), `³` (U+00B3)
+
+**Caret Notation:**
+```rust
+let area: Real<m^2> = 100m^2;
+let volume: Real<m^3> = 1000m^3;
+let hyper: Real<m^4> = 10m^4;  // Arbitrary positive integer exponents
+```
+
+**Equivalence:**
+```rust
+Real<m²> ≡ Real<m^2>
+Real<m³> ≡ Real<m^3>
+100mm² ≡ 100mm^2
+```
+
+### Unit Conversion
+
+The compiler automatically inserts conversions between compatible units.
+
+**Implicit Conversion in Constraints:**
+```rust
+let d1: Real<m> = 5m;
+let d2: Real<mm> = 300mm;
+
+d1 = d2;  // Constraint with automatic conversion
+          // Solver ensures: d1 = 0.3m or d2 = 5000mm
+```
+
+**Conversion in Arithmetic:**
+```rust
+let total: Real<m> = 5m + 300mm;
+// Internally: 5m + (300 * 1e-3)m = 5.3m
+
+let diff: Real<inch> = 10inch - 2cm;
+// Conversion through base units: cm → m → inch
+```
+
+All conversions route through base units for consistency.
+
+### Dimensionless Values
+
+When units cancel through arithmetic, the result is dimensionless using `Real` without a unit parameter.
+
+**Ratios:**
+```rust
+let d1: Real<m> = 100m;
+let d2: Real<m> = 50m;
+let ratio: Real = d1 / d2;  // 2.0 (dimensionless)
+```
+
+**Scale Factors:**
+```rust
+let scale: Real = 1.5;
+let original: Real<m> = 10m;
+let scaled: Real<m> = original * scale;  // 15m
+```
+
+**Trigonometric Functions:**
+```rust
+let angle: Real<rad> = PI / 4 * rad;
+let sine_value: Real = sin(angle);  // 0.707... (dimensionless)
+```
+
+---
+
 ## Variable Declaration and Scoping
 
 ### Let Statements
@@ -133,7 +381,7 @@ New variables are introduced exclusively through let statements. The let keyword
 ```rust
 let p1: Point = point(0mm, 0mm);  // Fully constrained
 let p2: Point = point();           // Unconstrained position
-let x: Length;                     // Unconstrained length
+let x: Real<m>;                    // Unconstrained length
 ```
 
 ### Container Field Declaration
@@ -151,10 +399,10 @@ This creates a field `p1` within the `entities` container of the `sketch` object
 Variables follow lexical scoping rules. A variable declared in a block is visible within that block and any nested blocks, but not outside the declaring block. The language supports shadowing, where an inner scope can redeclare a variable with the same name as one in an outer scope.
 
 ```rust
-let x: Length = 10mm;
+let x: Real<m> = 10mm;
 
 {
-    let x: Length = 20mm;  // Shadows outer x
+    let x: Real<m> = 20mm;  // Shadows outer x
     // Inner x is 20mm here
 }
 
@@ -185,11 +433,11 @@ let p2: Point = point();
 The language distinguishes between initialization and constraint application. In a let statement, the equals sign performs initialization, setting a direct value. Outside of let statements, the equals sign creates a constraint that the solver must satisfy.
 
 ```rust
-let x: Length = 10mm;  // Initialization: x IS 10mm
-x = 20mm;              // Constraint: x MUST equal 20mm (conflict!)
+let x: Real<m> = 10mm;  // Initialization: x IS 10mm
+x = 20mm;               // Constraint: x MUST equal 20mm (conflict!)
 
-let y: Length;   // Unconstrained
-y = 30mm;        // Constraint: y MUST equal 30mm (valid)
+let y: Real<m>;   // Unconstrained
+y = 30mm;         // Constraint: y MUST equal 30mm (valid)
 ```
 
 ### Constraint Conflicts
@@ -197,8 +445,8 @@ y = 30mm;        // Constraint: y MUST equal 30mm (valid)
 When multiple constraints are applied to the same variable and they conflict, the solver will report that the system is unsatisfiable. This occurs when constraints are mathematically incompatible.
 
 ```rust
-let width: Length = 100mm;  // width IS 100mm
-width = 120mm;              // Constraint conflict: solver error
+let width: Real<m> = 100mm;  // width IS 100mm
+width = 120mm;               // Constraint conflict: solver error
 ```
 
 ### Constrained Copy
@@ -226,7 +474,7 @@ Functions that return entity types without the ampersand prefix create new entit
 ```rust
 struct Circle {
     center: Point,
-    radius: Length,
+    radius: Real<m>,
 
     // Creates NEW point each time called
     fn point_on_border() -> Point {
@@ -271,11 +519,11 @@ let start2: &Point = line.get_start();
 All function parameters for entity types must be references. This enables constraints to be applied to parameter values.
 
 ```rust
-fn distance(p1: &Point, p2: &Point) -> Length {
+fn distance(p1: &Point, p2: &Point) -> Real<m> {
     sqrt((p2.x - p1.x)^2 + (p2.y - p1.y)^2)
 }
 
-fn create_circle(center: &Point, radius: &Length) -> Circle {
+fn create_circle(center: &Point, radius: &Real<m>) -> Circle {
     Circle {
         center: center,   // Creates constraint
         radius: *radius,  // Dereferences for value
@@ -296,11 +544,11 @@ Structs group related fields and provide methods for computation and entity crea
 ```rust
 struct Rectangle {
     center: Point,
-    width: Length,
-    height: Length,
-    rotation: Angle,
+    width: Real<m>,
+    height: Real<m>,
+    rotation: Real<rad>,
 
-    fn area() -> Area {
+    fn area() -> Real<m²> {
         self.width * self.height
     }
 
@@ -441,8 +689,8 @@ The `__transform__` method applies to external variables - variables that exist 
 
 ```rust
 struct Translate {
-    offset_x: Length,
-    offset_y: Length,
+    offset_x: Real<m>,
+    offset_y: Real<m>,
 
     // Transform Point entities for external access
     fn __transform__(p: &Point) -> Point {
@@ -468,8 +716,8 @@ struct Sketch2D {
     // Transform for container variables (dot-prefix)
     fn __transform_container__(p3d: &Point3D) -> Point {
         let local: Vector3D = p3d - self.origin;
-        let u: Length = dot(&local, &self.u_axis);
-        let v: Length = dot(&local, &self.v_axis);
+        let u: Real<m> = dot(&local, &self.u_axis);
+        let v: Real<m> = dot(&local, &self.v_axis);
         point(u, v)
     }
 
@@ -545,7 +793,7 @@ struct Scale {
         new_p
     }
 
-    fn __transform__(len: &Length) -> Length {
+    fn __transform__(len: &Real<m>) -> Real<m> {
         len * self.factor
     }
 }
@@ -560,12 +808,12 @@ struct Sketch2D {
     origin: Point3D,
     u_axis: Vector3D,  // Local x-axis
     v_axis: Vector3D,  // Local y-axis
-    
+
     // Transform 3D points to 2D
     fn __transform__(p3d: &Point3D) -> Point {
         let local: Vector3D = p3d - self.origin;
-        let u: Length = dot(&local, &self.u_axis);
-        let v: Length = dot(&local, &self.v_axis);
+        let u: Real<m> = dot(&local, &self.u_axis);
+        let v: Real<m> = dot(&local, &self.v_axis);
         point(u, v)
     }
 }
@@ -595,7 +843,7 @@ with shift {
     // line.start is automatically transformed
     let p: Point = line.start;
     // p.x = 5mm, p.y = 3mm
-    
+
     // Nested access also transformed
     line.end.x = 20mm;  // Sets (line.end.x + 5mm) = 20mm
                         // Therefore line.end.x = 15mm in outer context
@@ -639,12 +887,12 @@ let sketch: Sketch = Sketch {
 
 with sketch {
     // Local variable (not added to container)
-    let temp: Length = 10mm;
-    
+    let temp: Real<m> = 10mm;
+
     // Container entity (added to sketch.entities)
     let .p1: Point = point(0mm, 0mm);
     // Equivalent to: let sketch.entities.p1: Point = point(0mm, 0mm);
-    
+
     // Access existing container entity
     let .p2: Point = point(.p1.x + temp, .p1.y);
     // .p1 is equivalent to sketch.entities.p1 inside the block
@@ -666,7 +914,7 @@ Within a `with` block, the dot prefix (`.`) references the container field of th
 with sketch {
     let local: Point = point(0mm, 0mm);  // Local variable
     let .stored: Point = local;           // Stored in container
-    
+
     .stored.x = 10mm;  // Constraints sketch.entities.stored
     local.x = 5mm;     // Constraints local variable only
 }
@@ -685,15 +933,15 @@ let inner: Sketch = Sketch { origin: point(50mm, 50mm) };
 
 with outer {
     let .p1: Point = point(0mm, 0mm);  // outer.entities.p1
-    
+
     with inner {
         let .p2: Point = point(0mm, 0mm);  // inner.entities.p2
         let .p3: Point = .p2;              // inner.entities.p3 = inner.entities.p2
-        
+
         // Access outer context explicitly
         let .p4: Point = outer.entities.p1;
     }
-    
+
     let .line: Line = Line {
         start: .p1,
         end: inner.entities.p2
@@ -709,7 +957,7 @@ If the context struct has `__transform__` methods, they are automatically applie
 struct Sketch {
     container entities,
     origin: Point,
-    
+
     fn __transform__(p: &Point) -> Point {
         let new_p: Point = point();
         new_p.x = p.x + self.origin.x;
@@ -728,7 +976,7 @@ with sketch {
     // base is transformed when accessed
     let .p: Point = base;
     // .p = point(110mm, 70mm) in global coordinates
-    
+
     // Constraints are also transformed
     base.x = 50mm;  // Actually constrains (base.x + 100mm) = 50mm
                     // Therefore base.x = -50mm in outer context
@@ -745,7 +993,7 @@ Arrays have fixed sizes known at parse time. The size must be a constant literal
 
 ```rust
 let points: [Point; 5] = [];  // Array of 5 unconstrained points
-let values: [Length; 3] = [10mm, 20mm, 30mm];  // Initialized array
+let values: [Real<m>; 3] = [10mm, 20mm, 30mm];  // Initialized array
 ```
 
 ### Array Literals
@@ -790,15 +1038,15 @@ let range: [i32; 10] = [0..10];  // [0, 1, 2, ..., 9]
 Functions are defined within structs or at the top level. They specify parameter types (with references for entities) and return types.
 
 ```rust
-fn distance(p1: &Point, p2: &Point) -> Length {
+fn distance(p1: &Point, p2: &Point) -> Real<m> {
     sqrt((p2.x - p1.x)^2 + (p2.y - p1.y)^2)
 }
 
 struct Circle {
     center: Point,
-    radius: Length,
+    radius: Real<m>,
 
-    fn circumference() -> Length {
+    fn circumference() -> Real<m> {
         2.0 * PI * self.radius
     }
 }
@@ -809,7 +1057,7 @@ struct Circle {
 Functions can return primitive values, references to existing entities, or new entities.
 
 ```rust
-fn computed_value() -> Length {
+fn computed_value() -> Real<m> {
     10mm * 2.0
 }
 
@@ -829,7 +1077,7 @@ Methods are called using dot notation on struct instances.
 
 ```rust
 let c: Circle = Circle { center: point(0mm, 0mm), radius: 50mm };
-let circ: Length = c.circumference();
+let circ: Real<m> = c.circumference();
 let center: &Point = c.get_center();
 ```
 
@@ -959,13 +1207,13 @@ Each iteration of a for loop creates independent constraints. Loops cannot be us
 
 ```rust
 // INVALID: Accumulation in loop
-let sum: Length = 0mm;
+let sum: Real<m> = 0mm;
 for i in 0..5 {
     sum = sum + points[i].x;  // Creates conflicting constraints!
 }
 
 // VALID: Use reduce
-let sum: Length = [0..5]
+let sum: Real<m> = [0..5]
     .map(|i| points[i].x)
     .reduce(0mm, |acc, x| acc + x);
 ```
@@ -1449,12 +1697,12 @@ optimize {
 Maximize a value within a constrained region:
 
 ```rust
-struct Point {
+struct GridPoint {
     x: i32,
     y: i32,
 }
 
-let p: Point;
+let p: GridPoint;
 p.x >= 0;
 p.y >= 0;
 p.x + p.y <= 20;
@@ -1470,14 +1718,14 @@ optimize {
 Find a point placement that minimizes the total connection distance:
 
 ```rust
-struct Point {
+struct GridPoint {
     x: f64,
     y: f64,
 }
 
-let a: Point;
-let b: Point;
-let midpoint: Point;
+let a: GridPoint;
+let b: GridPoint;
+let midpoint: GridPoint;
 
 // Fixed anchor points
 a.x == 0.0;
@@ -1528,7 +1776,7 @@ The map operation transforms each element of an array using a provided function,
 let points: [Point; 5] = [...];
 
 // Extract x coordinates
-let x_coords: [Length; 5] = points.map(|p| p.x);
+let x_coords: [Real<m>; 5] = points.map(|p| p.x);
 
 // Create transformed points
 let shifted: [Point; 5] = points.map(|p| {
@@ -1546,13 +1794,13 @@ The closure parameter is always a reference to the array element. Map can create
 The reduce operation combines all array elements into a single value using an accumulator function.
 
 ```rust
-let values: [Length; 4] = [10mm, 20mm, 15mm, 25mm];
+let values: [Real<m>; 4] = [10mm, 20mm, 15mm, 25mm];
 
 // Sum all values
-let total: Length = values.reduce(0mm, |acc, val| acc + val);
+let total: Real<m> = values.reduce(0mm, |acc, val| acc + val);
 
 // Find maximum
-let max_val: Length = values.reduce(0mm, |acc, val| {
+let max_val: Real<m> = values.reduce(0mm, |acc, val| {
     if val > acc { val } else { acc }
 });
 ```
@@ -1567,65 +1815,12 @@ Map and reduce operations can be chained to create complex computations.
 let circles: [Circle; 5] = [...];
 
 // Total area of all circles
-let total_area: Area = circles
+let total_area: Real<m²> = circles
     .map(|c| c.area())
     .reduce(0mm², |acc, a| acc + a);
 
 // Can apply constraints to the result
 total_area = 10000mm²;
-```
-
----
-
-## Units
-
-### Length Units
-
-Length values support multiple unit constructors that convert to the SI base unit (meters).
-
-```rust
-let a: Length = 1000mm;  // Millimeters
-let b: Length = 100cm;   // Centimeters
-let c: Length = 1m;      // Meters
-
-// All internally stored as meters
-a = b;  // Valid: both equal 1m
-```
-
-### Angle Units
-
-Angle values support degree and radian constructors.
-
-```rust
-let a: Angle = 180deg;     // Degrees
-let b: Angle = PI rad;     // Radians
-let c: Angle = 3.14159rad; // Radians
-
-a = b;  // Valid: both equal π radians
-```
-
-### Derived Units
-
-Area is derived from length multiplication.
-
-```rust
-let width: Length = 10mm;
-let height: Length = 20mm;
-let area: Area = width * height;  // 200mm²
-```
-
-### Unit Enforcement
-
-All geometric coordinates and dimensions must have explicit units. The type system prevents mixing incompatible units.
-
-```rust
-let p: Point = point(10mm, 20mm);   // Valid
-let x: Length = 10mm;
-let y: Length = 20mm;
-let p2: Point = point(x, y);        // Valid
-
-// Invalid: missing units
-// let p3: Point = point(10, 20);   // Error
 ```
 
 ---
@@ -1662,22 +1857,68 @@ let circle: Circle = Circle {
 
 The standard library provides commonly used structs, functions, and constraint helpers. These are not part of the core language but are expected to be available in most TextCAD environments.
 
+### Unit System
+
+The complete unit system is defined in the standard library:
+
+```rust
+// Prefixes
+unit_prefix m = 1e-3;   // milli
+unit_prefix c = 1e-2;   // centi
+unit_prefix k = 1e3;    // kilo
+unit_prefix M = 1e6;    // mega
+unit_prefix G = 1e9;    // giga
+
+// Length
+unit m;                    // meter (base)
+unit inch = 0.0254 * m;
+unit ft = 0.3048 * m;
+unit yard = 0.9144 * m;
+unit mile = 1609.34 * m;
+
+// Time
+unit s;                    // second (base)
+unit min = 60 * s;
+unit h = 3600 * s;
+unit day = 86400 * s;
+
+// Mass
+unit g;                    // gram (base)
+unit oz = 28.3495 * g;
+unit lb = 453.592 * g;
+
+// Angle
+unit rad;                  // radian (base)
+unit deg = (PI / 180.0) * rad;
+unit arcmin = deg / 60.0;
+unit arcsec = deg / 3600.0;
+
+// Temperature
+unit K;                    // kelvin (base)
+
+// Volume (custom)
+unit liter = 1000 * cm³;
+unit gallon = 3785.41 * cm³;
+```
+
 ### Geometric Primitives
 
 #### Point Constructor
 
 ```rust
-fn point(x: Length, y: Length) -> Point  // Fully specified point
-fn point() -> Point                       // Unconstrained point
-```
+struct Point {
+    x: Real<m>,
+    y: Real<m>,
+}
 
-**Language feature**: Point type is built-in
-**Standard library**: Constructor functions
+fn point(x: Real<m>, y: Real<m>) -> Point  // Fully specified point
+fn point() -> Point                        // Unconstrained point
+```
 
 #### Distance Function
 
 ```rust
-fn distance(p1: &Point, p2: &Point) -> Length
+fn distance(p1: &Point, p2: &Point) -> Real<m>
 ```
 
 Calculates the Euclidean distance between two points.
@@ -1685,14 +1926,14 @@ Calculates the Euclidean distance between two points.
 ### Mathematical Functions
 
 ```rust
-fn abs(x: Length) -> Length
+fn abs(x: Real<m>) -> Real<m>
 fn sqrt(x: f64) -> f64
-fn cos(angle: Angle) -> f64
-fn sin(angle: Angle) -> f64
-fn tan(angle: Angle) -> f64
-fn acos(x: f64) -> Angle
-fn asin(x: f64) -> Angle
-fn atan2(y: f64, x: f64) -> Angle
+fn cos(angle: Real<rad>) -> f64
+fn sin(angle: Real<rad>) -> f64
+fn tan(angle: Real<rad>) -> f64
+fn acos(x: f64) -> Real<rad>
+fn asin(x: f64) -> Real<rad>
+fn atan2(y: f64, x: f64) -> Real<rad>
 ```
 
 ### Array Utilities
@@ -1702,7 +1943,7 @@ fn sum<T>(array: [T; N]) -> T
 fn product<T>(array: [T; N]) -> T
 fn min<T>(array: [T; N]) -> T
 fn max<T>(array: [T; N]) -> T
-fn average(array: [Length; N]) -> Length
+fn average(array: [Real<m>; N]) -> Real<m>
 ```
 
 These functions are implemented using map and reduce operations.
@@ -1726,16 +1967,16 @@ The `View` struct is a standard library component that provides coordinate syste
 ```rust
 struct View {
     origin: Point,
-    rotation: Angle,
+    rotation: Real<rad>,
     scale: f64,
-    
+
     fn __transform__(p: &Point) -> Point {
         // Applies translation, rotation, and scaling
-        let rotated_x: Length = (p.x - self.origin.x) * cos(self.rotation) - 
+        let rotated_x: Real<m> = (p.x - self.origin.x) * cos(self.rotation) -
                                  (p.y - self.origin.y) * sin(self.rotation);
-        let rotated_y: Length = (p.x - self.origin.x) * sin(self.rotation) + 
+        let rotated_y: Real<m> = (p.x - self.origin.x) * sin(self.rotation) +
                                  (p.y - self.origin.y) * cos(self.rotation);
-        
+
         let new_p: Point = point();
         new_p.x = self.origin.x + rotated_x * self.scale;
         new_p.y = self.origin.y + rotated_y * self.scale;
@@ -1744,7 +1985,7 @@ struct View {
 }
 
 // Constructor
-fn view(origin: Point, rotation: Angle, scale: f64) -> View
+fn view(origin: Point, rotation: Real<rad>, scale: f64) -> View
 fn view() -> View  // Identity view (origin at 0,0, no rotation, scale 1.0)
 ```
 
@@ -1769,9 +2010,9 @@ with v {
 
 ```rust
 struct Translate {
-    offset_x: Length,
-    offset_y: Length,
-    
+    offset_x: Real<m>,
+    offset_y: Real<m>,
+
     fn __transform__(p: &Point) -> Point {
         let new_p: Point = point();
         new_p.x = p.x + self.offset_x;
@@ -1786,12 +2027,12 @@ struct Translate {
 ```rust
 struct Rotate {
     center: Point,
-    angle: Angle,
-    
+    angle: Real<rad>,
+
     fn __transform__(p: &Point) -> Point {
-        let dx: Length = p.x - self.center.x;
-        let dy: Length = p.y - self.center.y;
-        
+        let dx: Real<m> = p.x - self.center.x;
+        let dy: Real<m> = p.y - self.center.y;
+
         let new_p: Point = point();
         new_p.x = self.center.x + dx * cos(self.angle) - dy * sin(self.angle);
         new_p.y = self.center.y + dx * sin(self.angle) + dy * cos(self.angle);
@@ -1806,15 +2047,15 @@ struct Rotate {
 struct Scale {
     center: Point,
     factor: f64,
-    
+
     fn __transform__(p: &Point) -> Point {
         let new_p: Point = point();
         new_p.x = self.center.x + (p.x - self.center.x) * self.factor;
         new_p.y = self.center.y + (p.y - self.center.y) * self.factor;
         new_p
     }
-    
-    fn __transform__(len: &Length) -> Length {
+
+    fn __transform__(len: &Real<m>) -> Real<m> {
         len * self.factor
     }
 }
@@ -1823,6 +2064,43 @@ struct Scale {
 ---
 
 ## Complete Examples
+
+### Common Definitions
+
+The following definitions are assumed to be available from the standard library in all examples below:
+
+```rust
+// Point struct
+struct Point {
+    x: Real<m>,
+    y: Real<m>,
+}
+
+// Point constructors
+fn point(x: Real<m>, y: Real<m>) -> Point {
+    Point { x, y }
+}
+
+fn point() -> Point {
+    Point { x: Real<m>, y: Real<m> }  // Unconstrained
+}
+
+// Distance function
+fn distance(p1: &Point, p2: &Point) -> Real<m> {
+    sqrt((p2.x - p1.x)^2 + (p2.y - p1.y)^2)
+}
+
+// Line struct
+struct Line {
+    start: Point,
+    end: Point,
+}
+
+// Trigonometric functions
+fn cos(angle: Real<rad>) -> f64 { /* ... */ }
+fn sin(angle: Real<rad>) -> f64 { /* ... */ }
+fn sqrt(x: f64) -> f64 { /* ... */ }
+```
 
 ### Simple Triangle
 
@@ -1846,12 +2124,12 @@ This example shows array usage and circular positioning.
 
 ```rust
 let center: Point = point(50mm, 50mm);
-let radius: Length = 30mm;
+let radius: Real<m> = 30mm;
 
 let vertices: [Point; 6] = [];
 
 for i in 0..6 {
-    let angle: Angle = (360deg / 6.0) * i;
+    let angle: Real<rad> = (360deg / 6.0) * i;
     vertices[i] = point(
         center.x + radius * cos(angle),
         center.y + radius * sin(angle)
@@ -1874,7 +2152,7 @@ struct Sketch {
     container entities,
     origin: Point,
     scale: f64,
-    
+
     fn __transform__(p: &Point) -> Point {
         let new_p: Point = point();
         new_p.x = self.origin.x + (p.x * self.scale);
@@ -1893,10 +2171,10 @@ with main_sketch {
     let .p1: Point = point(0mm, 0mm);
     let .p2: Point = point(10mm, 0mm);
     let .p3: Point = point(5mm, 8.66mm);
-    
+
     // Local variable (not in container)
-    let side_length: Length = 10mm;
-    
+    let side_length: Real<m> = 10mm;
+
     // Constraints
     distance(&.p1, &.p2) = side_length;
     distance(&.p2, &.p3) = side_length;
@@ -1914,9 +2192,9 @@ This example demonstrates linked structures with references.
 ```rust
 struct Link {
     start: Point,
-    length: Length,
-    angle: Angle,
-    
+    length: Real<m>,
+    angle: Real<rad>,
+
     fn end() -> &Point {
         let end_point: Point = point();
         end_point.x = self.start.x + self.length * cos(self.angle);
@@ -1984,10 +2262,10 @@ This example shows struct composition and constraint-based design.
 ```rust
 struct Gear {
     center: Point,
-    pitch_radius: Length,
+    pitch_radius: Real<m>,
     tooth_count: i32,
 
-    fn module() -> Length {
+    fn module() -> Real<m> {
         (self.pitch_radius * 2.0) / self.tooth_count
     }
 }
@@ -2021,7 +2299,7 @@ This example shows functional operations for complex calculations.
 struct Polygon {
     vertices: [Point; 6],
 
-    fn perimeter() -> Length {
+    fn perimeter() -> Real<m> {
         [0..6]
             .map(|i| distance(
                 &self.vertices[i],
@@ -2046,7 +2324,7 @@ let poly: Polygon = Polygon {
 poly.perimeter() = 100mm;
 
 // Regular polygon: all edges equal
-let edge_length: Length = 100mm / 6.0;
+let edge_length: Real<m> = 100mm / 6.0;
 for i in 0..6 {
     distance(&poly.vertices[i], &poly.vertices[(i + 1) % 6]) = edge_length;
 }
@@ -2054,13 +2332,13 @@ for i in 0..6 {
 
 ### 3D to 2D Projection
 
-This example demonstrates type transformation through `__transform__`.
+This example demonstrates type transformation through `__transform__` and `__transform_container__`.
 
 ```rust
 struct Point3D {
-    x: Length,
-    y: Length,
-    z: Length,
+    x: Real<m>,
+    y: Real<m>,
+    z: Real<m>,
 }
 
 struct Sketch2D {
@@ -2068,16 +2346,16 @@ struct Sketch2D {
     origin: Point3D,
     u_axis: Vector3D,  // Local x-axis
     v_axis: Vector3D,  // Local y-axis
-    
-    // Transform 3D points to 2D
-    fn __transform__(p3d: &Point3D) -> Point {
+
+    // Transform 3D points to 2D for container variables
+    fn __transform_container__(p3d: &Point3D) -> Point {
         let local: Vector3D = vector3d(
             p3d.x - self.origin.x,
             p3d.y - self.origin.y,
             p3d.z - self.origin.z
         );
-        let u: Length = dot(&local, &self.u_axis);
-        let v: Length = dot(&local, &self.v_axis);
+        let u: Real<m> = dot(&local, &self.u_axis);
+        let v: Real<m> = dot(&local, &self.v_axis);
         point(u, v)
     }
 }
@@ -2095,10 +2373,100 @@ with sketch_plane {
     // 3D points automatically project to 2D
     let .projected_1: Point = p3d_1;  // (10mm, 20mm) in 2D
     let .projected_2: Point = p3d_2;  // (15mm, 25mm) in 2D
-    
+
     // Work with 2D projections
     distance(&.projected_1, &.projected_2) = 20mm;
 }
+```
+
+### Physics Simulation with Units
+
+This example demonstrates automatic unit derivation in physics calculations.
+
+```rust
+struct Particle {
+    position: Point,
+    velocity: Velocity2D,
+    mass: Real<kg>,
+}
+
+struct Velocity2D {
+    vx: Real<m/s>,
+    vy: Real<m/s>,
+}
+
+let p: Particle = Particle {
+    position: Point { x: 0m, y: 0m },
+    velocity: Velocity2D { vx: 10m/s, vy: 5m/s },
+    mass: 2kg,
+};
+
+// Kinetic energy calculation
+let speed_squared: Real<m²/s²> =
+    p.velocity.vx^2 + p.velocity.vy^2;
+let kinetic_energy: Real<kg·m²/s²> =
+    0.5 * p.mass * speed_squared;
+```
+
+### Angular Mechanics
+
+This example demonstrates angle units and conversions.
+
+```rust
+struct RotatingArm {
+    length: Real<m>,
+    angle: Real<rad>,
+    angular_velocity: Real<rad/s>,
+
+    fn tip_position() -> Point {
+        Point {
+            x: self.length * cos(self.angle),
+            y: self.length * sin(self.angle),
+        }
+    }
+
+    fn tip_velocity() -> Real<m/s> {
+        self.length * self.angular_velocity
+    }
+}
+
+let arm: RotatingArm = RotatingArm {
+    length: 1m,
+    angle: 45deg,  // Automatically converted to radians
+    angular_velocity: 2rad/s,
+};
+
+let v: Real<m/s> = arm.tip_velocity();  // 2 m/s
+```
+
+### Mixed Unit System Design
+
+This example shows working with multiple unit systems simultaneously.
+
+```rust
+struct Motorcycle {
+    wheel_diameter: Real<inch>,
+    engine_displacement: Real<cm³>,
+    top_speed: Real<mile/h>,
+    fuel_capacity: Real<liter>,
+    weight: Real<kg>,
+
+    fn wheel_circumference() -> Real<m> {
+        PI * self.wheel_diameter
+    }
+}
+
+let bike: Motorcycle = Motorcycle {
+    wheel_diameter: 17inch,
+    engine_displacement: 600cm³,
+    top_speed: 120mile/h,
+    fuel_capacity: 15liter,
+    weight: 180kg,
+};
+
+// All conversions handled automatically
+let circumference_metric: Real<m> = bike.wheel_circumference();
+let speed_metric: Real<km/h> = bike.top_speed;
 ```
 
 ---
@@ -2107,7 +2475,7 @@ with sketch_plane {
 
 The following keywords are reserved and cannot be used as identifiers:
 
-`struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`, `rune`, `optimize`, `minimize`, `maximize`
+`struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`, `rune`, `optimize`, `minimize`, `maximize`, `unit`, `unit_prefix`
 
 ---
 
@@ -2117,15 +2485,17 @@ The following keywords are reserved and cannot be used as identifiers:
 
 These are built into the language itself:
 
-- **Types**: `Point`, `Length`, `Angle`, `Area`, `bool`, `i32`, `f64`, `Real`, `Algebraic`
-- **Keywords**: `struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`, `rune`, `optimize`, `minimize`, `maximize`
-- **Syntax**: Struct definitions, function definitions, with statements, for loops, dot prefix notation, optimize blocks
-- **Semantics**: Constraint-based assignment, entity vs reference distinction, container semantics, transform pattern, lexicographic multi-objective optimization
+- **Core Types**: `bool`, `i32`, `f64`, `Real`, `Algebraic`
+- **Keywords**: `struct`, `container`, `fn`, `let`, `for`, `in`, `with`, `if`, `else`, `or`, `and`, `return`, `true`, `false`, `rune`, `optimize`, `minimize`, `maximize`, `unit`, `unit_prefix`
+- **Syntax**: Struct definitions, function definitions, with statements, for loops, dot prefix notation, unit definitions, optimize blocks, rune blocks
+- **Semantics**: Constraint-based assignment, entity vs reference distinction, container semantics, transform pattern, compile-time dimensional analysis, lexicographic multi-objective optimization
 
 ### Standard Library Components
 
 These are expected to be provided but are not part of the core language:
 
+- **Unit System**: All units (m, s, g, rad, inch, deg, etc.) and prefixes (milli, centi, kilo, etc.)
+- **Geometric Types**: `Point` struct
 - **Constructors**: `point()`, `view()`
 - **Math functions**: `distance()`, `abs()`, `sqrt()`, `sin()`, `cos()`, `tan()`, `asin()`, `acos()`, `atan2()`
 - **Array utilities**: `sum()`, `product()`, `min()`, `max()`, `average()`
