@@ -31,7 +31,7 @@
 //! let arena = Bump::new();
 //! let statements = /* HIR statements from semantic analysis */;
 //!
-//! match solver::solve(&statements, &arena) {
+//! match solver::solve(&statements, &arena, false) {
 //!     Ok(solution) => println!("{}", solution),
 //!     Err(e) => eprintln!("Solver error: {}", e),
 //! }
@@ -171,6 +171,13 @@ impl fmt::Display for Value {
 pub struct Solution<'src> {
     /// Map from variable path to concrete value
     pub assignments: std::collections::HashMap<VariablePath<'src>, Value>,
+
+    /// Paths of variables whose values are not uniquely determined by the constraints.
+    ///
+    /// When `--show-unconstrained` is used, these variables still have an arbitrary
+    /// Z3-assigned value in `assignments`, but are listed here so the formatter can
+    /// mark them accordingly.
+    pub unconstrained: std::collections::HashSet<VariablePath<'src>>,
 }
 
 impl<'src> Solution<'src> {
@@ -178,6 +185,7 @@ impl<'src> Solution<'src> {
     pub fn new() -> Self {
         Self {
             assignments: std::collections::HashMap::new(),
+            unconstrained: std::collections::HashSet::new(),
         }
     }
 
@@ -367,6 +375,10 @@ pub use context::SolverContext;
 ///
 /// * `statements` - Slice of HIR statements to solve
 /// * `arena` - Arena allocator for temporary allocations
+/// * `show_unconstrained` - When `true`, variables that are not uniquely determined by
+///   the constraints are shown with an arbitrary Z3-assigned value and marked as
+///   `[unconstrained]`. When `false` (the default), these variables are shown as
+///   `<underconstrained>` with no concrete value.
 ///
 /// # Returns
 ///
@@ -377,12 +389,13 @@ pub use context::SolverContext;
 ///
 /// ```ignore
 /// let arena = Bump::new();
-/// let solution = solver::solve(&hir[..], &arena)?;
+/// let solution = solver::solve(&hir[..], &arena, false)?;
 /// println!("{}", solution);
 /// ```
 pub fn solve<'src, 'arena>(
     statements: &[&'arena crate::hir::expr::ResolvedStmt<'src, 'arena>],
     arena: &'arena bumpalo::Bump,
+    show_unconstrained: bool,
 ) -> Result<String, SolverError> {
     // Validate input (empty programs are valid, just return empty solution)
     if statements.is_empty() {
@@ -406,9 +419,14 @@ pub fn solve<'src, 'arena>(
     // Format solution
     match result {
         SolveResult::Complete {
-            solution,
+            mut solution,
             iterations,
         } => {
+            // If requested, fill in arbitrary Z3 values for unconstrained variables
+            if show_unconstrained {
+                ctx.fill_unconstrained_values(&mut solution)?;
+            }
+
             // Format as string (same as legacy solver output)
             let mut output = String::new();
 
@@ -432,13 +450,18 @@ pub fn solve<'src, 'arena>(
                     continue;
                 }
 
+                let is_unconstrained = solution.unconstrained.contains(path);
                 let value_str = match value {
                     Value::Int(v) => format!("{}", v),
                     Value::Real(v) => format!("{}", v),
                     Value::Bool(v) => format!("{}", v),
                     Value::UnderConstrained => "<underconstrained>".to_string(),
                 };
-                writeln!(output, "{} = {}", var_name, value_str).unwrap();
+                if is_unconstrained && *value != Value::UnderConstrained {
+                    writeln!(output, "{} = {} [unconstrained]", var_name, value_str).unwrap();
+                } else {
+                    writeln!(output, "{} = {}", var_name, value_str).unwrap();
+                }
             }
 
             Ok(output)
