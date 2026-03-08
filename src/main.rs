@@ -38,9 +38,23 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    Lex { file: String },
-    Parse { file: String },
-    Solve { file: String },
+    Lex {
+        file: String,
+    },
+    Parse {
+        file: String,
+    },
+    Solve {
+        file: String,
+        /// Show values for under-constrained variables, marking them as [unconstrained].
+        ///
+        /// By default, variables that are not uniquely determined by the constraints are
+        /// shown as `<underconstrained>`. With this flag, an arbitrary Z3-assigned value
+        /// is displayed alongside the `[unconstrained]` marker so you can see one possible
+        /// value even when many values would satisfy the constraints.
+        #[arg(long)]
+        show_unconstrained: bool,
+    },
 }
 
 /// Read content from a file or stdin if the file is "-"
@@ -252,7 +266,10 @@ fn main() {
                 }
             }
         }
-        Commands::Solve { file } => {
+        Commands::Solve {
+            file,
+            show_unconstrained,
+        } => {
             let content = read_input(file).expect("Failed to read input");
             let filename = display_filename(file);
 
@@ -327,7 +344,7 @@ fn main() {
             }
 
             // Step 5: Constraint Solving
-            match active_solver::solve(&hir[..], &arena) {
+            match active_solver::solve(&hir[..], &arena, *show_unconstrained) {
                 Ok(solution) => {
                     print!("{}", solution);
                 }

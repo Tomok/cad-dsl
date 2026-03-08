@@ -1069,6 +1069,96 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         }
     }
 
+    /// Fill in arbitrary Z3 model-completed values for unconstrained variables.
+    ///
+    /// For every path in `solution` whose current value is `Value::UnderConstrained`,
+    /// this method uses Z3 *model completion* (`model.eval(var, true)`) to obtain an
+    /// arbitrary concrete value and replaces the `UnderConstrained` entry with it.
+    /// The path is also added to `solution.unconstrained` so the formatter can mark
+    /// those variables as not fully constrained.
+    ///
+    /// Paths for which Z3 still cannot produce a concrete value are left as
+    /// `Value::UnderConstrained` (and still added to `solution.unconstrained` so they
+    /// remain visible in the output).
+    pub fn fill_unconstrained_values(
+        &self,
+        solution: &mut Solution<'src>,
+    ) -> Result<(), SolverError> {
+        let model = self
+            .z3_optimizer
+            .get_model()
+            .ok_or_else(|| SolverError::ModelEvaluationError("No model available".to_string()))?;
+
+        // Collect paths to update (cannot mutate while iterating)
+        let unconstrained_paths: Vec<VariablePath<'src>> = solution
+            .assignments
+            .iter()
+            .filter(|(_, v)| **v == Value::UnderConstrained)
+            .map(|(p, _)| p.clone())
+            .collect();
+
+        for path in unconstrained_paths {
+            // Mark as unconstrained regardless of whether we can get a value
+            solution.unconstrained.insert(path.clone());
+
+            // Look up the Z3 primitive for this path and try model completion
+            if let Some(node) = self.get_variable(&path)
+                && let Some(z3_prim) = node.as_primitive()
+            {
+                let filled = self.evaluate_z3_primitive_with_completion(z3_prim, &model)?;
+                if filled != Value::UnderConstrained {
+                    solution.assignments.insert(path, filled);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Evaluate a Z3 primitive variable using model completion.
+    ///
+    /// Unlike `evaluate_z3_primitive` (which uses `model.eval(var, false)`), this
+    /// method passes `true` to allow Z3 to assign arbitrary concrete values to
+    /// variables that have no constraints fixing them.
+    fn evaluate_z3_primitive_with_completion(
+        &self,
+        z3_var: &Z3Primitive,
+        model: &z3::Model,
+    ) -> Result<Value, SolverError> {
+        match z3_var {
+            Z3Primitive::Int(z3_int) => match model.eval(z3_int, true) {
+                Some(evaluated) => match evaluated.as_i64() {
+                    Some(value) => Ok(Value::Int(value)),
+                    None => Ok(Value::UnderConstrained),
+                },
+                None => Ok(Value::UnderConstrained),
+            },
+            Z3Primitive::Real(z3_real) => match model.eval(z3_real, true) {
+                Some(evaluated) => match evaluated.as_rational() {
+                    Some((num, den)) => {
+                        if den == 0 {
+                            Err(SolverError::ModelEvaluationError(format!(
+                                "Real value has invalid rational representation (division by zero): {}",
+                                evaluated
+                            )))
+                        } else {
+                            Ok(Value::Real(num as f64 / den as f64))
+                        }
+                    }
+                    None => Ok(Value::UnderConstrained),
+                },
+                None => Ok(Value::UnderConstrained),
+            },
+            Z3Primitive::Bool(z3_bool) => match model.eval(z3_bool, true) {
+                Some(evaluated) => match evaluated.as_bool() {
+                    Some(value) => Ok(Value::Bool(value)),
+                    None => Ok(Value::UnderConstrained),
+                },
+                None => Ok(Value::UnderConstrained),
+            },
+        }
+    }
+
     /// Execute all registered rune blocks and add their results to the solution
     ///
     /// This is called after Z3 solving completes successfully. It:
