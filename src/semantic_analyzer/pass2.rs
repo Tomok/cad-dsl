@@ -227,6 +227,11 @@ pub fn resolve_statement<'src, 'arena>(
             }
             resolve_optimize_statement(ctx, directives, *span)
         }
+
+        // Unit declarations and include directives are handled by the unit registry
+        // and include resolver (not yet implemented); skip gracefully.
+        Stmt::UnitDecl { .. } | Stmt::UnitDef { .. } | Stmt::UnitPrefixDecl { .. } => None,
+        Stmt::Include { .. } => None,
     }
 }
 
@@ -1529,6 +1534,17 @@ pub fn resolve_expression<'src, 'arena>(
             (kind, ty)
         }
 
+        // Unit literal: treat as f64 for now (unit info stored as metadata)
+        Expr::UnitLit {
+            value,
+            unit_suffix: _,
+            span,
+        } => {
+            let kind = ResolvedExprKind::FloatLit { value: *value };
+            let ty = &*ctx.arena.alloc(ResolvedType::Real { span: *span });
+            (kind, ty)
+        }
+
         // Struct literal
         Expr::StructLit { name, fields, span } => match ctx.lookup_struct(name) {
             Some(struct_def) => {
@@ -1767,7 +1783,7 @@ fn resolve_type<'src, 'arena>(
         crate::ast::Type::Bool { span } => Some(ResolvedType::Bool { span: *span }),
         crate::ast::Type::I32 { span } => Some(ResolvedType::I32 { span: *span }),
         crate::ast::Type::F64 { span } => Some(ResolvedType::F64 { span: *span }),
-        crate::ast::Type::Real { span } => Some(ResolvedType::Real { span: *span }),
+        crate::ast::Type::Real { unit: _, span } => Some(ResolvedType::Real { span: *span }),
         crate::ast::Type::Algebraic { span } => Some(ResolvedType::Algebraic { span: *span }),
         crate::ast::Type::Reference { inner, span } => {
             let inner_resolved = resolve_type(ctx, inner)?;
@@ -4221,6 +4237,7 @@ mod tests {
 
         use crate::ast::Type;
         let ast_type = Type::Real {
+            unit: None,
             span: make_span(1, 1),
         };
 

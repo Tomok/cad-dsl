@@ -33,7 +33,10 @@ mod tests;
 pub use span::HasSpan;
 
 // Re-export types
-pub use types::{FunctionParam, OptimizeDirective, OptimizeDirectiveKind, Stmt, StructField, Type};
+pub use types::{
+    FunctionParam, OptimizeDirective, OptimizeDirectiveKind, Stmt, StructField, Type, UnitExpr,
+    UnitTypeExpr,
+};
 
 // Re-export all expression types
 pub use expr::{

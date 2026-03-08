@@ -244,11 +244,45 @@ pub fn atom_with_source<'src>(
                 };
                 Atom::ContainerFieldAccess { field_path, span }
             }),
-        // Try float first (it's more specific)
+        // Unit literal: numeric value immediately followed by an identifier suffix.
+        // E.g., `10mm`, `45deg`, `1.5m`. The semantic analyzer validates the suffix.
+        // Float version first (more specific)
+        select! {
+            Token::FloatLiteral(t) => (t.value, t.span),
+        }
+        .then(select! { Token::Identifier(t) => (t.name, t.span) })
+        .map(
+            |((value, val_span), (unit_suffix, unit_span))| Atom::UnitLit {
+                value,
+                unit_suffix,
+                span: Span {
+                    start: val_span.start,
+                    lines: 0,
+                    end_column: unit_span.end_column,
+                },
+            },
+        ),
+        // Integer unit literal
+        select! {
+            Token::IntLiteral(t) => (t.value as f64, t.span),
+        }
+        .then(select! { Token::Identifier(t) => (t.name, t.span) })
+        .map(
+            |((value, val_span), (unit_suffix, unit_span))| Atom::UnitLit {
+                value,
+                unit_suffix,
+                span: Span {
+                    start: val_span.start,
+                    lines: 0,
+                    end_column: unit_span.end_column,
+                },
+            },
+        ),
+        // Try float (no unit suffix)
         select! {
             Token::FloatLiteral(t) => Atom::FloatLit { value: t.value, span: t.span },
         },
-        // Then integer
+        // Then integer (no unit suffix)
         select! {
             Token::IntLiteral(t) => Atom::IntLit { value: t.value, span: t.span },
         },
@@ -463,6 +497,7 @@ pub fn atom_with_source<'src>(
                     Atom::IntLit { span, .. } => span.start,
                     Atom::FloatLit { span, .. } => span.start,
                     Atom::BoolLit { span, .. } => span.start,
+                    Atom::UnitLit { span, .. } => span.start,
                     Atom::Call { span, .. } => span.start,
                     Atom::MethodCall { span, .. } => span.start,
                     Atom::FieldAccess { span, .. } => span.start,

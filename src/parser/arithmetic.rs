@@ -212,6 +212,15 @@ where
                 PowRhs::Index { array, index, span } => MulRhs::Index { array, index, span },
                 PowRhs::Range { start, end, span } => MulRhs::Range { start, end, span },
 
+                PowRhs::UnitLit {
+                    value,
+                    unit_suffix,
+                    span,
+                } => MulRhs::UnitLit {
+                    value,
+                    unit_suffix,
+                    span,
+                },
                 PowRhs::Closure { params, body, span } => MulRhs::Closure { params, body, span },
                 PowRhs::RuneBlock(block) => MulRhs::RuneBlock(block),
             }
@@ -301,6 +310,15 @@ where
                 PowRhs::Index { array, index, span } => MulLhs::Index { array, index, span },
                 PowRhs::Range { start, end, span } => MulLhs::Range { start, end, span },
 
+                PowRhs::UnitLit {
+                    value,
+                    unit_suffix,
+                    span,
+                } => MulLhs::UnitLit {
+                    value,
+                    unit_suffix,
+                    span,
+                },
                 PowRhs::Closure { params, body, span } => MulLhs::Closure { params, body, span },
                 PowRhs::RuneBlock(block) => MulLhs::RuneBlock(block),
             }

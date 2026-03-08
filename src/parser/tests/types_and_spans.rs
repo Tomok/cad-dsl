@@ -290,6 +290,10 @@ fn test_span_let_statement() {
         Stmt::With { .. } => panic!("Expected Stmt::Let, got With"),
         Stmt::If { .. } => panic!("Expected Stmt::Let, got If"),
         Stmt::Optimize { .. } => panic!("Expected Stmt::Let, got Optimize"),
+        Stmt::UnitDecl { .. }
+        | Stmt::UnitDef { .. }
+        | Stmt::UnitPrefixDecl { .. }
+        | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
     }
 }
 

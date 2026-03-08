@@ -1,6 +1,7 @@
 mod ast;
 mod lexer;
 mod parser;
+mod units;
 
 // HIR module
 mod hir;
@@ -289,6 +290,9 @@ fn main() {
             let stmt_parser = recursive(|stmt_rec| {
                 let expr = parser::expr_inner_with_source(Some(&content));
                 choice((
+                    parser::unit_prefix_stmt(),
+                    parser::unit_stmt(),
+                    parser::include_stmt(),
                     parser::struct_def(expr.clone()),
                     parser::function_def(expr.clone()),
                     parser::let_stmt(expr.clone()),

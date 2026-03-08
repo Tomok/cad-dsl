@@ -124,6 +124,9 @@ fixed_token!(TokenRune, Rune, "rune");
 fixed_token!(TokenOptimize, Optimize, "optimize");
 fixed_token!(TokenMinimize, Minimize, "minimize");
 fixed_token!(TokenMaximize, Maximize, "maximize");
+fixed_token!(TokenUnit, Unit, "unit");
+fixed_token!(TokenUnitPrefix, UnitPrefix, "unit_prefix");
+fixed_token!(TokenInclude, Include, "include");
 
 // ============================================================================
 // Operator Tokens
@@ -175,6 +178,50 @@ fixed_token!(TokenAlgebraicType, AlgebraicType, "Algebraic");
 // ============================================================================
 // Dynamic Content Tokens (Literals and Identifiers)
 // ============================================================================
+
+/// A string literal token, e.g. `"lib/si_units.cad"`
+/// The `value` field holds the content without surrounding quotes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TokenStringLiteral<'src> {
+    pub value: &'src str,
+    pub span: Span,
+}
+
+impl<'src> TokenStringLiteral<'src> {
+    pub fn new(value: &'src str, span: Span) -> Self {
+        Self { value, span }
+    }
+
+    pub fn from_lexer(lex: &mut Lexer<'src, Token<'src>>) -> Self {
+        let raw = lex.slice();
+        // Strip the surrounding double quotes
+        let value = &raw[1..raw.len() - 1];
+        let span = derive_span_no_newline(lex);
+        Self::new(value, span)
+    }
+}
+
+impl<'src> TokenTrait for TokenStringLiteral<'src> {
+    fn position(&self) -> LineColumn {
+        self.span.start
+    }
+
+    fn value_str(&self) -> &str {
+        self.value
+    }
+}
+
+impl<'src> From<TokenStringLiteral<'src>> for Token<'src> {
+    fn from(token: TokenStringLiteral<'src>) -> Self {
+        Token::StringLiteral(token)
+    }
+}
+
+impl<'src> std::fmt::Display for TokenStringLiteral<'src> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\"{}\"", self.value)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TokenFloatLiteral {
@@ -347,6 +394,13 @@ pub enum Token<'src> {
     Minimize(TokenMinimize),
     #[token("maximize", TokenMaximize::from_lexer)]
     Maximize(TokenMaximize),
+    // unit_prefix must come before unit (longer match first)
+    #[token("unit_prefix", TokenUnitPrefix::from_lexer)]
+    UnitPrefix(TokenUnitPrefix),
+    #[token("unit", TokenUnit::from_lexer)]
+    Unit(TokenUnit),
+    #[token("include", TokenInclude::from_lexer)]
+    Include(TokenInclude),
 
     // Operators
     #[token("=", TokenEquals::from_lexer)]
@@ -419,6 +473,8 @@ pub enum Token<'src> {
     AlgebraicType(TokenAlgebraicType),
 
     // Literals (order matters - float must come before int, identifiers must be last)
+    #[regex(r#""[^"]*""#, TokenStringLiteral::from_lexer)]
+    StringLiteral(TokenStringLiteral<'src>),
     #[regex(r"\d+\.\d+", TokenFloatLiteral::from_lexer)]
     FloatLiteral(TokenFloatLiteral),
     #[regex(r"\d+", TokenIntLiteral::from_lexer)]
@@ -450,6 +506,9 @@ impl<'src> TokenTrait for Token<'src> {
             Token::Optimize(t) => t.position(),
             Token::Minimize(t) => t.position(),
             Token::Maximize(t) => t.position(),
+            Token::UnitPrefix(t) => t.position(),
+            Token::Unit(t) => t.position(),
+            Token::Include(t) => t.position(),
             Token::Equals(t) => t.position(),
             Token::EqualsEquals(t) => t.position(),
             Token::NotEquals(t) => t.position(),
@@ -482,6 +541,7 @@ impl<'src> TokenTrait for Token<'src> {
             Token::F64Type(t) => t.position(),
             Token::RealType(t) => t.position(),
             Token::AlgebraicType(t) => t.position(),
+            Token::StringLiteral(t) => t.position(),
             Token::FloatLiteral(t) => t.position(),
             Token::IntLiteral(t) => t.position(),
             Token::Identifier(t) => t.position(),
@@ -509,6 +569,9 @@ impl<'src> TokenTrait for Token<'src> {
             Token::Optimize(t) => t.value_str(),
             Token::Minimize(t) => t.value_str(),
             Token::Maximize(t) => t.value_str(),
+            Token::UnitPrefix(t) => t.value_str(),
+            Token::Unit(t) => t.value_str(),
+            Token::Include(t) => t.value_str(),
             Token::Equals(t) => t.value_str(),
             Token::EqualsEquals(t) => t.value_str(),
             Token::NotEquals(t) => t.value_str(),
@@ -541,6 +604,7 @@ impl<'src> TokenTrait for Token<'src> {
             Token::F64Type(t) => t.value_str(),
             Token::RealType(t) => t.value_str(),
             Token::AlgebraicType(t) => t.value_str(),
+            Token::StringLiteral(t) => t.value_str(),
             Token::FloatLiteral(t) => t.value_str(),
             Token::IntLiteral(t) => t.value_str(),
             Token::Identifier(t) => t.value_str(),
