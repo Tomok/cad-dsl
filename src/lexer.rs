@@ -475,7 +475,8 @@ pub enum Token<'src> {
     // Literals (order matters - float must come before int, identifiers must be last)
     #[regex(r#""[^"]*""#, TokenStringLiteral::from_lexer)]
     StringLiteral(TokenStringLiteral<'src>),
-    #[regex(r"\d+\.\d+", TokenFloatLiteral::from_lexer)]
+    #[regex(r"\d+\.\d+([eE][+-]?\d+)?", TokenFloatLiteral::from_lexer)]
+    #[regex(r"\d+[eE][+-]?\d+", TokenFloatLiteral::from_lexer)]
     FloatLiteral(TokenFloatLiteral),
     #[regex(r"\d+", TokenIntLiteral::from_lexer)]
     IntLiteral(TokenIntLiteral),
@@ -768,6 +769,49 @@ mod tests {
         assert_matches!(tokens[1], Token::FloatLiteral(ref t) if t.value == 3.45);
         assert_matches!(tokens[2], Token::Identifier(ref t) if t.name == "identifier_name");
         assert_matches!(tokens[3], Token::Identifier(ref t) if t.name == "_private");
+    }
+
+    #[test]
+    fn test_scientific_notation() {
+        // Integer mantissa, positive exponent (no sign)
+        let tokens = tokenize("1e24").unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert_matches!(tokens[0], Token::FloatLiteral(ref t) if t.value == 1e24);
+
+        // Integer mantissa, negative exponent
+        let tokens = tokenize("1e-3").unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert_matches!(tokens[0], Token::FloatLiteral(ref t) if t.value == 1e-3);
+
+        // Integer mantissa, explicit positive sign
+        let tokens = tokenize("2E+10").unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert_matches!(tokens[0], Token::FloatLiteral(ref t) if t.value == 2e10);
+
+        // Decimal mantissa with exponent
+        let tokens = tokenize("1.5e6").unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert_matches!(tokens[0], Token::FloatLiteral(ref t) if t.value == 1.5e6);
+
+        // Decimal mantissa with negative exponent
+        let tokens = tokenize("3.14E-2").unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert_matches!(
+            tokens[0],
+            Token::FloatLiteral(ref t) if (t.value - 0.0314_f64).abs() < 1e-10
+        );
+
+        // Scientific notation followed by identifier (unit literal scenario)
+        let tokens = tokenize("1e3mm").unwrap();
+        assert_eq!(tokens.len(), 2);
+        assert_matches!(tokens[0], Token::FloatLiteral(ref t) if t.value == 1e3);
+        assert_matches!(tokens[1], Token::Identifier(ref t) if t.name == "mm");
+
+        // Multiple scientific notation literals in one expression
+        let tokens = tokenize("1e3 + 2.5e-1").unwrap();
+        assert_eq!(tokens.len(), 3);
+        assert_matches!(tokens[0], Token::FloatLiteral(ref t) if t.value == 1e3);
+        assert_matches!(tokens[2], Token::FloatLiteral(ref t) if t.value == 2.5e-1);
     }
 
     #[test]
