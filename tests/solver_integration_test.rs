@@ -1572,3 +1572,17 @@ fn test_optimize_lexicographic() {
     verify_solution(&stdout, "x", "0");
     verify_solution(&stdout, "y", "10");
 }
+
+// ============================================================================
+// Scientific Notation Tests
+// ============================================================================
+
+#[test]
+fn test_scientific_notation() {
+    let (success, stdout, stderr) = solve_fixture("scientific_notation.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    // 1e3 = 1000.0
+    verify_solution(&stdout, "x", "1000");
+    // 1e-3 = 0.001
+    verify_solution(&stdout, "y", "0.001");
+}

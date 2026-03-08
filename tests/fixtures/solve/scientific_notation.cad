@@ -1,0 +1,6 @@
+// Scientific notation literals
+// Expected: x = 1000, y = 0.001
+let x: f64;
+let y: f64;
+x == 1e3;
+y == 1e-3;
