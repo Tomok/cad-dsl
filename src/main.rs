@@ -1,4 +1,5 @@
 mod ast;
+mod include_resolver;
 mod lexer;
 mod parser;
 mod units;
@@ -25,8 +26,10 @@ use chumsky::Parser as _;
 use clap::{Parser, Subcommand};
 use lexer::TokenTrait;
 use semantic_analyzer::errors::SemanticError;
+use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Read};
+use std::path::Path;
 use type_checker::errors::TypeCheckError;
 
 #[derive(Parser)]
@@ -271,65 +274,77 @@ fn main() {
             file,
             show_unconstrained,
         } => {
-            let content = read_input(file).expect("Failed to read input");
+            // Create the arena early so included-file source strings can share
+            // the same 'arena lifetime as the main source and all AST nodes.
+            let arena = Bump::new();
+
+            let raw_content = read_input(file).expect("Failed to read input");
             let filename = display_filename(file);
 
+            // Arena-allocate the source so its lifetime matches 'arena.
+            let content: &str = arena.alloc_str(&raw_content);
+
             // Step 1: Tokenize
-            let tokens = match lexer::tokenize(&content) {
+            // Arena-allocate the token slice so it shares the 'arena lifetime
+            // with the source string, satisfying Chumsky's lifetime requirements.
+            let raw_tokens = match lexer::tokenize(content) {
                 Ok(tokens) => tokens,
                 Err(error) => {
                     eprintln!("Lexing error: {}", error);
                     std::process::exit(1);
                 }
             };
+            let tokens: &[_] = arena.alloc_slice_clone(&raw_tokens);
 
             // Step 2: Parse the program (may have multiple statements)
-            use chumsky::IterParser;
-            use chumsky::prelude::recursive;
-            use chumsky::primitive::choice;
-            let stmt_parser = recursive(|stmt_rec| {
-                let expr = parser::expr_inner_with_source(Some(&content));
-                choice((
-                    parser::unit_prefix_stmt(),
-                    parser::unit_stmt(),
-                    parser::include_stmt(),
-                    parser::struct_def(expr.clone()),
-                    parser::function_def(expr.clone()),
-                    parser::let_stmt(expr.clone()),
-                    parser::assignment_stmt(expr.clone()),
-                    parser::field_assignment_stmt(expr.clone()),
-                    parser::with_stmt(expr.clone(), stmt_rec.clone()),
-                    parser::for_stmt(expr.clone(), stmt_rec.clone()),
-                    parser::if_stmt(expr.clone(), stmt_rec.clone()),
-                    parser::optimize_stmt(expr.clone()),
-                    parser::expression_stmt(expr),
-                ))
-            })
-            .repeated()
-            .collect::<Vec<_>>();
-
-            let ast = match stmt_parser.parse(&tokens).into_result() {
+            let ast = match parser::parse_program(content, tokens) {
                 Ok(stmts) => stmts,
                 Err(errors) => {
                     eprintln!("Parse errors:");
-                    parser::report_parse_errors(filename, &content, errors);
+                    parser::report_parse_errors(filename, content, errors);
+                    std::process::exit(1);
+                }
+            };
+
+            // Step 2b: Resolve include directives.
+            // The main file is inserted into `visited` first so the program
+            // cannot (accidentally) include itself.
+            let base_dir = if file.as_str() == "-" {
+                std::env::current_dir().unwrap_or_default()
+            } else {
+                Path::new(file.as_str())
+                    .canonicalize()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                    .unwrap_or_default()
+            };
+            let mut visited = HashSet::new();
+            if file.as_str() != "-"
+                && let Ok(canonical) = Path::new(file.as_str()).canonicalize()
+            {
+                visited.insert(canonical);
+            }
+            let ast = match include_resolver::resolve_includes(&arena, ast, &base_dir, &mut visited)
+            {
+                Ok(stmts) => stmts,
+                Err(e) => {
+                    eprintln!("Include error: {}", e);
                     std::process::exit(1);
                 }
             };
 
             // Step 3: Semantic Analysis
-            let arena = Bump::new();
-            let hir = match semantic_analyzer::analyze(&arena, &content, &ast) {
+            let hir = match semantic_analyzer::analyze(&arena, content, &ast) {
                 Ok(hir) => hir,
                 Err(errors) => {
                     eprintln!("Semantic errors:");
-                    report_semantic_errors(filename, &content, errors);
+                    report_semantic_errors(filename, content, errors);
                     std::process::exit(1);
                 }
             };
 
             // Step 4: Type Checking
-            match type_checker::type_check(&arena, &content, &hir[..]) {
+            match type_checker::type_check(&arena, content, &hir[..]) {
                 Ok(warnings) => {
                     // Print warnings if any, but continue execution
                     if !warnings.is_empty() {
@@ -342,7 +357,7 @@ fn main() {
                 }
                 Err(errors) => {
                     eprintln!("Type errors:");
-                    report_type_errors(filename, &content, errors);
+                    report_type_errors(filename, content, errors);
                     std::process::exit(1);
                 }
             }
@@ -353,7 +368,7 @@ fn main() {
                     print!("{}", solution);
                 }
                 Err(error) => {
-                    report_solver_errors(filename, &content, error);
+                    report_solver_errors(filename, content, error);
                     std::process::exit(1);
                 }
             }

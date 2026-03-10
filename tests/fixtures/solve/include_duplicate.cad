@@ -1,0 +1,9 @@
+// Same file included twice — the second include must be silently skipped.
+// If deduplication is not working, a DuplicateDefinition error for `Point`
+// would be reported instead of a successful solve.
+include "include_lib.cad";
+include "include_lib.cad";
+
+let p: Point;
+p.x == 5;
+p.y == 10;
