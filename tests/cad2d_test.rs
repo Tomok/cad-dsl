@@ -212,7 +212,7 @@ fn test_cad2d_point_on_circle() {
 /// `Line2D::tangent_to()` is satisfied by the horizontal tangent y=5 to circle r=5.
 #[test]
 fn test_cad2d_tangent_line_circle() {
-    let (success, stdout, stderr) =
+    let (success, _stdout, stderr) =
         solve_file("tests/fixtures/solve/cad2d_tangent_line_circle.cad");
     assert!(success, "Expected success (SAT), stderr:\n{}", stderr);
 }
