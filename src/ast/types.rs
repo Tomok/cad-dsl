@@ -109,8 +109,14 @@ pub enum Type<'src> {
         unit: Option<Box<UnitTypeExpr<'src>>>,
         span: Span,
     },
-    /// Algebraic number (roots of polynomials with integer coefficients)
-    Algebraic { span: Span },
+    /// Algebraic number (roots of polynomials with integer coefficients),
+    /// optionally with a unit parameter.
+    /// `Algebraic` (no unit) = dimensionless algebraic number.
+    /// `Algebraic<m>` = algebraic value in meters.
+    Algebraic {
+        unit: Option<Box<UnitTypeExpr<'src>>>,
+        span: Span,
+    },
     /// Reference type (e.g., &Point)
     Reference { inner: Box<Type<'src>>, span: Span },
     /// User-defined type (e.g., Point, Circle)
@@ -130,7 +136,7 @@ impl<'src> HasSpan for Type<'src> {
             Type::I32 { span } => *span,
             Type::F64 { span } => *span,
             Type::Real { span, .. } => *span,
-            Type::Algebraic { span } => *span,
+            Type::Algebraic { span, .. } => *span,
             Type::Reference { span, .. } => *span,
             Type::UserDefined { span, .. } => *span,
             Type::Array { span, .. } => *span,

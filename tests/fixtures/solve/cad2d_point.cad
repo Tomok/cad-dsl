@@ -1,0 +1,5 @@
+include "../../../lib/cad2d.cad";
+
+let p: Point2D;
+p.x == 3.0;
+p.y == 4.0;

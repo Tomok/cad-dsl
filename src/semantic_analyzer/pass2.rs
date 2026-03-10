@@ -173,8 +173,7 @@ pub fn resolve_statement<'src, 'arena>(
             let struct_def = struct_def.unwrap();
 
             // Set the current struct context before resolving methods
-            let struct_name_src = extract_name(ctx.source, name);
-            ctx.current_struct = Some(struct_name_src);
+            ctx.current_struct = Some(name.clone());
 
             // Resolve method bodies
             let resolved_methods = resolve_statements(ctx, methods);
@@ -728,7 +727,7 @@ fn resolve_function_body<'src, 'arena>(
 
     // If not found and we're resolving a struct's methods, try the qualified name
     if func_def.is_none()
-        && let Some(current_struct) = ctx.current_struct
+        && let Some(ref current_struct) = ctx.current_struct
     {
         // We're resolving a method - use the qualified name
         let qualified_name = format!("{}::{}", current_struct, name);
@@ -1784,7 +1783,7 @@ fn resolve_type<'src, 'arena>(
         crate::ast::Type::I32 { span } => Some(ResolvedType::I32 { span: *span }),
         crate::ast::Type::F64 { span } => Some(ResolvedType::F64 { span: *span }),
         crate::ast::Type::Real { unit: _, span } => Some(ResolvedType::Real { span: *span }),
-        crate::ast::Type::Algebraic { span } => Some(ResolvedType::Algebraic { span: *span }),
+        crate::ast::Type::Algebraic { span, .. } => Some(ResolvedType::Algebraic { span: *span }),
         crate::ast::Type::Reference { inner, span } => {
             let inner_resolved = resolve_type(ctx, inner)?;
             let inner_allocated = ctx.arena.alloc(inner_resolved);
@@ -1834,19 +1833,16 @@ fn resolve_type<'src, 'arena>(
 /// Extract a name from the source text
 ///
 /// This ensures names are `&'src str` references into the source text.
-/// Panics if the name is not found in the source, which indicates a bug.
+/// Falls back to `Box::leak` for names from included files that do not
+/// appear in the main source (e.g., struct names from `include "..."` files).
 fn extract_name<'src>(source: &'src str, name: &str) -> &'src str {
-    // Find the name in the source text
-    source
-        .find(name)
-        .map(|idx| &source[idx..idx + name.len()])
-        .unwrap_or_else(|| {
-            panic!(
-                "BUG: Name '{}' not found in source text. This should never happen \
-                 as names should come from the parsed AST.",
-                name
-            )
-        })
+    if let Some(idx) = source.find(name) {
+        &source[idx..idx + name.len()]
+    } else {
+        // Name comes from an included file; leak it to obtain a `'static`
+        // (and therefore `'src`-compatible) reference.
+        Box::leak(name.to_string().into_boxed_str())
+    }
 }
 
 /// Collect all transform methods from a struct definition
@@ -4257,6 +4253,7 @@ mod tests {
 
         use crate::ast::Type;
         let ast_type = Type::Algebraic {
+            unit: None,
             span: make_span(1, 1),
         };
 

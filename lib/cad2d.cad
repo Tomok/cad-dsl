@@ -1,0 +1,178 @@
+// 2D CAD Standard Library for CAD-DSL
+//
+// Usage: include "lib/cad2d.cad";
+//
+// Provides 2D geometric primitives using SI units (metres by default).
+// All coordinate fields use Algebraic<m> so they participate in exact
+// algebraic constraint solving and are dimensionally annotated.
+//
+// SVG Export:
+//   Use the svg_* helper functions to export geometry to an SVG file.
+//   Helper functions append to a file using chained sequence numbers to
+//   guarantee write order. Start with svg_begin(), end with svg_end().
+//
+// Example:
+//   include "lib/cad2d.cad";
+//
+//   let sketch: Sketch2D;
+//   with sketch {
+//       let .l: Line2D;
+//       .l.start.x == 0.0;
+//       .l.start.y == 0.0;
+//       .l.end.x == 100.0;
+//       .l.end.y == 0.0;
+//   }
+
+include "si_units.cad";
+
+// ============================================================================
+// 2D Point
+// ============================================================================
+
+/// A 2D point with x and y coordinates in metres.
+struct Point2D {
+    x: Algebraic<m>,
+    y: Algebraic<m>,
+}
+
+// ============================================================================
+// 2D Line Segment
+// ============================================================================
+
+/// A line segment defined by two endpoints.
+struct Line2D {
+    start: Point2D,
+    end: Point2D,
+}
+
+// ============================================================================
+// 2D Circle
+// ============================================================================
+
+/// A circle defined by a center point and radius.
+struct Circle2D {
+    center: Point2D,
+    radius: Algebraic<m>,
+}
+
+// ============================================================================
+// 2D Arc
+// ============================================================================
+
+/// A circular arc defined by center, radius, and start/end angles.
+/// Angles are in radians, measured counter-clockwise from the positive x-axis.
+struct Arc2D {
+    center: Point2D,
+    radius: Algebraic<m>,
+    start_angle: Algebraic<rad>,
+    end_angle: Algebraic<rad>,
+}
+
+// ============================================================================
+// 2D Axis-Aligned Rectangle
+// ============================================================================
+
+/// An axis-aligned rectangle defined by its bottom-left corner, width, and height.
+struct Rectangle2D {
+    corner: Point2D,
+    width: Algebraic<m>,
+    height: Algebraic<m>,
+}
+
+// ============================================================================
+// 2D Sketch Container
+// ============================================================================
+
+/// A 2D sketch that holds a collection of geometric entities.
+/// Use `with sketch { let .entity: ShapeType; }` to add entities.
+struct Sketch2D {
+    container entities,
+}
+
+// ============================================================================
+// SVG Export Helpers
+// ============================================================================
+//
+// These functions write SVG elements to a file using rune blocks.
+// They return a sequence number (f64) that must be chained to guarantee
+// write ordering. Always call svg_begin() first and svg_end() last.
+//
+// Ordering pattern:
+//   let seq0 = svg_begin("out.svg", 200.0, 100.0);
+//   let seq1 = svg_line(x1, y1, x2, y2, seq0);
+//   let seq2 = svg_circle(cx, cy, r, seq1);
+//   let done = svg_end(seq2);
+//
+// Note: coordinate values should be in the same unit (e.g. all in mm or all
+// in model metres scaled to pixels). SVG uses unitless pixel coordinates.
+
+/// Write the SVG header to `sketch.svg`, overwriting any existing file.
+/// `width` and `height` set the SVG viewport in pixels.
+/// Returns 1.0 to start the sequence chain.
+///
+/// Note: SVG attributes use single quotes to avoid escaped-quote issues
+/// with the CAD-DSL string literal lexer.
+fn svg_begin(width: f64, height: f64) -> f64 {
+    return rune(w=width, h=height) {
+        let header = "<svg xmlns='http://www.w3.org/2000/svg' width='"
+            + w.to_string() + "' height='" + h.to_string()
+            + "' viewBox='0 0 " + w.to_string() + " " + h.to_string() + "'>\n";
+        fs::write("sketch.svg", header);
+        1.0
+    };
+}
+
+/// Write the SVG closing tag to `sketch.svg`.
+/// Pass the last sequence number as `seq` to guarantee ordering.
+/// Returns `seq + 1.0`.
+fn svg_end(seq: f64) -> f64 {
+    return rune(s=seq) {
+        fs::append("sketch.svg", "</svg>\n");
+        s + 1.0
+    };
+}
+
+/// Append a `<line>` element to `sketch.svg`.
+/// `seq` is the previous sequence number for ordering.
+/// Returns `seq + 1.0`.
+fn svg_line(x1: f64, y1: f64, x2: f64, y2: f64, seq: f64) -> f64 {
+    return rune(a=x1, b=y1, c=x2, d=y2, s=seq) {
+        let elem = "  <line x1='" + a.to_string()
+            + "' y1='" + b.to_string()
+            + "' x2='" + c.to_string()
+            + "' y2='" + d.to_string()
+            + "' stroke='black' stroke-width='1'/>\n";
+        fs::append("sketch.svg", elem);
+        s + 1.0
+    };
+}
+
+/// Append a `<circle>` element to `sketch.svg`.
+/// `seq` is the previous sequence number for ordering.
+/// Returns `seq + 1.0`.
+fn svg_circle(cx: f64, cy: f64, r: f64, seq: f64) -> f64 {
+    return rune(a=cx, b=cy, c=r, s=seq) {
+        let elem = "  <circle cx='" + a.to_string()
+            + "' cy='" + b.to_string()
+            + "' r='" + c.to_string()
+            + "' fill='none' stroke='black' stroke-width='1'/>\n";
+        fs::append("sketch.svg", elem);
+        s + 1.0
+    };
+}
+
+/// Append a `<rect>` element to `sketch.svg`.
+/// (`x`, `y`) is the top-left corner; `w` and `h` are width and height.
+/// `seq` is the previous sequence number for ordering.
+/// Returns `seq + 1.0`.
+fn svg_rect(x: f64, y: f64, w: f64, h: f64, seq: f64) -> f64 {
+    return rune(rx=x, ry=y, rw=w, rh=h, s=seq) {
+        let elem = "  <rect x='" + rx.to_string()
+            + "' y='" + ry.to_string()
+            + "' width='" + rw.to_string()
+            + "' height='" + rh.to_string()
+            + "' fill='none' stroke='black' stroke-width='1'/>\n";
+        fs::append("sketch.svg", elem);
+        s + 1.0
+    };
+}

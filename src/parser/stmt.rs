@@ -228,11 +228,30 @@ pub fn type_annotation<'src>()
                     },
                 }
             }),
+            // Algebraic<unit_type_expr> or plain Algebraic
             select! {
-                Token::AlgebraicType(t) => Type::Algebraic {
-                    span: Span { start: t.position, lines: 0, end_column: t.position.column + 9 }
-                },
-            },
+                Token::AlgebraicType(t) => t.position,
+            }
+            .then(
+                select! { Token::LessThan(_) => () }
+                    .ignore_then(unit_type_expr())
+                    .then(select! { Token::GreaterThan(t) => t.position })
+                    .or_not(),
+            )
+            .map(|(alg_pos, unit_opt)| {
+                let end_col = match &unit_opt {
+                    Some((_, gt_pos)) => gt_pos.column + 1,
+                    None => alg_pos.column + 9,
+                };
+                Type::Algebraic {
+                    unit: unit_opt.map(|(u, _)| Box::new(u)),
+                    span: Span {
+                        start: alg_pos,
+                        lines: 0,
+                        end_column: end_col,
+                    },
+                }
+            }),
             select! {
                 Token::Identifier(t) => Type::UserDefined {
                     name: t.name.to_string(),
