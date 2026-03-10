@@ -1,0 +1,12 @@
+include "../../../lib/cad2d.cad";
+
+// Line from (0,0) to (10,10) — slope 1.
+// p.x is fixed at 5; point_on() constrains p.y to lie on the line, so p.y == 5.
+let l: Line2D;
+let p: Point2D;
+l.start.x == 0.0;
+l.start.y == 0.0;
+l.end.x == 10.0;
+l.end.y == 10.0;
+p.x == 5.0;
+l.point_on(p);

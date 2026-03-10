@@ -1,0 +1,8 @@
+include "../../../lib/cad2d.cad";
+
+// A line whose start y is fixed; horizontal() constrains end.y to match.
+let l: Line2D;
+l.start.x == 0.0;
+l.start.y == 5.0;
+l.end.x == 10.0;
+l.horizontal();

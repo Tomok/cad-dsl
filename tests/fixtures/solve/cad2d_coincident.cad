@@ -1,0 +1,8 @@
+include "../../../lib/cad2d.cad";
+
+// p1 at (3, 7); coincident() constrains p2 to the same location.
+let p1: Point2D;
+let p2: Point2D;
+p1.x == 3.0;
+p1.y == 7.0;
+p1.coincident(p2);

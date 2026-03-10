@@ -1,0 +1,13 @@
+include "../../../lib/cad2d.cad";
+
+// c1 at origin, r=3.  c2 center at x=7, y=0, radius unknown (>0).
+// External tangency: dist^2 == (r1+r2)^2  =>  49 == (3+r2)^2  =>  r2 == 4.
+let c1: Circle2D;
+let c2: Circle2D;
+c1.center.x == 0.0;
+c1.center.y == 0.0;
+c1.radius == 3.0;
+c2.center.x == 7.0;
+c2.center.y == 0.0;
+c2.radius > 0.0;
+c1.tangent_to_circle_ext(c2);

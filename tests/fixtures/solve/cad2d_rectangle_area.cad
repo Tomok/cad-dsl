@@ -1,0 +1,12 @@
+include "../../../lib/cad2d.cad";
+
+// Rectangle 5×3: area=15, perimeter=16.
+let r: Rectangle2D;
+r.corner.x == 0.0;
+r.corner.y == 0.0;
+r.width == 5.0;
+r.height == 3.0;
+let a: f64;
+let p: f64;
+a == r.area();
+p == r.perimeter();

@@ -1,0 +1,8 @@
+include "../../../lib/cad2d.cad";
+
+// Zero-radius circle: area == 0.  Simple sanity check for the rune method.
+let c: Circle2D;
+c.center.x == 0.0;
+c.center.y == 0.0;
+c.radius == 0.0;
+let a = c.area();

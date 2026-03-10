@@ -575,6 +575,9 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedExpr<'src, 'arena> {
                 ))
             }
 
+            // Parenthesized expression - transparent wrapper, just solve the inner expr
+            ResolvedExprKind::Paren { inner } => inner.solve(ctx),
+
             // Unsupported expressions
             _ => Err(SolverError::UnsupportedExpression(format!(
                 "{:?}",

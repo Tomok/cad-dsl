@@ -4,7 +4,9 @@
 //! processing HIR statements and adding constraints to the Z3 solver.
 
 use crate::hir::definitions::VarDefinitionKind;
-use crate::hir::expr::{ResolvedExpr, ResolvedExprKind, ResolvedStmt, ResolvedStmtKind};
+use crate::hir::expr::{
+    ResolvedExpr, ResolvedExprKind, ResolvedRuneParam, ResolvedStmt, ResolvedStmtKind,
+};
 use crate::hir::types::ResolvedType;
 use crate::solver::context::SolverContext;
 use crate::solver::impls::expr::Z3Expr;
@@ -40,6 +42,20 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                     ctx.register_rune_block(var_path.clone(), params.clone(), body, return_type)?;
 
                     // Don't create a Z3 variable - the value will be computed by rune
+                    return Ok(());
+                }
+
+                // Check if this is a method/function call whose body returns a rune block.
+                // e.g. `let len = l.length()` where `length()` is defined as
+                // `fn length() -> f64 { return rune(x=self.start.x, ...) { ... }; }`
+                //
+                // The direct-RuneBlock check above only catches `let x = rune(...){...}`.
+                // This check handles the indirection through function/method inlining.
+                if let Some(init_expr) = init
+                    && let Some((subst_params, body, return_type)) =
+                        try_extract_rune_from_call(init_expr, ctx)
+                {
+                    ctx.register_rune_block(var_path.clone(), subst_params, body, return_type)?;
                     return Ok(());
                 }
 
@@ -1686,5 +1702,148 @@ impl<'src, 'arena> ResolvedStmt<'src, 'arena> {
         var_def: &'arena crate::hir::definitions::VarDefinition<'src, 'arena>,
     ) -> Result<VariablePath<'src>, SolverError> {
         ctx.build_var_path_from_identifier(var_def.identifier)
+    }
+}
+
+// ============================================================================
+// Rune-in-call helpers
+// ============================================================================
+
+/// If `init_expr` is a `FunctionCall` or `MethodCall` whose registered return expression
+/// is a `RuneBlock`, substitute the call's arguments into the rune captures and return the
+/// information needed to register the rune block.
+///
+/// Returns `Some((substituted_params, body, return_type))` when the call resolves to a rune
+/// block, `None` otherwise.
+fn try_extract_rune_from_call<'src, 'arena>(
+    init_expr: &'arena ResolvedExpr<'src, 'arena>,
+    ctx: &SolverContext<'src, 'arena>,
+) -> Option<(
+    Vec<ResolvedRuneParam<'src, 'arena>>,
+    &'src str,
+    &'arena crate::hir::types::ResolvedType<'src, 'arena>,
+)> {
+    use std::collections::HashMap;
+
+    match &init_expr.kind {
+        ResolvedExprKind::MethodCall {
+            receiver,
+            method_name,
+            method,
+            args,
+        } => {
+            // Build qualified name "StructName::method_name" to look up the return expr
+            let qualified = if let Some(parent) = method.parent_struct {
+                format!("{}::{}", parent.name, method_name)
+            } else {
+                method_name.to_string()
+            };
+
+            let ret_expr = ctx.get_function_return(&qualified)?;
+
+            if let ResolvedExprKind::RuneBlock {
+                params,
+                body,
+                return_type,
+            } = &ret_expr.kind
+            {
+                // Build param map: "self" -> receiver, param_name -> arg
+                let mut param_map: HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>> =
+                    HashMap::new();
+                param_map.insert("self", receiver);
+                for (param, arg) in method.params.iter().zip(args.iter()) {
+                    param_map.insert(param.name, arg);
+                }
+
+                let subst_params = params
+                    .iter()
+                    .map(|rp| ResolvedRuneParam {
+                        name: rp.name,
+                        value: subst_expr_for_rune(rp.value, &param_map, ctx.arena),
+                        span: rp.span,
+                    })
+                    .collect();
+
+                Some((subst_params, body, return_type))
+            } else {
+                None
+            }
+        }
+
+        ResolvedExprKind::FunctionCall {
+            name,
+            function,
+            args,
+        } => {
+            let ret_expr = ctx.get_function_return(name)?;
+
+            if let ResolvedExprKind::RuneBlock {
+                params,
+                body,
+                return_type,
+            } = &ret_expr.kind
+            {
+                let mut param_map: HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>> =
+                    HashMap::new();
+                for (param, arg) in function.params.iter().zip(args.iter()) {
+                    param_map.insert(param.name, arg);
+                }
+
+                let subst_params = params
+                    .iter()
+                    .map(|rp| ResolvedRuneParam {
+                        name: rp.name,
+                        value: subst_expr_for_rune(rp.value, &param_map, ctx.arena),
+                        span: rp.span,
+                    })
+                    .collect();
+
+                Some((subst_params, body, return_type))
+            } else {
+                None
+            }
+        }
+
+        _ => None,
+    }
+}
+
+/// Substitute variable references in an expression used as a rune capture value.
+///
+/// Rune capture expressions are typically simple: a bare variable (`Var`) or a field
+/// access on a variable (`p.x`, `self.start.y`).  This function handles those cases
+/// plus arbitrarily nested field access so that struct-typed method parameters work.
+///
+/// Anything more exotic (array indexing, binary ops in captures, …) is returned as-is;
+/// if the param was not referenced, the expression is unchanged.
+fn subst_expr_for_rune<'src, 'arena>(
+    expr: &'arena ResolvedExpr<'src, 'arena>,
+    param_map: &std::collections::HashMap<&'src str, &'arena ResolvedExpr<'src, 'arena>>,
+    arena: &'arena bumpalo::Bump,
+) -> &'arena ResolvedExpr<'src, 'arena> {
+    match &expr.kind {
+        ResolvedExprKind::Var { name, .. } => param_map.get(name).copied().unwrap_or(expr),
+        ResolvedExprKind::FieldAccess {
+            receiver,
+            field_name,
+            field,
+        } => {
+            let new_receiver = subst_expr_for_rune(receiver, param_map, arena);
+            // Only allocate a new node when the receiver actually changed
+            if std::ptr::eq(new_receiver, *receiver) {
+                expr
+            } else {
+                arena.alloc(ResolvedExpr {
+                    kind: ResolvedExprKind::FieldAccess {
+                        receiver: new_receiver,
+                        field_name,
+                        field,
+                    },
+                    ..*expr
+                })
+            }
+        }
+        // Literals and other expressions need no substitution
+        _ => expr,
     }
 }

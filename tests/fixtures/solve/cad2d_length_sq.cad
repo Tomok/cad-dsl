@@ -1,0 +1,10 @@
+include "../../../lib/cad2d.cad";
+
+// 3-4-5 segment: length_sq == 25.
+let l: Line2D;
+l.start.x == 0.0;
+l.start.y == 0.0;
+l.end.x == 3.0;
+l.end.y == 4.0;
+let lsq: f64;
+lsq == l.length_sq();

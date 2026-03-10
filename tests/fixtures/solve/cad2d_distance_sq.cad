@@ -1,0 +1,11 @@
+include "../../../lib/cad2d.cad";
+
+// 3-4-5 right triangle: distance squared should be 25.
+let p1: Point2D;
+let p2: Point2D;
+p1.x == 0.0;
+p1.y == 0.0;
+p2.x == 3.0;
+p2.y == 4.0;
+let d_sq: f64;
+d_sq == p1.distance_sq_to(p2);

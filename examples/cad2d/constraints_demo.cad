@@ -1,0 +1,104 @@
+// Example: Geometric constraint helpers and measurements
+//
+// Demonstrates the new methods added to the cad2d standard library:
+//   - Constraint helpers: perpendicular_to, equal_length_to, tangent_to_line
+//   - Algebraic measurements: length_sq, midpoint_x/y, area
+//   - Rune-based post-solve measurements: length, distance_to, area (circle)
+//
+// Run with:
+//   cargo run -- solve examples/cad2d/constraints_demo.cad
+
+include "../../lib/cad2d.cad";
+
+// ---- Right isosceles triangle ------------------------------------------------
+//
+// Vertices: A at the right-angle, B and C at the equal legs.
+// We place A at the origin and constrain AB ⊥ AC with |AB| == |AC|.
+// AB is horizontal; AC's direction is found by the solver.
+
+let A: Point2D;
+let B: Point2D;
+let C: Point2D;
+
+A.x == 0.0;
+A.y == 0.0;
+
+// AB: horizontal segment of length 10
+let AB: Line2D;
+AB.start.x == A.x;
+AB.start.y == A.y;
+AB.end.x == B.x;
+AB.end.y == B.y;
+B.x == 10.0;
+B.y == 0.0;
+
+// AC: perpendicular to AB, same length, going upward
+let AC: Line2D;
+AC.start.x == A.x;
+AC.start.y == A.y;
+AC.end.x == C.x;
+AC.end.y == C.y;
+C.y > 0.0;          // upward
+AB.perpendicular_to(AC);
+AB.equal_length_to(AC);
+
+// Midpoints of the two legs
+let mid_AB_x: f64;
+let mid_AB_y: f64;
+let mid_AC_x: f64;
+let mid_AC_y: f64;
+mid_AB_x == AB.midpoint_x();
+mid_AB_y == AB.midpoint_y();
+mid_AC_x == AC.midpoint_x();
+mid_AC_y == AC.midpoint_y();
+
+// Leg length (post-solve, via rune)
+let leg_length = AB.length();
+
+// ---- Circle inscribed in the right angle ------------------------------------
+//
+// A circle centered at (r, r) with radius r is tangent to both legs of the
+// right angle at A (the x-axis and the y-axis), i.e. internally tangent to
+// both AB and AC.
+
+let inscribed: Circle2D;
+inscribed.center.x == inscribed.radius;
+inscribed.center.y == inscribed.radius;
+inscribed.radius == 2.0;
+
+// Tangency to both legs (algebraic constraint)
+AB.tangent_to(inscribed);
+
+// Post-solve: compute the inscribed circle's area
+let inscribed_area = inscribed.area();
+
+// ---- SVG export -------------------------------------------------------------
+
+let seq0 = svg_begin(120.0, 120.0);
+
+// Triangle edges (offset by 10px margin)
+let seq1 = svg_line(
+    A.x + 10.0, A.y + 10.0,
+    B.x + 10.0, B.y + 10.0,
+    seq0,
+);
+let seq2 = svg_line(
+    A.x + 10.0, A.y + 10.0,
+    C.x + 10.0, C.y + 10.0,
+    seq1,
+);
+let seq3 = svg_line(
+    B.x + 10.0, B.y + 10.0,
+    C.x + 10.0, C.y + 10.0,
+    seq2,
+);
+
+// Inscribed circle
+let seq4 = svg_circle(
+    inscribed.center.x + 10.0,
+    inscribed.center.y + 10.0,
+    inscribed.radius,
+    seq3,
+);
+
+let svg_done = svg_end(seq4);

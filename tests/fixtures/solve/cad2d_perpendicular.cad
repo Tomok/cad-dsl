@@ -1,0 +1,15 @@
+include "../../../lib/cad2d.cad";
+
+// l1 is horizontal; perpendicular_to constrains l2 to be vertical.
+// l2.start is at (5, 0); l2.end.y is fixed at 10.
+// The perpendicular constraint forces l2.end.x == l2.start.x == 5.
+let l1: Line2D;
+let l2: Line2D;
+l1.start.x == 0.0;
+l1.start.y == 0.0;
+l1.end.x == 10.0;
+l1.end.y == 0.0;
+l2.start.x == 5.0;
+l2.start.y == 0.0;
+l2.end.y == 10.0;
+l1.perpendicular_to(l2);

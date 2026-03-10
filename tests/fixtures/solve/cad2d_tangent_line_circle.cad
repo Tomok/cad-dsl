@@ -1,0 +1,14 @@
+include "../../../lib/cad2d.cad";
+
+// Fully-constrained case: horizontal line y=5 is tangent to circle at origin r=5.
+// The tangent_to() constraint must evaluate to true (SAT check).
+let c: Circle2D;
+let l: Line2D;
+c.center.x == 0.0;
+c.center.y == 0.0;
+c.radius == 5.0;
+l.start.x == -10.0;
+l.start.y == 5.0;
+l.end.x == 10.0;
+l.end.y == 5.0;
+l.tangent_to(c);

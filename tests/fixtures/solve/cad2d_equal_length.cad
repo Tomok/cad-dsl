@@ -1,0 +1,15 @@
+include "../../../lib/cad2d.cad";
+
+// l1 is a 3-4-5 segment (length 5).
+// l2 is horizontal with start at (10, 0); equal_length_to forces end.x = 15.
+let l1: Line2D;
+let l2: Line2D;
+l1.start.x == 0.0;
+l1.start.y == 0.0;
+l1.end.x == 3.0;
+l1.end.y == 4.0;
+l2.start.x == 10.0;
+l2.start.y == 0.0;
+l2.end.y == 0.0;
+l2.end.x > 10.0;
+l1.equal_length_to(l2);

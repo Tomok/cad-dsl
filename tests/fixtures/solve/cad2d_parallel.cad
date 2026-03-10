@@ -1,0 +1,13 @@
+include "../../../lib/cad2d.cad";
+
+// l1 is horizontal; parallel_to constrains l2 to have the same slope (also horizontal).
+let l1: Line2D;
+let l2: Line2D;
+l1.start.x == 0.0;
+l1.start.y == 0.0;
+l1.end.x == 10.0;
+l1.end.y == 0.0;
+l2.start.x == 0.0;
+l2.start.y == 5.0;
+l2.end.x == 10.0;
+l1.parallel_to(l2);
