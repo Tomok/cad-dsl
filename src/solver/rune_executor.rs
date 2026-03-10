@@ -113,6 +113,19 @@ impl RuneExecutor {
                 message: format!("Failed to install core module: {}", e),
             })?;
 
+        // Install file I/O module so rune blocks can call file::write, file::read, file::append
+        context
+            .install(
+                crate::solver::rune_io_module::file_io_module().map_err(|e| {
+                    RuneExecutionError::RuntimeError {
+                        message: format!("Failed to build file I/O module: {}", e),
+                    }
+                })?,
+            )
+            .map_err(|e| RuneExecutionError::RuntimeError {
+                message: format!("Failed to install file I/O module: {}", e),
+            })?;
+
         Ok(Self {
             context: Arc::new(context),
         })

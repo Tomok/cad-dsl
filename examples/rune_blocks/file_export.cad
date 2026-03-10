@@ -1,0 +1,19 @@
+// Example: Export solved CAD variables to a file using a rune block.
+//
+// This demonstrates fs::write from the built-in file I/O module.
+// After Z3 solves the constraints, the rune block runs and writes
+// the results to "output.txt".
+//
+// Note: the module is named `fs` (not `file`) to avoid conflicts with
+// Rune's built-in file! macro.
+
+let width: i32;
+let height: i32;
+width == 100;
+height == 200;
+
+let exported = rune(w=width, h=height) {
+    let content = "width=" + w.to_string() + "\nheight=" + h.to_string() + "\n";
+    fs::write("output.txt", content);
+    1  // return value: success indicator
+};

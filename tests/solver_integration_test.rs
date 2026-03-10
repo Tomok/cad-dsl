@@ -1586,3 +1586,157 @@ fn test_scientific_notation() {
     // 1e-3 = 0.001
     verify_solution(&stdout, "y", "0.001");
 }
+
+// ============================================================================
+// Rune File I/O Tests
+// ============================================================================
+
+/// Helper: run the solver on an arbitrary CAD source file path (not a fixture).
+fn solve_cad_file(path: &str) -> (bool, String, String) {
+    let output = Command::new("cargo")
+        .args(["run", "--", "solve", path])
+        .output()
+        .expect("Failed to execute command");
+
+    let success = output.status.success();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    (success, stdout, stderr)
+}
+
+#[test]
+fn test_rune_file_write() {
+    // Build unique paths for both the temporary .cad file and the output file
+    // so that parallel test runs do not interfere with each other.
+    let pid = std::process::id();
+    let cad_path = format!("/tmp/cad_dsl_rune_file_write_{}.cad", pid);
+    let out_path = format!("/tmp/cad_dsl_rune_file_write_out_{}.txt", pid);
+
+    // Use .to_string() instead of format!() to avoid `{}` in the CAD source,
+    // which would confuse the CAD lexer's brace-counting in rune block bodies.
+    // Use `fs::` prefix (not `file::`) to avoid Rune's built-in file! macro namespace.
+    let cad_source = format!(
+        "let x: i32;\n\
+         x == 42;\n\
+         \n\
+         let written = rune(x) {{\n\
+             fs::write(\"{out}\", x.to_string());\n\
+             1\n\
+         }};\n",
+        out = out_path,
+    );
+    std::fs::write(&cad_path, &cad_source).expect("Failed to write temp .cad file");
+
+    // Remove any leftover output file from a previous interrupted run
+    let _ = std::fs::remove_file(&out_path);
+
+    let (success, stdout, stderr) = solve_cad_file(&cad_path);
+
+    // Clean up temp .cad file regardless of outcome
+    let _ = std::fs::remove_file(&cad_path);
+
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "42");
+    verify_solution(&stdout, "written", "1");
+
+    // Verify the rune block actually wrote the file
+    let content = std::fs::read_to_string(&out_path)
+        .expect("fs::write should have created the output file");
+
+    // Clean up output file
+    let _ = std::fs::remove_file(&out_path);
+
+    assert!(
+        content.contains("42"),
+        "Output file should contain the solved value 42, got: {:?}",
+        content
+    );
+}
+
+#[test]
+fn test_rune_file_append() {
+    let pid = std::process::id();
+    let cad_path = format!("/tmp/cad_dsl_rune_file_append_{}.cad", pid);
+    let out_path = format!("/tmp/cad_dsl_rune_file_append_out_{}.txt", pid);
+
+    // Remove any leftover output file
+    let _ = std::fs::remove_file(&out_path);
+
+    // Use string concatenation to build the content lines rather than format!()
+    // macros with {}, which confuse the CAD lexer in rune block bodies.
+    let cad_source = format!(
+        "let a: i32;\n\
+         let b: i32;\n\
+         a == 10;\n\
+         b == 20;\n\
+         \n\
+         let w1 = rune(a) {{\n\
+             fs::append(\"{out}\", \"a=\" + a.to_string() + \"\\n\");\n\
+             1\n\
+         }};\n\
+         \n\
+         let w2 = rune(b) {{\n\
+             fs::append(\"{out}\", \"b=\" + b.to_string() + \"\\n\");\n\
+             1\n\
+         }};\n",
+        out = out_path,
+    );
+    std::fs::write(&cad_path, &cad_source).expect("Failed to write temp .cad file");
+
+    let (success, stdout, stderr) = solve_cad_file(&cad_path);
+
+    let _ = std::fs::remove_file(&cad_path);
+
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "a", "10");
+    verify_solution(&stdout, "b", "20");
+
+    let content = std::fs::read_to_string(&out_path)
+        .expect("fs::append should have created the output file");
+
+    let _ = std::fs::remove_file(&out_path);
+
+    assert!(
+        content.contains("a=10"),
+        "Output file should contain 'a=10', got: {:?}",
+        content
+    );
+    assert!(
+        content.contains("b=20"),
+        "Output file should contain 'b=20', got: {:?}",
+        content
+    );
+}
+
+#[test]
+fn test_rune_file_read() {
+    let pid = std::process::id();
+    let cad_path = format!("/tmp/cad_dsl_rune_file_read_{}.cad", pid);
+    let in_path = format!("/tmp/cad_dsl_rune_file_read_in_{}.txt", pid);
+
+    // Pre-populate the file that the rune block will read
+    std::fs::write(&in_path, "hello from file").expect("Failed to write input file");
+
+    // Return 1 if content is non-empty (i.e. read succeeded), 0 otherwise.
+    // Avoid {{ }} inside the rune body to prevent CAD lexer brace confusion.
+    let cad_source = format!(
+        "let x: i32;\n\
+         x == 7;\n\
+         \n\
+         let read_ok = rune(x) {{\n\
+             let content = fs::read(\"{inp}\");\n\
+             if content.len() > 0 {{ 1 }} else {{ 0 }}\n\
+         }};\n",
+        inp = in_path,
+    );
+    std::fs::write(&cad_path, &cad_source).expect("Failed to write temp .cad file");
+
+    let (success, stdout, stderr) = solve_cad_file(&cad_path);
+
+    let _ = std::fs::remove_file(&cad_path);
+    let _ = std::fs::remove_file(&in_path);
+
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+    verify_solution(&stdout, "x", "7");
+    verify_solution(&stdout, "read_ok", "1");
+}

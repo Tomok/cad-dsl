@@ -103,6 +103,19 @@ impl RuneTypeChecker {
                 message: format!("Failed to install core module: {}", e),
             })?;
 
+        // Install file I/O module so rune blocks that call file::write etc. compile successfully
+        context
+            .install(
+                crate::solver::rune_io_module::file_io_module().map_err(|e| {
+                    RuneTypeCheckError::TypeExtractionError {
+                        message: format!("Failed to build file I/O module: {}", e),
+                    }
+                })?,
+            )
+            .map_err(|e| RuneTypeCheckError::TypeExtractionError {
+                message: format!("Failed to install file I/O module: {}", e),
+            })?;
+
         Ok(Self {
             context: Arc::new(context),
         })

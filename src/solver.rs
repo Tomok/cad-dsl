@@ -356,6 +356,9 @@ pub mod impls;
 /// Rune executor for executing imperative code blocks
 pub mod rune_executor;
 
+/// Rune file I/O native module (exposes file::write, file::read, file::append)
+pub mod rune_io_module;
+
 // ============================================================================
 // Public Re-exports
 // ============================================================================
