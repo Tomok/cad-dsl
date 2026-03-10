@@ -1,0 +1,7 @@
+let x: i32;
+x == 42;
+
+let written = rune(x) {
+    fs::write("/tmp/cad_dsl_test_output.txt", x.to_string());
+    1
+};
