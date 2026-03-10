@@ -22,7 +22,6 @@ use solver as active_solver;
 use active_solver::SolverError;
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use bumpalo::Bump;
-use chumsky::Parser as _;
 use clap::{Parser, Subcommand};
 use lexer::TokenTrait;
 use semantic_analyzer::errors::SemanticError;
@@ -182,6 +181,65 @@ fn calculate_byte_offset(source: &str, target_line: usize, target_column: usize)
     source.len()
 }
 
+/// Recursively tokenize a source file, expanding `include "path";` directives
+/// by inserting the tokens from the referenced file in-place.
+///
+/// `visited` tracks canonicalized paths already processed to prevent duplicate
+/// or circular includes. Tokens from included files are printed with the same
+/// format as the main file's tokens.
+fn lex_with_includes(content: &str, base_dir: &Path, visited: &mut HashSet<std::path::PathBuf>) {
+    let tokens = match lexer::tokenize(content) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Lexing error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let mut i = 0;
+    while i < tokens.len() {
+        // Check for the pattern: Include StringLiteral SemiColon
+        if let lexer::Token::Include(_) = &tokens[i]
+            && i + 2 < tokens.len()
+            && let (lexer::Token::StringLiteral(path_tok), lexer::Token::SemiColon(_)) =
+                (&tokens[i + 1], &tokens[i + 2])
+        {
+            let include_path = base_dir.join(path_tok.value);
+            let canonical = include_path
+                .canonicalize()
+                .unwrap_or_else(|_| include_path.clone());
+
+            if !visited.contains(&canonical) {
+                visited.insert(canonical.clone());
+                match std::fs::read_to_string(&include_path) {
+                    Ok(inc_content) => {
+                        let inc_base = canonical.parent().unwrap_or(Path::new(".")).to_path_buf();
+                        lex_with_includes(&inc_content, &inc_base, visited);
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Cannot open include file '{}': {}",
+                            include_path.display(),
+                            e
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            }
+            i += 3; // skip Include + StringLiteral + SemiColon
+            continue;
+        }
+
+        println!(
+            "{:?} at {:?} - value: {}",
+            tokens[i],
+            tokens[i].position(),
+            tokens[i].value_str()
+        );
+        i += 1;
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -189,70 +247,97 @@ fn main() {
         Commands::Lex { file } => {
             let content = read_input(file).expect("Failed to read input");
 
-            match lexer::tokenize(&content) {
-                Ok(tokens) => {
-                    for token in tokens {
-                        println!(
-                            "{:?} at {:?} - value: {}",
-                            token,
-                            token.position(),
-                            token.value_str()
-                        );
-                    }
-                }
-                Err(error) => eprintln!("Lexing error: {}", error),
+            let base_dir = if file.as_str() == "-" {
+                std::env::current_dir().unwrap_or_default()
+            } else {
+                Path::new(file.as_str())
+                    .canonicalize()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                    .unwrap_or_default()
+            };
+            let mut visited = HashSet::new();
+            if file.as_str() != "-"
+                && let Ok(canonical) = Path::new(file.as_str()).canonicalize()
+            {
+                visited.insert(canonical);
             }
+            lex_with_includes(&content, &base_dir, &mut visited);
         }
         Commands::Parse { file } => {
-            let content = read_input(file).expect("Failed to read input");
+            // Create the arena early so included-file source strings share
+            // the same 'arena lifetime as the main source and all AST nodes.
+            let arena = Bump::new();
+
+            let raw_content = read_input(file).expect("Failed to read input");
             let filename = display_filename(file);
 
+            // Arena-allocate source and tokens for consistent 'arena lifetime.
+            let content: &str = arena.alloc_str(&raw_content);
+
             // Step 1: Tokenize
-            let tokens = match lexer::tokenize(&content) {
+            let raw_tokens = match lexer::tokenize(content) {
                 Ok(tokens) => tokens,
                 Err(error) => {
                     eprintln!("Lexing error: {}", error);
                     std::process::exit(1);
                 }
             };
+            let tokens: &[_] = arena.alloc_slice_clone(&raw_tokens);
 
-            // Step 2: Parse as either a let statement, function definition, or struct definition
-            use chumsky::primitive::choice;
-            let expr = parser::expr_inner_with_source(Some(&content));
-            let stmt_parser = choice((
-                parser::struct_def(expr.clone()),
-                parser::function_def(expr.clone()),
-                parser::let_stmt(expr),
-            ));
-
-            let ast = match stmt_parser.parse(&tokens).into_result() {
-                Ok(stmt) => {
+            // Step 2: Parse the full program
+            let ast = match parser::parse_program(content, tokens) {
+                Ok(stmts) => {
                     println!("✓ Parsing successful");
-                    vec![stmt]
+                    stmts
                 }
                 Err(errors) => {
                     eprintln!("Parse errors:");
-                    parser::report_parse_errors(filename, &content, errors);
+                    parser::report_parse_errors(filename, content, errors);
+                    std::process::exit(1);
+                }
+            };
+
+            // Step 2b: Resolve include directives
+            let base_dir = if file.as_str() == "-" {
+                std::env::current_dir().unwrap_or_default()
+            } else {
+                Path::new(file.as_str())
+                    .canonicalize()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                    .unwrap_or_default()
+            };
+            let mut visited = HashSet::new();
+            if file.as_str() != "-"
+                && let Ok(canonical) = Path::new(file.as_str()).canonicalize()
+            {
+                visited.insert(canonical);
+            }
+            let ast = match include_resolver::resolve_includes(&arena, ast, &base_dir, &mut visited)
+            {
+                Ok(stmts) => stmts,
+                Err(e) => {
+                    eprintln!("Include error: {}", e);
                     std::process::exit(1);
                 }
             };
 
             // Step 3: Semantic Analysis
-            let arena = Bump::new();
-            let hir = match semantic_analyzer::analyze(&arena, &content, &ast) {
+            let hir = match semantic_analyzer::analyze(&arena, content, &ast) {
                 Ok(hir) => {
                     println!("✓ Semantic analysis successful");
                     hir
                 }
                 Err(errors) => {
                     eprintln!("\nSemantic errors:");
-                    report_semantic_errors(filename, &content, errors);
+                    report_semantic_errors(filename, content, errors);
                     std::process::exit(1);
                 }
             };
 
             // Step 4: Type Checking
-            match type_checker::type_check(&arena, &content, &hir[..]) {
+            match type_checker::type_check(&arena, content, &hir[..]) {
                 Ok(warnings) => {
                     println!("✓ Type checking successful");
                     if !warnings.is_empty() {
@@ -265,7 +350,7 @@ fn main() {
                 }
                 Err(errors) => {
                     eprintln!("\nType errors:");
-                    report_type_errors(filename, &content, errors);
+                    report_type_errors(filename, content, errors);
                     std::process::exit(1);
                 }
             }
