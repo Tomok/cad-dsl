@@ -1,0 +1,10 @@
+include "../../../lib/cad2d.cad";
+
+// 3-4-5 triangle: distance_to() rune method should return 5.
+let p1: Point2D;
+let p2: Point2D;
+p1.x == 0.0;
+p1.y == 0.0;
+p2.x == 3.0;
+p2.y == 4.0;
+let d = p1.distance_to(p2);

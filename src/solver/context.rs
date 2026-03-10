@@ -20,7 +20,7 @@ use super::PartialReason;
 use super::{
     DeferredConstraint, PathComponent, Solution, SolveResult, SolverError, Value, VariablePath,
 };
-use crate::hir::expr::ResolvedExprKind;
+use crate::ast::span::HasSpan;
 use crate::hir::types::ResolvedType;
 use std::collections::HashMap;
 
@@ -888,7 +888,28 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         body: &'src str,
         return_type: &'arena crate::hir::types::ResolvedType<'src, 'arena>,
     ) -> Result<(), SolverError> {
+        use crate::hir::types::ResolvedType;
         use crate::solver::rune_executor::RuneExecutor;
+
+        // The HIR stores `I32` as a placeholder return type for rune blocks (it is
+        // set during semantic analysis before the type checker runs).  Re-derive the
+        // actual return type from the parameter types using the same heuristic as the
+        // type checker: if any parameter is f64 / Real / Algebraic the result is f64,
+        // otherwise fall back to the HIR-provided type (i32 or whatever).
+        let effective_return_type = if params.iter().any(|p| {
+            matches!(
+                p.value.ty,
+                ResolvedType::F64 { .. }
+                    | ResolvedType::Real { .. }
+                    | ResolvedType::Algebraic { .. }
+            )
+        }) {
+            self.arena.alloc(ResolvedType::F64 {
+                span: return_type.span(),
+            }) as &ResolvedType<'src, 'arena>
+        } else {
+            return_type
+        };
 
         // Compile the rune code once and cache it
         let executor = RuneExecutor::new()?;
@@ -898,7 +919,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             result_path,
             params,
             compiled_unit,
-            return_type,
+            return_type: effective_return_type,
         });
 
         Ok(())
@@ -1190,28 +1211,16 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             let mut param_values = Vec::new();
 
             for param in &rune_block.params {
-                // Resolve the parameter expression to get its value
-                // For Phase 4 MVP, parameters should be simple variables
-                let value = match &param.value.kind {
-                    ResolvedExprKind::Var { definition, .. } => {
-                        // Build path from the variable's identifier using the same
-                        // identifier-aware builder that declarations use, so container
-                        // variables and transformed views resolve correctly
-                        let path = self.build_var_path_from_identifier(definition.identifier)?;
-
-                        solution.assignments.get(&path).cloned().ok_or_else(|| {
-                            SolverError::RuneExecutionError(format!(
-                                "Rune block parameter '{}' not found in solution",
-                                path
-                            ))
-                        })?
-                    }
-                    _ => {
-                        return Err(SolverError::RuneExecutionError(
-                            "Complex parameter expressions in rune blocks not yet supported (Phase 4 MVP)".to_string(),
-                        ));
-                    }
-                };
+                // Resolve the parameter expression to get its value.
+                // Supports Var (simple variable) and FieldAccess (e.g. p.x after
+                // method-call substitution).
+                let path = resolve_rune_param_path(param.value, self)?;
+                let value = solution.assignments.get(&path).cloned().ok_or_else(|| {
+                    SolverError::RuneExecutionError(format!(
+                        "Rune block parameter '{}' not found in solution",
+                        path
+                    ))
+                })?;
 
                 param_values.push(value);
             }
@@ -1400,6 +1409,40 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                 z3::SatResult::Unknown => return Err(SolverError::Unknown),
             }
         }
+    }
+}
+
+// ============================================================================
+// Rune Parameter Resolution Helper
+// ============================================================================
+
+/// Recursively resolve a rune parameter capture expression to a `VariablePath`
+/// so its solved value can be looked up in the solution.
+///
+/// Handles:
+/// - `Var` — simple variable or struct field via the identifier
+/// - `FieldAccess` — e.g. `p.x` produced after method-call parameter substitution
+fn resolve_rune_param_path<'src, 'arena>(
+    expr: &'arena crate::hir::expr::ResolvedExpr<'src, 'arena>,
+    ctx: &mut SolverContext<'src, 'arena>,
+) -> Result<VariablePath<'src>, SolverError> {
+    use crate::hir::expr::ResolvedExprKind;
+    match &expr.kind {
+        ResolvedExprKind::Var { definition, .. } => {
+            ctx.build_var_path_from_identifier(definition.identifier)
+        }
+        ResolvedExprKind::FieldAccess {
+            receiver,
+            field_name,
+            ..
+        } => {
+            let base = resolve_rune_param_path(receiver, ctx)?;
+            Ok(base.with_field(field_name))
+        }
+        _ => Err(SolverError::RuneExecutionError(format!(
+            "Rune parameter must be a variable or field access, got: {:?}",
+            expr.kind
+        ))),
     }
 }
 

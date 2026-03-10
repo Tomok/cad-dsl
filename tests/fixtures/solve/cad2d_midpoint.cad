@@ -1,0 +1,12 @@
+include "../../../lib/cad2d.cad";
+
+// Line from (0,0) to (6,8); midpoint is (3,4).
+let l: Line2D;
+l.start.x == 0.0;
+l.start.y == 0.0;
+l.end.x == 6.0;
+l.end.y == 8.0;
+let mx: f64;
+let my: f64;
+mx == l.midpoint_x();
+my == l.midpoint_y();

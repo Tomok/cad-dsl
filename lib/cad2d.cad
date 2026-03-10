@@ -33,6 +33,26 @@ include "si_units.cad";
 struct Point2D {
     x: Algebraic<m>,
     y: Algebraic<m>,
+
+    /// Constrain this point to be coincident with `other` (same location).
+    fn coincident(other: Point2D) -> bool {
+        return self.x == other.x and self.y == other.y;
+    },
+
+    /// Squared Euclidean distance to `other`.
+    /// Use in constraints: `p1.distance_sq_to(p2) == 25.0;`
+    /// Avoids sqrt so Z3 can reason about it directly.
+    fn distance_sq_to(other: Point2D) -> f64 {
+        return (self.x - other.x) ^ 2 + (self.y - other.y) ^ 2;
+    },
+
+    /// Euclidean distance to `other` (computed post-solve via rune block).
+    /// Cannot be used in Z3 constraints; prefer `distance_sq_to` for that.
+    fn distance_to(other: Point2D) -> f64 {
+        return rune(ax=self.x, ay=self.y, bx=other.x, by=other.y) {
+            ((ax - bx) * (ax - bx) + (ay - by) * (ay - by)).sqrt()
+        };
+    }
 }
 
 // ============================================================================
@@ -43,6 +63,85 @@ struct Point2D {
 struct Line2D {
     start: Point2D,
     end: Point2D,
+
+    /// Constrain this line to be horizontal (start.y == end.y).
+    fn horizontal() -> bool {
+        return self.start.y == self.end.y;
+    },
+
+    /// Constrain this line to be vertical (start.x == end.x).
+    fn vertical() -> bool {
+        return self.start.x == self.end.x;
+    },
+
+    /// Constrain this line to be parallel to `other`.
+    /// Uses the cross-product condition: direction vectors are proportional.
+    fn parallel_to(other: Line2D) -> bool {
+        return (self.end.x - self.start.x) * (other.end.y - other.start.y)
+            == (self.end.y - self.start.y) * (other.end.x - other.start.x);
+    },
+
+    /// Constrain this line to be perpendicular to `other`.
+    /// Uses the dot-product condition: direction vectors are orthogonal.
+    fn perpendicular_to(other: Line2D) -> bool {
+        return (self.end.x - self.start.x) * (other.end.x - other.start.x)
+            + (self.end.y - self.start.y) * (other.end.y - other.start.y)
+            == 0.0;
+    },
+
+    /// Constrain point `p` to lie on the (infinite) line through this segment.
+    /// Uses the collinearity condition (cross product of direction and offset = 0).
+    /// Note: does not restrict `p` to the segment bounds.
+    fn point_on(p: Point2D) -> bool {
+        return (self.end.x - self.start.x) * (p.y - self.start.y)
+            == (self.end.y - self.start.y) * (p.x - self.start.x);
+    },
+
+    /// Constrain this line to be tangent to circle `c`.
+    /// Uses the algebraic form: (distance from center to line)^2 == radius^2.
+    fn tangent_to(c: Circle2D) -> bool {
+        return ((c.center.y - self.start.y) * (self.end.x - self.start.x)
+            - (c.center.x - self.start.x) * (self.end.y - self.start.y)) ^ 2
+            == c.radius ^ 2
+                * ((self.end.x - self.start.x) ^ 2 + (self.end.y - self.start.y) ^ 2);
+    },
+
+    /// Squared length of this segment.  Use in constraints: `l.length_sq() == 100.0;`
+    fn length_sq() -> f64 {
+        return (self.end.x - self.start.x) ^ 2 + (self.end.y - self.start.y) ^ 2;
+    },
+
+    /// Constrain this line to have the same length as `other`.
+    fn equal_length_to(other: Line2D) -> bool {
+        return (self.end.x - self.start.x) ^ 2 + (self.end.y - self.start.y) ^ 2
+            == (other.end.x - other.start.x) ^ 2 + (other.end.y - other.start.y) ^ 2;
+    },
+
+    /// X-coordinate of the midpoint.
+    fn midpoint_x() -> f64 {
+        return (self.start.x + self.end.x) / 2.0;
+    },
+
+    /// Y-coordinate of the midpoint.
+    fn midpoint_y() -> f64 {
+        return (self.start.y + self.end.y) / 2.0;
+    },
+
+    /// Length of this segment (computed post-solve via rune block).
+    /// For constraint use, prefer `length_sq`.
+    fn length() -> f64 {
+        return rune(x1=self.start.x, y1=self.start.y, x2=self.end.x, y2=self.end.y) {
+            ((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)).sqrt()
+        };
+    },
+
+    /// Angle in radians, measured counter-clockwise from the positive x-axis
+    /// (computed post-solve via rune block).
+    fn angle() -> f64 {
+        return rune(x1=self.start.x, y1=self.start.y, x2=self.end.x, y2=self.end.y) {
+            (y2 - y1).atan2(x2 - x1)
+        };
+    }
 }
 
 // ============================================================================
@@ -53,6 +152,58 @@ struct Line2D {
 struct Circle2D {
     center: Point2D,
     radius: Algebraic<m>,
+
+    /// Constrain point `p` to lie on this circle.
+    fn point_on(p: Point2D) -> bool {
+        return (p.x - self.center.x) ^ 2 + (p.y - self.center.y) ^ 2 == self.radius ^ 2;
+    },
+
+    /// Constrain line `l` to be tangent to this circle.
+    fn tangent_to_line(l: Line2D) -> bool {
+        return ((self.center.y - l.start.y) * (l.end.x - l.start.x)
+            - (self.center.x - l.start.x) * (l.end.y - l.start.y)) ^ 2
+            == self.radius ^ 2 * ((l.end.x - l.start.x) ^ 2 + (l.end.y - l.start.y) ^ 2);
+    },
+
+    /// Constrain this circle to be externally tangent to `other`.
+    /// Distance between centers equals the sum of the radii.
+    fn tangent_to_circle_ext(other: Circle2D) -> bool {
+        return (other.center.x - self.center.x) ^ 2 + (other.center.y - self.center.y) ^ 2
+            == (self.radius + other.radius) ^ 2;
+    },
+
+    /// Constrain this circle to be internally tangent to `other`.
+    /// Distance between centers equals the absolute difference of the radii.
+    fn tangent_to_circle_int(other: Circle2D) -> bool {
+        return (other.center.x - self.center.x) ^ 2 + (other.center.y - self.center.y) ^ 2
+            == (self.radius - other.radius) ^ 2;
+    },
+
+    /// Constrain this circle to have the same radius as `other`.
+    fn equal_radius_to(other: Circle2D) -> bool {
+        return self.radius == other.radius;
+    },
+
+    /// Constrain this circle to be concentric with `other` (same center).
+    fn concentric_with(other: Circle2D) -> bool {
+        return self.center.x == other.center.x and self.center.y == other.center.y;
+    },
+
+    /// Area of this circle, π·r² (computed post-solve via rune block).
+    fn area() -> f64 {
+        return rune(r=self.radius) {
+            let pi = 3.141592653589793_f64;
+            pi * r * r
+        };
+    },
+
+    /// Circumference, 2·π·r (computed post-solve via rune block).
+    fn circumference() -> f64 {
+        return rune(r=self.radius) {
+            let pi = 3.141592653589793_f64;
+            2.0 * pi * r
+        };
+    }
 }
 
 // ============================================================================
@@ -66,6 +217,28 @@ struct Arc2D {
     radius: Algebraic<m>,
     start_angle: Algebraic<rad>,
     end_angle: Algebraic<rad>,
+
+    /// Constrain point `p` to lie on the underlying circle of this arc.
+    /// Note: does not check that `p` falls within [start_angle, end_angle];
+    /// that requires trigonometry and must be handled with rune blocks.
+    fn point_on(p: Point2D) -> bool {
+        return (p.x - self.center.x) ^ 2 + (p.y - self.center.y) ^ 2 == self.radius ^ 2;
+    },
+
+    /// Arc length r·|end_angle − start_angle| (computed post-solve via rune block).
+    fn arc_length() -> f64 {
+        return rune(r=self.radius, sa=self.start_angle, ea=self.end_angle) {
+            r * (ea - sa).abs()
+        };
+    },
+
+    /// Chord length 2·r·sin(|Δθ|/2) (computed post-solve via rune block).
+    fn chord_length() -> f64 {
+        return rune(r=self.radius, sa=self.start_angle, ea=self.end_angle) {
+            let half_delta = (ea - sa).abs() / 2.0;
+            2.0 * r * half_delta.sin()
+        };
+    }
 }
 
 // ============================================================================
@@ -77,6 +250,33 @@ struct Rectangle2D {
     corner: Point2D,
     width: Algebraic<m>,
     height: Algebraic<m>,
+
+    /// Constrain this rectangle to be a square (width == height).
+    fn is_square() -> bool {
+        return self.width == self.height;
+    },
+
+    /// Area: width × height.
+    fn area() -> f64 {
+        return self.width * self.height;
+    },
+
+    /// Perimeter: 2·(width + height).
+    fn perimeter() -> f64 {
+        return 2.0 * (self.width + self.height);
+    },
+
+    /// Squared diagonal: width² + height².
+    fn diagonal_sq() -> f64 {
+        return self.width ^ 2 + self.height ^ 2;
+    },
+
+    /// Diagonal length (computed post-solve via rune block).
+    fn diagonal() -> f64 {
+        return rune(w=self.width, h=self.height) {
+            (w * w + h * h).sqrt()
+        };
+    }
 }
 
 // ============================================================================
@@ -98,7 +298,7 @@ struct Sketch2D {
 // write ordering. Always call svg_begin() first and svg_end() last.
 //
 // Ordering pattern:
-//   let seq0 = svg_begin("out.svg", 200.0, 100.0);
+//   let seq0 = svg_begin(200.0, 100.0);
 //   let seq1 = svg_line(x1, y1, x2, y2, seq0);
 //   let seq2 = svg_circle(cx, cy, r, seq1);
 //   let done = svg_end(seq2);
@@ -109,9 +309,6 @@ struct Sketch2D {
 /// Write the SVG header to `sketch.svg`, overwriting any existing file.
 /// `width` and `height` set the SVG viewport in pixels.
 /// Returns 1.0 to start the sequence chain.
-///
-/// Note: SVG attributes use single quotes to avoid escaped-quote issues
-/// with the CAD-DSL string literal lexer.
 fn svg_begin(width: f64, height: f64) -> f64 {
     return rune(w=width, h=height) {
         let header = "<svg xmlns='http://www.w3.org/2000/svg' width='"
@@ -122,8 +319,7 @@ fn svg_begin(width: f64, height: f64) -> f64 {
     };
 }
 
-/// Write the SVG closing tag to `sketch.svg`.
-/// Pass the last sequence number as `seq` to guarantee ordering.
+/// Write the SVG closing tag.  Pass the last sequence number as `seq`.
 /// Returns `seq + 1.0`.
 fn svg_end(seq: f64) -> f64 {
     return rune(s=seq) {
@@ -132,8 +328,7 @@ fn svg_end(seq: f64) -> f64 {
     };
 }
 
-/// Append a `<line>` element to `sketch.svg`.
-/// `seq` is the previous sequence number for ordering.
+/// Append a `<line>` element.  `seq` is the previous sequence number.
 /// Returns `seq + 1.0`.
 fn svg_line(x1: f64, y1: f64, x2: f64, y2: f64, seq: f64) -> f64 {
     return rune(a=x1, b=y1, c=x2, d=y2, s=seq) {
@@ -147,8 +342,7 @@ fn svg_line(x1: f64, y1: f64, x2: f64, y2: f64, seq: f64) -> f64 {
     };
 }
 
-/// Append a `<circle>` element to `sketch.svg`.
-/// `seq` is the previous sequence number for ordering.
+/// Append a `<circle>` element.  `seq` is the previous sequence number.
 /// Returns `seq + 1.0`.
 fn svg_circle(cx: f64, cy: f64, r: f64, seq: f64) -> f64 {
     return rune(a=cx, b=cy, c=r, s=seq) {
@@ -161,16 +355,37 @@ fn svg_circle(cx: f64, cy: f64, r: f64, seq: f64) -> f64 {
     };
 }
 
-/// Append a `<rect>` element to `sketch.svg`.
-/// (`x`, `y`) is the top-left corner; `w` and `h` are width and height.
-/// `seq` is the previous sequence number for ordering.
-/// Returns `seq + 1.0`.
+/// Append a `<rect>` element.  (`x`, `y`) is the top-left corner.
+/// `seq` is the previous sequence number.  Returns `seq + 1.0`.
 fn svg_rect(x: f64, y: f64, w: f64, h: f64, seq: f64) -> f64 {
     return rune(rx=x, ry=y, rw=w, rh=h, s=seq) {
         let elem = "  <rect x='" + rx.to_string()
             + "' y='" + ry.to_string()
             + "' width='" + rw.to_string()
             + "' height='" + rh.to_string()
+            + "' fill='none' stroke='black' stroke-width='1'/>\n";
+        fs::append("sketch.svg", elem);
+        s + 1.0
+    };
+}
+
+/// Append a `<path>` arc element.  (`cx`, `cy`) is the center; `r` the radius.
+/// `start_deg` and `end_deg` are the start/end angles in degrees
+/// (counter-clockwise from the positive x-axis).
+/// `seq` is the previous sequence number.  Returns `seq + 1.0`.
+fn svg_arc(cx: f64, cy: f64, r: f64, start_deg: f64, end_deg: f64, seq: f64) -> f64 {
+    return rune(acx=cx, acy=cy, ar=r, sa=start_deg, ea=end_deg, s=seq) {
+        let pi = 3.141592653589793_f64;
+        let sa_rad = sa * pi / 180.0;
+        let ea_rad = ea * pi / 180.0;
+        let x1 = acx + ar * sa_rad.cos();
+        let y1 = acy - ar * sa_rad.sin();
+        let x2 = acx + ar * ea_rad.cos();
+        let y2 = acy - ar * ea_rad.sin();
+        let large_arc = if (ea - sa).abs() > 180.0 { "1" } else { "0" };
+        let elem = "  <path d='M " + x1.to_string() + " " + y1.to_string()
+            + " A " + ar.to_string() + " " + ar.to_string() + " 0 "
+            + large_arc + " 0 " + x2.to_string() + " " + y2.to_string()
             + "' fill='none' stroke='black' stroke-width='1'/>\n";
         fs::append("sketch.svg", elem);
         s + 1.0

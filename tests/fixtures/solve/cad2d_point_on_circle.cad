@@ -1,0 +1,12 @@
+include "../../../lib/cad2d.cad";
+
+// Circle at origin, radius 5.  p.x == 3, p.y > 0.
+// point_on() constrains p.y^2 == 25 - 9 == 16, so p.y == 4.
+let c: Circle2D;
+let p: Point2D;
+c.center.x == 0.0;
+c.center.y == 0.0;
+c.radius == 5.0;
+p.x == 3.0;
+p.y > 0.0;
+c.point_on(p);
