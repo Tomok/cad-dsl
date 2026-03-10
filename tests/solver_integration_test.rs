@@ -1640,8 +1640,8 @@ fn test_rune_file_write() {
     verify_solution(&stdout, "written", "1");
 
     // Verify the rune block actually wrote the file
-    let content = std::fs::read_to_string(&out_path)
-        .expect("fs::write should have created the output file");
+    let content =
+        std::fs::read_to_string(&out_path).expect("fs::write should have created the output file");
 
     // Clean up output file
     let _ = std::fs::remove_file(&out_path);
@@ -1691,8 +1691,8 @@ fn test_rune_file_append() {
     verify_solution(&stdout, "a", "10");
     verify_solution(&stdout, "b", "20");
 
-    let content = std::fs::read_to_string(&out_path)
-        .expect("fs::append should have created the output file");
+    let content =
+        std::fs::read_to_string(&out_path).expect("fs::append should have created the output file");
 
     let _ = std::fs::remove_file(&out_path);
 
