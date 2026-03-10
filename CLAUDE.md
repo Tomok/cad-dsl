@@ -160,8 +160,13 @@ Before committing, always:
 ### Pipeline Overview
 
 ```
-Source Code → Lexer → Parser → AST → Semantic Analyzer → HIR → Type Checker → Constraint Solver → Solution
+Source Code → Include Resolver → Lexer → Parser → AST → Semantic Analyzer → HIR → Type Checker → Constraint Solver → Solution
 ```
+
+Include resolution happens before semantic analysis: `include "path";` directives are
+expanded by `src/include_resolver.rs`, which recursively loads and parses referenced files
+using bumpalo arena allocation for all source strings. Duplicate includes (same canonical
+path) are silently skipped, which also handles circular includes without special-casing.
 
 ### Core Components
 
@@ -170,11 +175,19 @@ Source Code → Lexer → Parser → AST → Semantic Analyzer → HIR → Type 
 - Position tracking for error reporting
 - Handles single-line (`//`) and multi-line (`/* */`) comments
 
+**Include Resolver (`src/include_resolver.rs`)**
+- Resolves `include "path";` directives before semantic analysis
+- Recursively loads and parses referenced files
+- Bumpalo arena-allocates all source strings for uniform `'arena` lifetime
+- `HashSet<PathBuf>` of canonicalized paths prevents duplicate processing (handles both
+  repeated includes and circular includes: A→B→A)
+
 **Parser (`src/parser.rs`)**
 - Chumsky-based recursive descent parser
 - Proper left-associative operators with precedence
 - Rich error reporting with Ariadne integration
 - Modular parser combinators in `src/parser/` submodules
+- `parse_program()` function used by both the CLI and the include resolver
 
 **AST (`src/ast.rs`)**
 - Type-safe expression AST with operator precedence hierarchy
@@ -253,6 +266,8 @@ The project has comprehensive test suites for each component. All major componen
 ### ✅ Fully Implemented
 
 - **Lexer**: All tokens, comments, position tracking
+- **Include Resolver**: `include "path";` directives with deduplication (repeated or circular
+  includes are silently skipped via canonicalized-path HashSet)
 - **Parser**: Expressions, statements, declarations (struct, function, let, if, for, with)
 - **Semantic Analyzer**: Two-pass analysis, forward references, scope management, complete HIR generation
 - **Type Checker**: Type inference (including struct literals), validation, numeric promotion

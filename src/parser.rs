@@ -120,6 +120,49 @@ pub fn expr_with_source<'src>(
 }
 
 // ============================================================================
+// Program Parser
+// ============================================================================
+
+/// Parse a complete CAD-DSL program (sequence of statements) from a token slice.
+///
+/// Returns `Ok(stmts)` on success, `Err(errors)` on parse failure.
+/// Used by the include resolver to parse included files with the same rules
+/// as the main file.
+///
+/// Both `content` and `tokens` must share the same lifetime `'src`. In practice
+/// both are arena-allocated (see `src/include_resolver.rs`) so `'src = 'arena`.
+pub fn parse_program<'src>(
+    content: &'src str,
+    tokens: &'src [Token<'src>],
+) -> Result<Vec<Stmt<'src>>, Vec<Rich<'src, Token<'src>>>> {
+    use chumsky::IterParser;
+    use chumsky::primitive::choice;
+
+    let stmt_parser = recursive(|stmt_rec| {
+        let expr = expr_inner_with_source(Some(content));
+        choice((
+            unit_prefix_stmt(),
+            unit_stmt(),
+            include_stmt(),
+            struct_def(expr.clone()),
+            function_def(expr.clone()),
+            let_stmt(expr.clone()),
+            assignment_stmt(expr.clone()),
+            field_assignment_stmt(expr.clone()),
+            with_stmt(expr.clone(), stmt_rec.clone()),
+            for_stmt(expr.clone(), stmt_rec.clone()),
+            if_stmt(expr.clone(), stmt_rec.clone()),
+            optimize_stmt(expr.clone()),
+            expression_stmt(expr),
+        ))
+    })
+    .repeated()
+    .collect::<Vec<_>>();
+
+    stmt_parser.parse(tokens).into_result()
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
