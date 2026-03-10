@@ -1,0 +1,16 @@
+include "../../../lib/cad2d.cad";
+
+let sketch: Sketch2D;
+
+with sketch {
+    let .l: Line2D;
+    .l.start.x == 0.0;
+    .l.start.y == 0.0;
+    .l.end.x == 100.0;
+    .l.end.y == 0.0;
+
+    let .c: Circle2D;
+    .c.center.x == 50.0;
+    .c.center.y == 0.0;
+    .c.radius == 25.0;
+}

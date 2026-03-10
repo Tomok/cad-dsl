@@ -644,7 +644,11 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         typ: &'arena ResolvedType<'src, 'arena>,
     ) -> Result<VariableNode<'src>, SolverError> {
         match typ {
-            ResolvedType::I32 { .. } | ResolvedType::F64 { .. } | ResolvedType::Bool { .. } => {
+            ResolvedType::I32 { .. }
+            | ResolvedType::F64 { .. }
+            | ResolvedType::Bool { .. }
+            | ResolvedType::Real { .. }
+            | ResolvedType::Algebraic { .. } => {
                 // Leaf node: create Z3 primitive
                 #[cfg(feature = "solver-debug")]
                 eprintln!("[SOLVER-DEBUG]     Creating Z3 variable: {}", path);
@@ -693,8 +697,6 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
                 // References are transparent for variable creation
                 self.build_variable_tree(path, inner)
             }
-
-            _ => Err(SolverError::UnsupportedType(format!("{:?}", typ))),
         }
     }
 
@@ -711,7 +713,11 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         let prefix = path.to_z3_name();
         Ok(match typ {
             ResolvedType::I32 { .. } => Z3Primitive::Int(z3::ast::Int::fresh_const(&prefix)),
-            ResolvedType::F64 { .. } => Z3Primitive::Real(z3::ast::Real::fresh_const(&prefix)),
+            ResolvedType::F64 { .. }
+            | ResolvedType::Real { .. }
+            | ResolvedType::Algebraic { .. } => {
+                Z3Primitive::Real(z3::ast::Real::fresh_const(&prefix))
+            }
             ResolvedType::Bool { .. } => Z3Primitive::Bool(z3::ast::Bool::fresh_const(&prefix)),
             _ => return Err(SolverError::NotAPrimitiveType),
         })

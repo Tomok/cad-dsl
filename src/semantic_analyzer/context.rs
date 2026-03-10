@@ -91,7 +91,7 @@ pub struct AnalyzerContext<'src, 'arena> {
     /// When resolving struct methods in Pass 2, this tracks which struct we're
     /// currently processing. This allows method body resolution to find the
     /// correct method definition using the qualified name.
-    pub current_struct: Option<&'src str>,
+    pub current_struct: Option<String>,
 
     /// Collected semantic errors
     ///

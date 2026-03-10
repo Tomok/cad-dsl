@@ -470,7 +470,7 @@ fn resolve_type<'src, 'arena>(
         AstType::I32 { span } => Some(ResolvedType::I32 { span: *span }),
         AstType::F64 { span } => Some(ResolvedType::F64 { span: *span }),
         AstType::Real { unit: _, span } => Some(ResolvedType::Real { span: *span }),
-        AstType::Algebraic { span } => Some(ResolvedType::Algebraic { span: *span }),
+        AstType::Algebraic { span, .. } => Some(ResolvedType::Algebraic { span: *span }),
         AstType::Reference { inner, span } => {
             // Recursively resolve the inner type
             let inner_resolved = resolve_type(ctx, inner)?;

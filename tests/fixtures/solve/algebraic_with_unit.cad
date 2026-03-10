@@ -1,0 +1,11 @@
+include "../../../lib/si_units.cad";
+
+// Test that Algebraic<m> is accepted as a field type
+struct Measurement {
+    value: Algebraic<m>,
+    scale: Algebraic<m>,
+}
+
+let meas: Measurement;
+meas.value == 42.0;
+meas.scale == 2.0;

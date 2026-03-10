@@ -1,0 +1,65 @@
+// Example: Simple 2D sketch with constraint solving and SVG export
+//
+// Run with:
+//   cargo run -- solve examples/cad2d/simple_sketch.cad
+//
+// This produces sketch.svg in the current directory.
+
+include "../../lib/cad2d.cad";
+
+// --- Geometry ---
+
+let sketch: Sketch2D;
+
+with sketch {
+    // Horizontal baseline
+    let .baseline: Line2D;
+    .baseline.start.x == 0.0;
+    .baseline.start.y == 0.0;
+    .baseline.end.x == 200.0;
+    .baseline.end.y == 0.0;
+
+    // Circle sitting on the baseline midpoint
+    let .hub: Circle2D;
+    .hub.center.x == 100.0;
+    .hub.center.y == 0.0;
+    .hub.radius == 30.0;
+
+    // Rectangle in the upper-left
+    let .box1: Rectangle2D;
+    .box1.corner.x == 10.0;
+    .box1.corner.y == 10.0;
+    .box1.width == 60.0;
+    .box1.height == 40.0;
+}
+
+// --- SVG Export ---
+// Coordinates are already in pixel-friendly values (0-200 range).
+// Y-axis in SVG grows downward; negate or offset if needed.
+
+let svg0 = svg_begin(220.0, 100.0);
+
+let svg1 = svg_line(
+    sketch.entities.baseline.start.x,
+    sketch.entities.baseline.start.y,
+    sketch.entities.baseline.end.x,
+    sketch.entities.baseline.end.y,
+    svg0,
+);
+
+let svg2 = svg_circle(
+    sketch.entities.hub.center.x,
+    sketch.entities.hub.center.y,
+    sketch.entities.hub.radius,
+    svg1,
+);
+
+let svg3 = svg_rect(
+    sketch.entities.box1.corner.x,
+    sketch.entities.box1.corner.y,
+    sketch.entities.box1.width,
+    sketch.entities.box1.height,
+    svg2,
+);
+
+let svg_done = svg_end(svg3);

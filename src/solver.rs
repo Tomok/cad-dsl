@@ -270,6 +270,8 @@ pub enum SolveResult<'src> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SolverError {
     /// Unsupported type in constraint solving
+    // Retained for test use and future solver extensions.
+    #[allow(dead_code)]
     UnsupportedType(String),
 
     /// Variable not found
