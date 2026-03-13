@@ -309,7 +309,8 @@ struct Sketch2D {
 /// Write the SVG header, overwriting any existing file.
 ///
 /// The output file is determined (in priority order) by:
-///   1. The `CAD_DSL_SVG_OUTPUT` environment variable (set via `--svg-output` CLI flag)
+///   1. The `CAD_DSL_SVG_OUTPUT` environment variable
+///      e.g. `CAD_DSL_SVG_OUTPUT=out.svg cad-dsl solve file.cad`
 ///   2. The fallback default `"sketch.svg"`
 ///
 /// `width` and `height` set the SVG viewport in pixels.
