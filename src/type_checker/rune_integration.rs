@@ -116,6 +116,18 @@ impl RuneTypeChecker {
                 message: format!("Failed to install file I/O module: {}", e),
             })?;
 
+        // Install env module so rune blocks that call env::var(...) compile successfully
+        // (used by svg_begin/svg_end/svg_line/etc. in lib/cad2d.cad)
+        context
+            .install(crate::solver::rune_io_module::env_module().map_err(|e| {
+                RuneTypeCheckError::TypeExtractionError {
+                    message: format!("Failed to build env module: {}", e),
+                }
+            })?)
+            .map_err(|e| RuneTypeCheckError::TypeExtractionError {
+                message: format!("Failed to install env module: {}", e),
+            })?;
+
         Ok(Self {
             context: Arc::new(context),
         })
@@ -361,5 +373,31 @@ mod tests {
         let code = code.unwrap();
         assert!(code.contains("pub fn __rune_fn__()"));
         assert!(code.contains("x * 2"));
+    }
+
+    /// Rune blocks in cad2d.cad call `env::var(...)` to read the CAD_DSL_SVG_OUTPUT
+    /// environment variable. The type checker must install the env module so that
+    /// these rune blocks compile successfully during type checking, just as the
+    /// runtime executor does.
+    #[test]
+    fn test_type_checker_compiles_env_var_calls() {
+        let checker = RuneTypeChecker::new().unwrap();
+        let span = make_span(1, 1);
+
+        // Mirrors the exact pattern used in svg_begin/svg_end/svg_line etc. in lib/cad2d.cad
+        let body = r#"
+            let out = env::var("CAD_DSL_SVG_OUTPUT");
+            let path = if out.len() > 0 { out } else { "sketch.svg".to_string() };
+            let _ = path;
+            0.0f64
+        "#;
+
+        let result = checker.infer_return_type(body, &[], span);
+        assert!(
+            result.is_ok(),
+            "Type checker must compile env::var() calls; \
+             env_module is likely missing from RuneTypeChecker context: {:?}",
+            result.err()
+        );
     }
 }
