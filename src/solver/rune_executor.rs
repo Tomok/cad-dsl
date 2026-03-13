@@ -113,7 +113,7 @@ impl RuneExecutor {
                 message: format!("Failed to install core module: {}", e),
             })?;
 
-        // Install file I/O module so rune blocks can call file::write, file::read, file::append
+        // Install file I/O module so rune blocks can call fs::write, fs::read, fs::append
         context
             .install(
                 crate::solver::rune_io_module::file_io_module().map_err(|e| {
@@ -124,6 +124,17 @@ impl RuneExecutor {
             )
             .map_err(|e| RuneExecutionError::RuntimeError {
                 message: format!("Failed to install file I/O module: {}", e),
+            })?;
+
+        // Install env module so rune blocks can call env::var to read environment variables
+        context
+            .install(crate::solver::rune_io_module::env_module().map_err(|e| {
+                RuneExecutionError::RuntimeError {
+                    message: format!("Failed to build env module: {}", e),
+                }
+            })?)
+            .map_err(|e| RuneExecutionError::RuntimeError {
+                message: format!("Failed to install env module: {}", e),
             })?;
 
         Ok(Self {
