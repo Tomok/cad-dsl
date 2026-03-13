@@ -306,15 +306,22 @@ struct Sketch2D {
 // Note: coordinate values should be in the same unit (e.g. all in mm or all
 // in model metres scaled to pixels). SVG uses unitless pixel coordinates.
 
-/// Write the SVG header to `sketch.svg`, overwriting any existing file.
+/// Write the SVG header, overwriting any existing file.
+///
+/// The output file is determined (in priority order) by:
+///   1. The `CAD_DSL_SVG_OUTPUT` environment variable (set via `--svg-output` CLI flag)
+///   2. The fallback default `"sketch.svg"`
+///
 /// `width` and `height` set the SVG viewport in pixels.
 /// Returns 1.0 to start the sequence chain.
 fn svg_begin(width: f64, height: f64) -> f64 {
     return rune(w=width, h=height) {
+        let out = env::var("CAD_DSL_SVG_OUTPUT");
+        let path = if out.len() > 0 { out } else { "sketch.svg".to_string() };
         let header = "<svg xmlns='http://www.w3.org/2000/svg' width='"
             + w.to_string() + "' height='" + h.to_string()
             + "' viewBox='0 0 " + w.to_string() + " " + h.to_string() + "'>\n";
-        fs::write("sketch.svg", header);
+        fs::write(path, header);
         1.0
     };
 }
@@ -323,7 +330,9 @@ fn svg_begin(width: f64, height: f64) -> f64 {
 /// Returns `seq + 1.0`.
 fn svg_end(seq: f64) -> f64 {
     return rune(s=seq) {
-        fs::append("sketch.svg", "</svg>\n");
+        let out = env::var("CAD_DSL_SVG_OUTPUT");
+        let path = if out.len() > 0 { out } else { "sketch.svg".to_string() };
+        fs::append(path, "</svg>\n");
         s + 1.0
     };
 }
@@ -332,12 +341,14 @@ fn svg_end(seq: f64) -> f64 {
 /// Returns `seq + 1.0`.
 fn svg_line(x1: f64, y1: f64, x2: f64, y2: f64, seq: f64) -> f64 {
     return rune(a=x1, b=y1, c=x2, d=y2, s=seq) {
+        let out = env::var("CAD_DSL_SVG_OUTPUT");
+        let path = if out.len() > 0 { out } else { "sketch.svg".to_string() };
         let elem = "  <line x1='" + a.to_string()
             + "' y1='" + b.to_string()
             + "' x2='" + c.to_string()
             + "' y2='" + d.to_string()
             + "' stroke='black' stroke-width='1'/>\n";
-        fs::append("sketch.svg", elem);
+        fs::append(path, elem);
         s + 1.0
     };
 }
@@ -346,11 +357,13 @@ fn svg_line(x1: f64, y1: f64, x2: f64, y2: f64, seq: f64) -> f64 {
 /// Returns `seq + 1.0`.
 fn svg_circle(cx: f64, cy: f64, r: f64, seq: f64) -> f64 {
     return rune(a=cx, b=cy, c=r, s=seq) {
+        let out = env::var("CAD_DSL_SVG_OUTPUT");
+        let path = if out.len() > 0 { out } else { "sketch.svg".to_string() };
         let elem = "  <circle cx='" + a.to_string()
             + "' cy='" + b.to_string()
             + "' r='" + c.to_string()
             + "' fill='none' stroke='black' stroke-width='1'/>\n";
-        fs::append("sketch.svg", elem);
+        fs::append(path, elem);
         s + 1.0
     };
 }
@@ -359,12 +372,14 @@ fn svg_circle(cx: f64, cy: f64, r: f64, seq: f64) -> f64 {
 /// `seq` is the previous sequence number.  Returns `seq + 1.0`.
 fn svg_rect(x: f64, y: f64, w: f64, h: f64, seq: f64) -> f64 {
     return rune(rx=x, ry=y, rw=w, rh=h, s=seq) {
+        let out = env::var("CAD_DSL_SVG_OUTPUT");
+        let path = if out.len() > 0 { out } else { "sketch.svg".to_string() };
         let elem = "  <rect x='" + rx.to_string()
             + "' y='" + ry.to_string()
             + "' width='" + rw.to_string()
             + "' height='" + rh.to_string()
             + "' fill='none' stroke='black' stroke-width='1'/>\n";
-        fs::append("sketch.svg", elem);
+        fs::append(path, elem);
         s + 1.0
     };
 }
@@ -375,6 +390,8 @@ fn svg_rect(x: f64, y: f64, w: f64, h: f64, seq: f64) -> f64 {
 /// `seq` is the previous sequence number.  Returns `seq + 1.0`.
 fn svg_arc(cx: f64, cy: f64, r: f64, start_deg: f64, end_deg: f64, seq: f64) -> f64 {
     return rune(acx=cx, acy=cy, ar=r, sa=start_deg, ea=end_deg, s=seq) {
+        let out = env::var("CAD_DSL_SVG_OUTPUT");
+        let path = if out.len() > 0 { out } else { "sketch.svg".to_string() };
         let pi = 3.141592653589793_f64;
         let sa_rad = sa * pi / 180.0;
         let ea_rad = ea * pi / 180.0;
@@ -387,7 +404,7 @@ fn svg_arc(cx: f64, cy: f64, r: f64, start_deg: f64, end_deg: f64, seq: f64) -> 
             + " A " + ar.to_string() + " " + ar.to_string() + " 0 "
             + large_arc + " 0 " + x2.to_string() + " " + y2.to_string()
             + "' fill='none' stroke='black' stroke-width='1'/>\n";
-        fs::append("sketch.svg", elem);
+        fs::append(path, elem);
         s + 1.0
     };
 }

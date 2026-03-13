@@ -12,6 +12,7 @@
 //! - `fs::write(path, content) -> bool` — Write content to a file; returns true on success
 //! - `fs::read(path) -> String` — Read file contents; returns empty string on failure
 //! - `fs::append(path, content) -> bool` — Append content to a file; returns true on success
+//! - `env::var(name) -> String` — Read an environment variable; returns empty string if not set
 
 /// Build and return the file I/O Rune module.
 ///
@@ -47,6 +48,22 @@ pub fn file_io_module() -> Result<rune::Module, rune::ContextError> {
     Ok(m)
 }
 
+/// Build and return the environment variable Rune module.
+///
+/// The module is registered under the `env` crate name so that rune block
+/// code can call `env::var(...)` to read environment variables at runtime.
+pub fn env_module() -> Result<rune::Module, rune::ContextError> {
+    let mut m = rune::Module::with_crate("env")?;
+
+    // env::var(name) -> String — returns empty string if not set
+    m.function("var", |name: String| -> String {
+        std::env::var(&name).unwrap_or_default()
+    })
+    .build()?;
+
+    Ok(m)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -66,6 +83,24 @@ mod tests {
         assert!(
             result.is_ok(),
             "file_io_module should install into Rune context without errors"
+        );
+    }
+
+    #[test]
+    fn test_env_module_builds() {
+        let module = env_module();
+        assert!(module.is_ok(), "env_module should build without errors");
+    }
+
+    #[test]
+    fn test_env_module_installs_in_context() {
+        let mut context =
+            rune::Context::with_default_modules().expect("failed to create default Rune context");
+        let module = env_module().expect("env_module should build");
+        let result = context.install(module);
+        assert!(
+            result.is_ok(),
+            "env_module should install into Rune context without errors"
         );
     }
 }

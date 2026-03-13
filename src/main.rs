@@ -57,6 +57,14 @@ enum Commands {
         /// value even when many values would satisfy the constraints.
         #[arg(long)]
         show_unconstrained: bool,
+        /// Path for SVG output produced by svg_begin/svg_end calls in the CAD file.
+        ///
+        /// When set, all SVG export functions (svg_begin, svg_line, svg_circle, etc.)
+        /// write to this file instead of the default `sketch.svg`.
+        /// The path is passed to rune blocks via the `CAD_DSL_SVG_OUTPUT` environment
+        /// variable, which the cad2d standard library reads automatically.
+        #[arg(long, value_name = "FILE")]
+        svg_output: Option<String>,
     },
 }
 
@@ -358,7 +366,14 @@ fn main() {
         Commands::Solve {
             file,
             show_unconstrained,
+            svg_output,
         } => {
+            // Set the SVG output path env var so rune blocks in cad2d.cad can read it.
+            // This must be done before solving so the rune blocks pick it up at runtime.
+            // SAFETY: single-threaded at this point; no other threads have been spawned yet.
+            if let Some(svg_path) = svg_output {
+                unsafe { std::env::set_var("CAD_DSL_SVG_OUTPUT", svg_path) };
+            }
             // Create the arena early so included-file source strings can share
             // the same 'arena lifetime as the main source and all AST nodes.
             let arena = Bump::new();
