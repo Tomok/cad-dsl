@@ -1,0 +1,30 @@
+// Example: Struct Parameters in Rune Blocks
+//
+// Demonstrates passing CAD-DSL struct variables to rune blocks.
+// Struct fields are automatically packed into a Rune Object so they
+// are accessible inside the rune block via dot notation (p.x, p.y, etc.).
+
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+// Global rune helper that operates on struct objects
+rune fn dist(a, b) {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    (dx * dx + dy * dy).sqrt()
+}
+
+let p1: Point;
+let p2: Point;
+
+p1.x == 0.0;
+p1.y == 0.0;
+p2.x == 3.0;
+p2.y == 4.0;
+
+// Pass struct variables as rune block parameters
+let d = rune(p1, p2) {
+    dist(p1, p2)
+};

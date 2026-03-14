@@ -284,6 +284,14 @@ pub fn type_check<'src, 'arena>(
     // Create type checking context
     let mut ctx = TypeCheckContext::new(arena, source);
 
+    // Pre-pass: collect global rune function definitions so they can be injected
+    // into every rune block's compilation unit.
+    for stmt in hir {
+        if let crate::hir::expr::ResolvedStmtKind::GlobalRuneFn { rune_fn_code } = &stmt.kind {
+            ctx.add_global_rune_fn(rune_fn_code.clone());
+        }
+    }
+
     // Validate each statement in the HIR
     for stmt in hir {
         validation::validate_stmt(&mut ctx, stmt);

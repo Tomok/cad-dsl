@@ -231,6 +231,21 @@ pub fn resolve_statement<'src, 'arena>(
         // and include resolver (not yet implemented); skip gracefully.
         Stmt::UnitDecl { .. } | Stmt::UnitDef { .. } | Stmt::UnitPrefixDecl { .. } => None,
         Stmt::Include { .. } => None,
+
+        Stmt::GlobalRuneFn {
+            name,
+            params,
+            body,
+            span,
+            ..
+        } => {
+            let params_str = params.join(", ");
+            let rune_fn_code = format!("fn {}({}) {{ {} }}", name, params_str, body);
+            Some(ctx.arena.alloc(ResolvedStmt::new(
+                *span,
+                ResolvedStmtKind::GlobalRuneFn { rune_fn_code },
+            )))
+        }
     }
 }
 

@@ -389,6 +389,25 @@ pub enum Stmt<'src> {
     /// Include directive: `include "<path>";`
     /// Loads and splices another .cad file into the current program.
     Include { path: &'src str, span: Span },
+
+    /// Global rune function declaration: `rune fn name(p1, p2) { body }`
+    ///
+    /// Defines a Rune function that is injected into every rune block's compilation
+    /// unit, enabling code sharing across blocks. Parameters are dynamically typed
+    /// (Rune handles typing at runtime, no annotations needed).
+    ///
+    /// Examples:
+    ///   rune fn distance(a, b) { ... }
+    ///   rune fn norm(v) { (v.x * v.x + v.y * v.y).sqrt() }
+    GlobalRuneFn {
+        name: String,
+        name_span: Span,
+        /// Parameter names (no type annotations — Rune is dynamically typed)
+        params: Vec<&'src str>,
+        /// Raw Rune source for the function body (inside braces, stripped)
+        body: &'src str,
+        span: Span,
+    },
 }
 
 /// A single directive inside an optimize block
@@ -425,6 +444,7 @@ impl<'src> HasSpan for Stmt<'src> {
             Stmt::UnitDef { span, .. } => *span,
             Stmt::UnitPrefixDecl { span, .. } => *span,
             Stmt::Include { span, .. } => *span,
+            Stmt::GlobalRuneFn { span, .. } => *span,
         }
     }
 }

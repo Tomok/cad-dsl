@@ -416,7 +416,8 @@ pub fn infer_expr_type<'src, 'arena>(
                 }
             };
 
-            match rune_checker.infer_return_type(body, params, expr.span) {
+            let global_fns: Vec<String> = ctx.global_rune_fns().to_vec();
+            match rune_checker.infer_return_type(body, params, &global_fns, expr.span) {
                 Ok((inferred_type, diagnostics)) => {
                     // Add any warnings to the context (errors were already handled separately)
                     if !diagnostics.is_empty() {

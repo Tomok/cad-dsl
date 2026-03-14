@@ -257,6 +257,10 @@ pub struct SolverContext<'src, 'arena> {
     /// Rune blocks that need to be executed after constraint solving
     rune_blocks: Vec<RuneBlockExecution<'src, 'arena>>,
 
+    /// Global rune function definitions collected from `GlobalRuneFn` statements.
+    /// These are prepended to every rune block's compilation unit to enable code reuse.
+    global_rune_fns: Vec<String>,
+
     /// Current iteration number (for diagnostics)
     iteration: usize,
 
@@ -328,6 +332,7 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             function_return_exprs: HashMap::new(),
             deferred_constraints: Vec::new(),
             rune_blocks: Vec::new(),
+            global_rune_fns: Vec::new(),
             iteration: 0,
             current_solution: None,
             previous_solved_count: 0,
@@ -894,14 +899,16 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         // The HIR stores `I32` as a placeholder return type for rune blocks (it is
         // set during semantic analysis before the type checker runs).  Re-derive the
         // actual return type from the parameter types using the same heuristic as the
-        // type checker: if any parameter is f64 / Real / Algebraic the result is f64,
-        // otherwise fall back to the HIR-provided type (i32 or whatever).
+        // type checker: if any parameter is f64 / Real / Algebraic / struct / array
+        // the result is f64, otherwise fall back to the HIR-provided type.
         let effective_return_type = if params.iter().any(|p| {
             matches!(
                 p.value.ty,
                 ResolvedType::F64 { .. }
                     | ResolvedType::Real { .. }
                     | ResolvedType::Algebraic { .. }
+                    | ResolvedType::UserDefined { .. }
+                    | ResolvedType::Array { .. }
             )
         }) {
             self.arena.alloc(ResolvedType::F64 {
@@ -911,9 +918,9 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
             return_type
         };
 
-        // Compile the rune code once and cache it
+        // Compile the rune code once and cache it (with global fns prepended)
         let executor = RuneExecutor::new()?;
-        let compiled_unit = executor.compile_rune_block(body, &params)?;
+        let compiled_unit = executor.compile_rune_block(body, &params, &self.global_rune_fns)?;
 
         self.rune_blocks.push(RuneBlockExecution {
             result_path,
@@ -1207,29 +1214,63 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
         let rune_blocks = self.rune_blocks.clone();
 
         for rune_block in &rune_blocks {
-            // Extract parameter values from solution
-            let mut param_values = Vec::new();
+            // Build Rune argument values for each parameter.
+            // Primitives (i32, f64, bool) are looked up directly by path.
+            // Struct/array parameters are assembled from all sub-paths with the param's
+            // path as a prefix, then packed into a Rune Object.
+            let mut rune_args: Vec<rune::Value> = Vec::new();
 
             for param in &rune_block.params {
-                // Resolve the parameter expression to get its value.
-                // Supports Var (simple variable) and FieldAccess (e.g. p.x after
-                // method-call substitution).
                 let path = resolve_rune_param_path(param.value, self)?;
-                let value = solution.assignments.get(&path).cloned().ok_or_else(|| {
-                    SolverError::RuneExecutionError(format!(
-                        "Rune block parameter '{}' not found in solution",
-                        path
-                    ))
-                })?;
 
-                param_values.push(value);
+                if let Some(value) = solution.assignments.get(&path) {
+                    // Primitive value found directly — convert to Rune value
+                    let rune_val = executor
+                        .convert_to_rune_value(value, param.value.ty)
+                        .map_err(SolverError::from)?;
+                    rune_args.push(rune_val);
+                } else {
+                    // No direct primitive — collect all sub-paths that start with this path
+                    // (e.g., param path = [Field("p")], solution has [Field("p"), Field("x")], ...)
+                    let param_components = path.components();
+                    let mut struct_fields: Vec<(Vec<String>, Value)> = Vec::new();
+
+                    for (sol_path, sol_value) in &solution.assignments {
+                        let sol_components = sol_path.components();
+                        // Check if sol_components starts with param_components
+                        if sol_components.len() > param_components.len()
+                            && sol_components.starts_with(param_components)
+                        {
+                            // Build the relative path (components after the param prefix)
+                            let relative: Vec<String> = sol_components[param_components.len()..]
+                                .iter()
+                                .map(|c| match c {
+                                    PathComponent::Field(f) => f.to_string(),
+                                    PathComponent::Index(i) => i.to_string(),
+                                })
+                                .collect();
+                            struct_fields.push((relative, sol_value.clone()));
+                        }
+                    }
+
+                    if struct_fields.is_empty() {
+                        return Err(SolverError::RuneExecutionError(format!(
+                            "Rune block parameter '{}' not found in solution (no direct value or sub-fields)",
+                            path
+                        )));
+                    }
+
+                    let rune_obj = executor
+                        .build_rune_object(struct_fields)
+                        .map_err(SolverError::from)?;
+                    rune_args.push(rune_obj);
+                }
             }
 
             // Execute the rune block with pre-compiled unit (no recompilation)
-            let result = executor.execute_compiled_block(
+            let result = executor.execute_compiled_block_with_rune_values(
                 rune_block.compiled_unit.clone(),
-                &rune_block.params,
-                param_values,
+                rune_args,
             )?;
 
             // Convert result back to solver value
@@ -1264,6 +1305,15 @@ impl<'src, 'arena> SolverContext<'src, 'arena> {
     ) -> Result<SolveResult<'src>, SolverError> {
         use crate::hir::expr::ResolvedStmtKind;
         use crate::solver::Solvable;
+
+        // Pre-pass to collect global rune function definitions (before any rune blocks are compiled)
+        for stmt in statements {
+            if let ResolvedStmtKind::GlobalRuneFn { rune_fn_code } = &stmt.kind
+                && !self.global_rune_fns.contains(rune_fn_code)
+            {
+                self.global_rune_fns.push(rune_fn_code.clone());
+            }
+        }
 
         // Pre-pass to register all function return expressions for correct scoping
         for stmt in statements {

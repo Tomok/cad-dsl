@@ -188,6 +188,10 @@ pub fn validate_stmt<'src, 'arena>(
                 }
             }
         }
+
+        // Global rune function declarations need no validation — they are pure Rune code
+        // that will be type-checked by the Rune compiler when injected into rune blocks.
+        ResolvedStmtKind::GlobalRuneFn { .. } => {}
     }
 }
 

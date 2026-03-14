@@ -146,18 +146,21 @@ impl RuneExecutor {
     ///
     /// This method compiles the rune code once and returns an Arc<Unit>
     /// that can be cached and reused for multiple executions with different parameters.
+    /// `global_fns` are prepended to the compilation unit so the rune block can call them.
     pub fn compile_rune_block<'src, 'arena>(
         &self,
         body: &str,
         params: &[ResolvedRuneParam<'src, 'arena>],
+        global_fns: &[String],
     ) -> Result<Arc<Unit>, RuneExecutionError> {
-        let rune_code = self.generate_rune_code(body, params)?;
+        let rune_code = self.generate_rune_code(body, params, global_fns)?;
         self.compile_rune_code(&rune_code)
     }
 
     /// Execute a pre-compiled rune block with the given parameter values
     ///
     /// This method reuses a cached compiled Unit, avoiding recompilation.
+    #[allow(dead_code)] // Available for external callers; internally we use execute_compiled_block_with_rune_values
     pub fn execute_compiled_block<'src, 'arena>(
         &self,
         compiled_unit: Arc<Unit>,
@@ -178,17 +181,128 @@ impl RuneExecutor {
         Ok(result)
     }
 
-    /// Generate complete Rune code from a rune block body and parameters
+    /// Build a Rune `Object` from a flat map of relative field paths to `Value`s.
     ///
+    /// `fields` is a `Vec<(Vec<String>, Value)>` where each element is a relative
+    /// path (e.g., `["x"]` or `["start", "x"]`) and its value.  The values are
+    /// packed into nested Rune Objects so Rune code can access them as `v.x`,
+    /// `v.start.x`, etc.
+    ///
+    /// This is used to pass CAD-DSL struct variables (stored in Z3 as separate
+    /// flattened primitives) as a single dynamically-typed Rune Object.
+    pub fn build_rune_object(
+        &self,
+        fields: Vec<(Vec<String>, Value)>,
+    ) -> Result<RuneValue, RuneExecutionError> {
+        // Build a nested tree first, then convert to Rune Objects bottom-up.
+        // We represent the tree as a HashMap of String -> NestedNode.
+        #[derive(Default)]
+        struct NestedNode {
+            value: Option<Value>,
+            children: std::collections::HashMap<String, NestedNode>,
+        }
+
+        let mut root = NestedNode::default();
+        for (path_parts, val) in fields {
+            let mut node = &mut root;
+            for (i, part) in path_parts.iter().enumerate() {
+                node = node.children.entry(part.clone()).or_default();
+                if i == path_parts.len() - 1 {
+                    node.value = Some(val.clone());
+                }
+            }
+        }
+
+        fn node_to_rune(node: NestedNode) -> Result<RuneValue, RuneExecutionError> {
+            if node.children.is_empty() {
+                // Leaf node — convert primitive value
+                let v = node
+                    .value
+                    .ok_or_else(|| RuneExecutionError::ConversionError {
+                        message: "Empty node with no value".to_string(),
+                    })?;
+                match v {
+                    Value::Int(i) => Ok(RuneValue::from(i)),
+                    Value::Real(f) => Ok(RuneValue::from(f)),
+                    Value::Bool(b) => Ok(RuneValue::from(b)),
+                    Value::UnderConstrained => Err(RuneExecutionError::ConversionError {
+                        message: "Cannot pass under-constrained field to rune block".to_string(),
+                    }),
+                }
+            } else {
+                // Branch node — build Rune Object
+                let mut obj = rune::runtime::Object::new();
+                for (key, child) in node.children {
+                    let rune_key = rune::alloc::String::try_from(key.as_str()).map_err(|e| {
+                        RuneExecutionError::ConversionError {
+                            message: format!("Failed to allocate key string: {}", e),
+                        }
+                    })?;
+                    let child_value = node_to_rune(child)?;
+                    obj.insert(rune_key, child_value).map_err(|e| {
+                        RuneExecutionError::ConversionError {
+                            message: format!("Failed to insert field into Rune Object: {}", e),
+                        }
+                    })?;
+                }
+                RuneValue::new(obj).map_err(|e| RuneExecutionError::ConversionError {
+                    message: format!("Failed to wrap Rune Object as Value: {}", e),
+                })
+            }
+        }
+
+        // The root is a synthetic parent — we return a Rune Object of its children
+        let mut obj = rune::runtime::Object::new();
+        for (key, child) in root.children {
+            let rune_key = rune::alloc::String::try_from(key.as_str()).map_err(|e| {
+                RuneExecutionError::ConversionError {
+                    message: format!("Failed to allocate key string: {}", e),
+                }
+            })?;
+            let child_value = node_to_rune(child)?;
+            obj.insert(rune_key, child_value)
+                .map_err(|e| RuneExecutionError::ConversionError {
+                    message: format!("Failed to insert field into Rune Object: {}", e),
+                })?;
+        }
+        RuneValue::new(obj).map_err(|e| RuneExecutionError::ConversionError {
+            message: format!("Failed to wrap Rune Object as Value: {}", e),
+        })
+    }
+
+    /// Execute a pre-compiled rune block with pre-built `RuneValue` arguments.
+    ///
+    /// Unlike `execute_compiled_block`, this method accepts values that have
+    /// already been converted to `RuneValue` (including Rune Objects for structs).
+    pub fn execute_compiled_block_with_rune_values(
+        &self,
+        compiled_unit: Arc<Unit>,
+        rune_args: Vec<RuneValue>,
+    ) -> Result<RuneValue, RuneExecutionError> {
+        self.execute_rune_function(compiled_unit, rune_args)
+    }
+
+    /// Generate complete Rune code from a rune block body, parameters, and global fns.
+    ///
+    /// Global function definitions are prepended so the rune block body can call them.
     /// Creates a wrapper function that can be compiled and executed by Rune.
     fn generate_rune_code<'src, 'arena>(
         &self,
         body: &str,
         params: &[ResolvedRuneParam<'src, 'arena>],
+        global_fns: &[String],
     ) -> Result<String, RuneExecutionError> {
-        let mut code = String::from("pub fn __rune_fn__(");
+        let mut code = String::new();
 
-        // Add parameters (types will be inferred by Rune)
+        // Prepend global rune function definitions
+        for fn_code in global_fns {
+            code.push_str(fn_code);
+            code.push('\n');
+        }
+
+        code.push_str("pub fn __rune_fn__(");
+
+        // Add parameters (types are omitted — Rune is dynamically typed at the executor level)
         for (i, param) in params.iter().enumerate() {
             if i > 0 {
                 code.push_str(", ");

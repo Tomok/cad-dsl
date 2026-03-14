@@ -1,0 +1,28 @@
+// Example: Global Rune Functions
+//
+// Demonstrates `rune fn` declarations that are injected into every rune block's
+// compilation unit, enabling code reuse between multiple rune blocks.
+
+// Declare a global rune helper function (no type annotations needed — Rune is dynamically typed)
+rune fn square(x) {
+    x * x
+}
+
+rune fn hypotenuse(a, b) {
+    (square(a) + square(b)).sqrt()
+}
+
+let a: f64;
+let b: f64;
+a == 3.0;
+b == 4.0;
+
+// Call the global rune functions from a rune block
+let h = rune(a, b) {
+    hypotenuse(a, b)
+};
+
+// Another rune block calling the same global functions
+let sum_sq = rune(a, b) {
+    square(a) + square(b)
+};

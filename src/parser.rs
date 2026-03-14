@@ -62,8 +62,8 @@ pub use error::report_parse_errors;
 #[allow(unused_imports)] // Re-exported for public API and tests
 pub use stmt::{
     assignment_stmt, block_stmt, expression_stmt, field_assignment_stmt, for_stmt, function_def,
-    if_stmt, include_stmt, let_stmt, optimize_stmt, return_stmt, struct_def, unit_prefix_stmt,
-    unit_stmt, with_stmt,
+    global_rune_fn_def, if_stmt, include_stmt, let_stmt, optimize_stmt, return_stmt, struct_def,
+    unit_prefix_stmt, unit_stmt, with_stmt,
 };
 
 // ============================================================================
@@ -144,6 +144,7 @@ pub fn parse_program<'src>(
             unit_prefix_stmt(),
             unit_stmt(),
             include_stmt(),
+            global_rune_fn_def(Some(content)),
             struct_def(expr.clone()),
             function_def(expr.clone()),
             let_stmt(expr.clone()),

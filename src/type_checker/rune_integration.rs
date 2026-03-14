@@ -139,6 +139,7 @@ impl RuneTypeChecker {
     ///
     /// * `body` - The raw Rune code body (as string from source)
     /// * `params` - The resolved parameters with their types
+    /// * `global_fns` - Global rune function definitions to prepend to the compilation unit
     /// * `span` - Source span for error reporting
     ///
     /// # Returns
@@ -148,10 +149,11 @@ impl RuneTypeChecker {
         &self,
         body: &str,
         params: &[ResolvedRuneParam<'src, 'arena>],
+        global_fns: &[String],
         span: Span,
     ) -> Result<(ResolvedType<'src, 'arena>, Diagnostics), RuneTypeCheckError> {
         // Generate a complete Rune function wrapper
-        let rune_code = self.generate_rune_function(body, params)?;
+        let rune_code = self.generate_rune_function(body, params, global_fns)?;
 
         // Compile the Rune code
         let mut sources = Sources::new();
@@ -202,21 +204,40 @@ impl RuneTypeChecker {
     /// Generate a complete Rune function from a rune block body and parameters
     ///
     /// This creates a wrapper function that Rune can compile and type-check.
+    /// Global rune function definitions are prepended before the wrapper function.
     fn generate_rune_function<'src, 'arena>(
         &self,
         body: &str,
         params: &[ResolvedRuneParam<'src, 'arena>],
+        global_fns: &[String],
     ) -> Result<String, RuneTypeCheckError> {
-        let mut code = String::from("pub fn __rune_fn__(");
+        let mut code = String::new();
 
-        // Add parameters with their Rune types
+        // Prepend global rune function definitions
+        for fn_code in global_fns {
+            code.push_str(fn_code);
+            code.push('\n');
+        }
+
+        code.push_str("pub fn __rune_fn__(");
+
+        // Add parameters; for struct/array types we omit the type annotation since
+        // those values will be passed as Rune Objects (dynamically typed).
         for (i, param) in params.iter().enumerate() {
             if i > 0 {
                 code.push_str(", ");
             }
             code.push_str(param.name);
-            code.push_str(": ");
-            code.push_str(&self.map_type_to_rune(param.value.ty)?);
+            // Only add a type annotation for primitive types that Rune can verify
+            match param.value.ty {
+                ResolvedType::UserDefined { .. } | ResolvedType::Array { .. } => {
+                    // No type annotation — value arrives as a Rune Object
+                }
+                _ => {
+                    code.push_str(": ");
+                    code.push_str(&self.map_type_to_rune(param.value.ty)?);
+                }
+            }
         }
 
         code.push_str(") {\n");
@@ -249,20 +270,11 @@ impl RuneTypeChecker {
                 // Algebraic numbers can be approximated as f64 in Rune
                 Ok("f64".to_string())
             }
-            ResolvedType::UserDefined { name, span, .. } => {
-                Err(RuneTypeCheckError::UnsupportedType {
-                    type_name: name.to_string(),
-                    _span: *span,
-                    message: "Struct types in rune blocks not yet supported (planned for Phase 6)"
-                        .to_string(),
-                })
-            }
-            ResolvedType::Array { span, .. } => Err(RuneTypeCheckError::UnsupportedType {
-                type_name: "Array".to_string(),
-                _span: *span,
-                message: "Array types in rune blocks not yet supported (planned for Phase 6)"
-                    .to_string(),
-            }),
+            // Struct and array types are passed as Rune Objects (no annotation needed).
+            // This branch is only reached if the caller explicitly needs a type name string;
+            // `generate_rune_function` skips calling this for UserDefined/Array params.
+            ResolvedType::UserDefined { name, .. } => Ok(format!("/* {} */", name)),
+            ResolvedType::Array { .. } => Ok("/* array */".to_string()),
             ResolvedType::Reference { span, .. } => Err(RuneTypeCheckError::UnsupportedType {
                 type_name: "Reference".to_string(),
                 _span: *span,
@@ -279,18 +291,22 @@ impl RuneTypeChecker {
     /// # Heuristic
     ///
     /// - If any parameter is f64, real, or algebraic → return f64
+    /// - If any parameter is a struct (UserDefined) or array → return f64
+    ///   (geometric computations on structs commonly return floats)
     /// - Otherwise → return i32
     fn infer_type_from_params<'src, 'arena>(
         &self,
         params: &[ResolvedRuneParam<'src, 'arena>],
         span: Span,
     ) -> ResolvedType<'src, 'arena> {
-        // Check if any parameter is a floating-point type
+        // Check if any parameter is a floating-point or composite type
         for param in params {
             match param.value.ty {
                 ResolvedType::F64 { .. }
                 | ResolvedType::Real { .. }
-                | ResolvedType::Algebraic { .. } => {
+                | ResolvedType::Algebraic { .. }
+                | ResolvedType::UserDefined { .. }
+                | ResolvedType::Array { .. } => {
                     return ResolvedType::F64 { span };
                 }
                 _ => {}
@@ -367,7 +383,7 @@ mod tests {
 
         // This should compile successfully (even though it references undefined x)
         // The Rune compiler will handle parameter validation
-        let code = checker.generate_rune_function(body, &params);
+        let code = checker.generate_rune_function(body, &params, &[]);
         assert!(code.is_ok());
 
         let code = code.unwrap();
@@ -392,7 +408,7 @@ mod tests {
             0.0f64
         "#;
 
-        let result = checker.infer_return_type(body, &[], span);
+        let result = checker.infer_return_type(body, &[], &[], span);
         assert!(
             result.is_ok(),
             "Type checker must compile env::var() calls; \

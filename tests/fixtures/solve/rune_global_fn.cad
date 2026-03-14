@@ -1,0 +1,20 @@
+rune fn square(x) {
+    x * x
+}
+
+rune fn hypotenuse(a, b) {
+    (square(a) + square(b)).sqrt()
+}
+
+let a: f64;
+let b: f64;
+a == 3.0;
+b == 4.0;
+
+let h = rune(a, b) {
+    hypotenuse(a, b)
+};
+
+let sum_sq = rune(a, b) {
+    square(a) + square(b)
+};

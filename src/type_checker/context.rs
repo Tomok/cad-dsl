@@ -49,6 +49,9 @@ pub struct TypeCheckContext<'src, 'arena> {
     errors: Vec<TypeCheckError>,
     /// Collected type checking warnings
     warnings: Vec<String>,
+    /// Global rune function definitions (collected from GlobalRuneFn statements)
+    /// Each entry is a complete `fn name(params) { body }` string.
+    global_rune_fns: Vec<String>,
 }
 
 impl<'src, 'arena> TypeCheckContext<'src, 'arena> {
@@ -60,7 +63,18 @@ impl<'src, 'arena> TypeCheckContext<'src, 'arena> {
             type_constraints: Vec::new(),
             errors: Vec::new(),
             warnings: Vec::new(),
+            global_rune_fns: Vec::new(),
         }
+    }
+
+    /// Register a global rune function definition
+    pub fn add_global_rune_fn(&mut self, code: String) {
+        self.global_rune_fns.push(code);
+    }
+
+    /// Get all registered global rune function definitions
+    pub fn global_rune_fns(&self) -> &[String] {
+        &self.global_rune_fns
     }
 
     /// Add a type constraint to the context

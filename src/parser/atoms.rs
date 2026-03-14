@@ -102,7 +102,7 @@ fn rune_block<'src>(
 /// Parse the body of a rune block with bracket counting
 /// Returns a placeholder body string and the span from opening to closing brace
 /// The actual body text will be extracted during semantic analysis using the span
-fn rune_body<'src>()
+pub(crate) fn rune_body<'src>()
 -> impl Parser<'src, &'src [Token<'src>], (&'src str, Span), ParseError<'src>> + Clone {
     // Implementation with bracket counting as required by Phase 1.4
     // Strategy:
@@ -149,7 +149,7 @@ fn rune_body<'src>()
 // ============================================================================
 
 /// Extract source text from a span by converting line/column positions to byte offsets
-fn extract_source_from_span<'src>(source: &'src str, span: &Span) -> &'src str {
+pub(crate) fn extract_source_from_span<'src>(source: &'src str, span: &Span) -> &'src str {
     // Convert line/column to byte offset
     let mut byte_offset = 0;
     let mut current_line = 1;
