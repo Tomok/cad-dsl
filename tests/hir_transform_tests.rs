@@ -13,15 +13,22 @@
 //! not unit tests. Unit tests for internal types should be added to the
 //! relevant source modules using #[cfg(test)].
 
+use std::io::Write;
 use std::process::Command;
 
 /// Helper function to run the solve command on a test file
-fn solve_test(test_code: &str, test_name: &str) -> (bool, String, String) {
-    let test_file = format!("/tmp/{}.cad", test_name);
-    std::fs::write(&test_file, test_code).unwrap();
+fn solve_test(test_code: &str) -> (bool, String, String) {
+    let mut temp_file = tempfile::Builder::new()
+        .suffix(".cad")
+        .tempfile()
+        .expect("Failed to create temp file");
+    temp_file
+        .write_all(test_code.as_bytes())
+        .expect("Failed to write temp file");
+    let path = temp_file.path().to_owned();
 
     let output = Command::new("cargo")
-        .args(["run", "--", "solve", &test_file])
+        .args(["run", "--", "solve", path.to_str().unwrap()])
         .output()
         .expect("Failed to execute command");
 
@@ -29,8 +36,7 @@ fn solve_test(test_code: &str, test_name: &str) -> (bool, String, String) {
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    let _ = std::fs::remove_file(&test_file);
-
+    // temp_file is dropped here, automatically deleting the file
     (success, stdout, stderr)
 }
 
@@ -88,7 +94,7 @@ with sketch {
 }
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_transform_simple");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -165,7 +171,7 @@ with t {
 }
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_nested_transforms");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -224,7 +230,7 @@ with sketch {
 }
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_multiple_vars");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -261,7 +267,7 @@ with c {
 }
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_container_no_transform");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -320,7 +326,7 @@ with sketch {
 }
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_external_var");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -373,7 +379,7 @@ with t {
 }
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_external_nested");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -432,7 +438,7 @@ with sketch {
 }
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_external_array");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -494,7 +500,7 @@ with sketch {
 }
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_mixed_vars");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -568,7 +574,7 @@ with t1 {
 }
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_three_level_chain");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -645,7 +651,7 @@ with sketch2 {
 }
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_independent_contexts");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -681,7 +687,7 @@ p.x == 10;
 p.y == 20;
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_no_transform");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -709,7 +715,7 @@ with c {
 }
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_simple_container");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -743,7 +749,7 @@ arr[1] == arr[0] + 1;
 arr[2] == arr[1] + 1;
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_regression_basic");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -809,7 +815,7 @@ with t1 {
 }
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_type_compatibility");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,
@@ -845,7 +851,7 @@ with c {
 }
 "#;
 
-    let (success, stdout, stderr) = solve_test(test_code, "test_qualified_names");
+    let (success, stdout, stderr) = solve_test(test_code);
 
     assert!(
         success,

@@ -10,17 +10,24 @@
 //!
 //! Tests use the solver as a black box via CLI to validate end-to-end behavior.
 
+use std::io::Write;
 use std::process::Command;
 use std::time::Instant;
 
 /// Helper to run the solve command and measure time
-fn solve_with_timing(test_code: &str, test_name: &str) -> (bool, String, String, u128) {
-    let temp_file = format!("/tmp/{}.cad", test_name);
-    std::fs::write(&temp_file, test_code).unwrap();
+fn solve_with_timing(test_code: &str) -> (bool, String, String, u128) {
+    let mut temp_file = tempfile::Builder::new()
+        .suffix(".cad")
+        .tempfile()
+        .expect("Failed to create temp file");
+    temp_file
+        .write_all(test_code.as_bytes())
+        .expect("Failed to write temp file");
+    let path = temp_file.path().to_owned();
 
     let start = Instant::now();
     let output = Command::new("cargo")
-        .args(["run", "--", "solve", &temp_file])
+        .args(["run", "--", "solve", path.to_str().unwrap()])
         .output()
         .expect("Failed to execute command");
     let duration = start.elapsed().as_micros();
@@ -29,8 +36,7 @@ fn solve_with_timing(test_code: &str, test_name: &str) -> (bool, String, String,
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    std::fs::remove_file(&temp_file).ok();
-
+    // temp_file is dropped here, automatically deleting the file
     (success, stdout, stderr, duration)
 }
 
@@ -38,7 +44,7 @@ fn solve_with_timing(test_code: &str, test_name: &str) -> (bool, String, String,
 fn verify_solver(test_name: &str, source: &str, expected_vars: &[(&str, &str)]) {
     println!("\n=== {} ===", test_name);
 
-    let (success, stdout, stderr, duration) = solve_with_timing(source, test_name);
+    let (success, stdout, stderr, duration) = solve_with_timing(source);
 
     assert!(success, "Solver failed: {}{}", stdout, stderr);
     println!("Solved in: {}μs", duration);
