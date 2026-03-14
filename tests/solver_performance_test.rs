@@ -3,17 +3,24 @@
 //! These tests measure solver performance on various problem sizes and complexities.
 //! They are designed to track performance regressions and identify bottlenecks.
 
+use std::io::Write;
 use std::process::Command;
 use std::time::Instant;
 
 /// Helper to run the solve command and measure time
-fn solve_with_timing(test_code: &str, test_name: &str) -> (bool, String, String, u128) {
-    let temp_file = format!("/tmp/{}.cad", test_name);
-    std::fs::write(&temp_file, test_code).unwrap();
+fn solve_with_timing(test_code: &str) -> (bool, String, String, u128) {
+    let mut temp_file = tempfile::Builder::new()
+        .suffix(".cad")
+        .tempfile()
+        .expect("Failed to create temp file");
+    temp_file
+        .write_all(test_code.as_bytes())
+        .expect("Failed to write temp file");
+    let path = temp_file.path().to_owned();
 
     let start = Instant::now();
     let output = Command::new("cargo")
-        .args(["run", "--", "solve", &temp_file])
+        .args(["run", "--", "solve", path.to_str().unwrap()])
         .output()
         .expect("Failed to execute command");
     let duration = start.elapsed().as_millis();
@@ -22,8 +29,7 @@ fn solve_with_timing(test_code: &str, test_name: &str) -> (bool, String, String,
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    std::fs::remove_file(&temp_file).ok();
-
+    // temp_file is dropped here, automatically deleting the file
     (success, stdout, stderr, duration)
 }
 
@@ -44,7 +50,7 @@ y + z == 15;
 x + z == 13;
 "#;
 
-    let (success, _stdout, stderr, duration) = solve_with_timing(test_code, "perf_small_linear");
+    let (success, _stdout, stderr, duration) = solve_with_timing(test_code);
     assert!(success, "Solver failed: {}", stderr);
     println!("Small linear system (3 vars): {}ms", duration);
 
@@ -115,7 +121,7 @@ p9.x == p8.x + 10;
 p9.y == p8.y + 5;
 "#;
 
-    let (success, _stdout, stderr, duration) = solve_with_timing(test_code, "perf_medium_struct");
+    let (success, _stdout, stderr, duration) = solve_with_timing(test_code);
     assert!(success, "Solver failed: {}", stderr);
     println!("Medium struct system (10 points, 20 vars): {}ms", duration);
 
@@ -156,7 +162,7 @@ arr[18] == arr[17] + 1;
 arr[19] == arr[18] + 1;
 "#;
 
-    let (success, _stdout, stderr, duration) = solve_with_timing(test_code, "perf_array");
+    let (success, _stdout, stderr, duration) = solve_with_timing(test_code);
     assert!(success, "Solver failed: {}", stderr);
     println!("Array system (20 elements): {}ms", duration);
 
@@ -196,7 +202,7 @@ points[0].y == 0;
         test_code.push_str(&format!("points[{}].y == points[{}].y + 1;\n", i, i - 1));
     }
 
-    let (success, _stdout, stderr, duration) = solve_with_timing(&test_code, "perf_large_array");
+    let (success, _stdout, stderr, duration) = solve_with_timing(&test_code);
     assert!(success, "Solver failed: {}", stderr);
     println!(
         "Large array of structs (50 points, 100 vars): {}ms",
@@ -265,7 +271,7 @@ r3.bottom_right.end.x == r3.top_left.start.x + 10;
 r3.bottom_right.end.y == r3.top_left.start.y + 10;
 "#;
 
-    let (success, _stdout, stderr, duration) = solve_with_timing(test_code, "perf_nested_structs");
+    let (success, _stdout, stderr, duration) = solve_with_timing(test_code);
     assert!(success, "Solver failed: {}", stderr);
     println!("Complex nested structs (3 rectangles): {}ms", duration);
 
@@ -309,7 +315,7 @@ result2 == multiply(x, y);
 result3 == add(result1, result2);
 "#;
 
-    let (success, _stdout, stderr, duration) = solve_with_timing(test_code, "perf_functions");
+    let (success, _stdout, stderr, duration) = solve_with_timing(test_code);
     assert!(success, "Solver failed: {}", stderr);
     println!("Function call system: {}ms", duration);
 
@@ -339,7 +345,7 @@ for i in 0..n {
 }
 "#;
 
-    let (success, _stdout, stderr, duration) = solve_with_timing(test_code, "perf_for_loop");
+    let (success, _stdout, stderr, duration) = solve_with_timing(test_code);
     assert!(success, "Solver failed: {}", stderr);
     println!("For-loop unrolling (20 iterations): {}ms", duration);
 

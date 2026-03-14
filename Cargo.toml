@@ -19,3 +19,4 @@ z3 = "0.19.7"
 
 [dev-dependencies]
 assert_matches = "1.5"
+tempfile = "3"
