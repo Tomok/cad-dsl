@@ -1477,3 +1477,83 @@ pub fn include_stmt<'src>()
         })
         .labelled("include directive")
 }
+
+// ============================================================================
+// Global Rune Function Parser
+// ============================================================================
+
+/// Parse a global rune function declaration: `rune fn name(p1, p2) { body }`
+///
+/// Global rune functions are injected into every rune block's compilation unit,
+/// enabling code reuse. Parameters are untyped (Rune is dynamically typed).
+///
+/// Examples:
+///   rune fn distance(a, b) { ((a.x - b.x)^2 + (a.y - b.y)^2).sqrt() }
+///   rune fn norm(v) { (v.x * v.x + v.y * v.y).sqrt() }
+pub fn global_rune_fn_def<'src>(
+    source: Option<&'src str>,
+) -> impl Parser<'src, &'src [Token<'src>], Stmt<'src>, ParseError<'src>> + Clone {
+    use crate::parser::atoms::{extract_source_from_span, rune_body};
+
+    select! { Token::Rune(t) => t.position }
+        .then_ignore(select! { Token::Fn(_) => () })
+        .then(
+            select! { Token::Identifier(t) => (t.name.to_string(), t.span) }
+                .labelled("rune function name"),
+        )
+        .then(
+            // Parameter list: just identifier names (no type annotations)
+            select! { Token::Identifier(t) => t.name }
+                .separated_by(select! { Token::Comma(_) => () })
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(
+                    select! { Token::LeftParen(_) => () },
+                    select! { Token::RightParen(_) => () },
+                ),
+        )
+        .then(rune_body())
+        .map_with(
+            move |(((rune_pos, (name, name_span)), params), (_, body_span)), e| {
+                let span_range = e.span();
+
+                // Extract actual body text from source if available
+                let body = if let Some(src) = source {
+                    let full_body = extract_source_from_span(src, &body_span);
+                    full_body
+                        .trim()
+                        .strip_prefix('{')
+                        .unwrap_or(full_body)
+                        .trim()
+                        .strip_suffix('}')
+                        .unwrap_or(full_body)
+                        .trim()
+                } else {
+                    ""
+                };
+
+                let span = if rune_pos.line == body_span.start.line + body_span.lines {
+                    Span {
+                        start: rune_pos,
+                        lines: body_span.lines,
+                        end_column: span_range.end + 1,
+                    }
+                } else {
+                    Span {
+                        start: rune_pos,
+                        lines: 0,
+                        end_column: span_range.end + 1,
+                    }
+                };
+
+                Stmt::GlobalRuneFn {
+                    name,
+                    name_span,
+                    params,
+                    body,
+                    span,
+                }
+            },
+        )
+        .labelled("global rune function declaration")
+}

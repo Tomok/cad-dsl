@@ -294,6 +294,7 @@ fn test_span_let_statement() {
         | Stmt::UnitDef { .. }
         | Stmt::UnitPrefixDecl { .. }
         | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
+        Stmt::GlobalRuneFn { .. } => panic!("Unexpected GlobalRuneFn stmt"),
     }
 }
 

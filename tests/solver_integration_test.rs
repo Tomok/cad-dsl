@@ -1740,3 +1740,43 @@ fn test_rune_file_read() {
     verify_solution(&stdout, "x", "7");
     verify_solution(&stdout, "read_ok", "1");
 }
+
+// ============================================================================
+// Global Rune Functions (Part A)
+// ============================================================================
+
+#[test]
+fn test_rune_global_fn() {
+    // Test global rune fn declarations that are injected into every rune block.
+    // `square(x)` and `hypotenuse(a, b)` are defined globally and called from
+    // two separate rune blocks.
+    let (success, stdout, stderr) = solve_fixture("rune_global_fn.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    verify_solution(&stdout, "a", "3");
+    verify_solution(&stdout, "b", "4");
+    // hypotenuse(3, 4) = sqrt(9 + 16) = sqrt(25) = 5
+    verify_solution(&stdout, "h", "5");
+    // square(3) + square(4) = 9 + 16 = 25
+    verify_solution(&stdout, "sum_sq", "25");
+}
+
+// ============================================================================
+// Struct Parameters in Rune Blocks (Part B)
+// ============================================================================
+
+#[test]
+fn test_rune_struct_params() {
+    // Test that CAD-DSL struct variables can be passed to rune blocks.
+    // The solver packs flattened Z3 primitives (p1.x, p1.y, ...) into
+    // Rune Objects so the rune code can access them as p1.x, p1.y, etc.
+    let (success, stdout, stderr) = solve_fixture("rune_struct_params.cad");
+    assert!(success, "Solver failed: {}{}", stdout, stderr);
+
+    verify_solution(&stdout, "p1.x", "0");
+    verify_solution(&stdout, "p1.y", "0");
+    verify_solution(&stdout, "p2.x", "3");
+    verify_solution(&stdout, "p2.y", "4");
+    // dist(p1, p2) = sqrt((3-0)^2 + (4-0)^2) = sqrt(9 + 16) = sqrt(25) = 5
+    verify_solution(&stdout, "d", "5");
+}

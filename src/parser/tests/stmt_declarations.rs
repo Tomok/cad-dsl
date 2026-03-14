@@ -41,6 +41,7 @@ fn test_let_with_type_and_init() {
         | Stmt::UnitDef { .. }
         | Stmt::UnitPrefixDecl { .. }
         | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
+        Stmt::GlobalRuneFn { .. } => panic!("Unexpected GlobalRuneFn stmt"),
     }
 }
 
@@ -81,6 +82,7 @@ fn test_let_with_type_only() {
         | Stmt::UnitDef { .. }
         | Stmt::UnitPrefixDecl { .. }
         | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
+        Stmt::GlobalRuneFn { .. } => panic!("Unexpected GlobalRuneFn stmt"),
     }
 }
 
@@ -121,6 +123,7 @@ fn test_let_with_init_only() {
         | Stmt::UnitDef { .. }
         | Stmt::UnitPrefixDecl { .. }
         | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
+        Stmt::GlobalRuneFn { .. } => panic!("Unexpected GlobalRuneFn stmt"),
     }
 }
 
@@ -161,6 +164,7 @@ fn test_let_no_type_no_init() {
         | Stmt::UnitDef { .. }
         | Stmt::UnitPrefixDecl { .. }
         | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
+        Stmt::GlobalRuneFn { .. } => panic!("Unexpected GlobalRuneFn stmt"),
     }
 }
 
@@ -217,6 +221,7 @@ fn test_let_with_expression() {
         | Stmt::UnitDef { .. }
         | Stmt::UnitPrefixDecl { .. }
         | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
+        Stmt::GlobalRuneFn { .. } => panic!("Unexpected GlobalRuneFn stmt"),
     }
 }
 
@@ -262,6 +267,7 @@ fn test_let_container_field_simple() {
         | Stmt::UnitDef { .. }
         | Stmt::UnitPrefixDecl { .. }
         | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
+        Stmt::GlobalRuneFn { .. } => panic!("Unexpected GlobalRuneFn stmt"),
     }
 }
 
@@ -307,6 +313,7 @@ fn test_let_container_field_nested() {
         | Stmt::UnitDef { .. }
         | Stmt::UnitPrefixDecl { .. }
         | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
+        Stmt::GlobalRuneFn { .. } => panic!("Unexpected GlobalRuneFn stmt"),
     }
 }
 
@@ -348,6 +355,7 @@ fn test_let_container_field_with_expression() {
         | Stmt::UnitDef { .. }
         | Stmt::UnitPrefixDecl { .. }
         | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
+        Stmt::GlobalRuneFn { .. } => panic!("Unexpected GlobalRuneFn stmt"),
     }
 }
 
@@ -389,6 +397,7 @@ fn test_let_container_field_no_type() {
         | Stmt::UnitDef { .. }
         | Stmt::UnitPrefixDecl { .. }
         | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
+        Stmt::GlobalRuneFn { .. } => panic!("Unexpected GlobalRuneFn stmt"),
     }
 }
 
@@ -433,6 +442,7 @@ fn test_let_container_field_deeply_nested() {
         | Stmt::UnitDef { .. }
         | Stmt::UnitPrefixDecl { .. }
         | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
+        Stmt::GlobalRuneFn { .. } => panic!("Unexpected GlobalRuneFn stmt"),
     }
 }
 
@@ -483,6 +493,7 @@ fn test_let_container_field_span_tracking() {
         | Stmt::UnitDef { .. }
         | Stmt::UnitPrefixDecl { .. }
         | Stmt::Include { .. } => panic!("Unexpected unit/include stmt"),
+        Stmt::GlobalRuneFn { .. } => panic!("Unexpected GlobalRuneFn stmt"),
     }
 }
 

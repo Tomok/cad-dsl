@@ -1,0 +1,22 @@
+struct Point {
+    x: f64,
+    y: f64,
+}
+
+rune fn dist(a, b) {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    (dx * dx + dy * dy).sqrt()
+}
+
+let p1: Point;
+let p2: Point;
+
+p1.x == 0.0;
+p1.y == 0.0;
+p2.x == 3.0;
+p2.y == 4.0;
+
+let d = rune(p1, p2) {
+    dist(p1, p2)
+};

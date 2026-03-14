@@ -609,6 +609,15 @@ pub enum ResolvedStmtKind<'src, 'arena> {
         /// Span for the entire statement
         span: Span,
     },
+
+    /// Global rune function declaration
+    ///
+    /// Example: `rune fn distance(a, b) { let dx = a.x - b.x; ... }`
+    GlobalRuneFn {
+        /// Reconstructed Rune function definition string, ready to prepend to rune blocks.
+        /// Format: `fn name(p1, p2) { body }`
+        rune_fn_code: String,
+    },
 }
 
 // ============================================================================

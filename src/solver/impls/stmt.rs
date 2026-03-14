@@ -270,6 +270,10 @@ impl<'src, 'arena> Solvable<'src, 'arena> for ResolvedStmt<'src, 'arena> {
                 Ok(())
             }
 
+            // Global rune function declarations are collected in the pre-pass of solve();
+            // at statement execution time they are a no-op.
+            ResolvedStmtKind::GlobalRuneFn { .. } => Ok(()),
+
             // Unsupported statements
             _ => Err(SolverError::UnsupportedStatement(format!(
                 "{:?}",
